@@ -68,8 +68,18 @@
       `pnpm --filter web dev` → :3000 отдаёт 200. Коммит `1f980fd`. 2026-06-07.
 - [x] **A5** — `services/worker` (uv, hatchling, пакет `app`), `/healthz` → ok.
       STOP-GATE чисто: :3000 (200) + :8000 одновременно. Коммит `3030e00`. 2026-06-07.
-- [ ] **A6** — `justfile` + `models.py` (источник типов) + codegen контракта; `just check` зелёный.
-- [ ] **B1/B2** — Import: yt-dlp + аудио 16k mono + meta.json.
+- [x] **A6** — `models.py` (источник типов, тест-первым) + `export_schema.py` + codegen
+      `@clipflow/shared` + `justfile` + mypy strict + `.gitattributes` + pre-commit.
+      `just check` зелёный, `just types` идемпотентен, `pre-commit run -a` ок. Коммит `0079e50`. 2026-06-07.
+      ✅ **ЭТАП A (бутстрап) ЗАВЕРШЁН.**
+- [x] **B1/B2** — Import: `app/errors.py` (JobError) + `app/pipeline/stage0_import.py`.
+      pure-логика (parse_fps, build_source_meta) TDD, 21 unit-тест. Реальный прогон
+      (EDCwQe7P8T0, ~33 мин): mp4 1920×1080 играется, wav pcm_s16le/16000/mono,
+      meta.json (duration=1987.6, fps=23.976). DoD зелёный. 2026-06-07.
+      ⚠️ Видео-кодек source.mp4 = **AV1** (YouTube отдаёт AV1-в-mp4 при ext=mp4).
+      gyan-ffmpeg декодит AV1 → этап G ок. Если на G всплывёт декод — добавить
+      `[vcodec^=avc1]` в yt-dlp format. Тестовый ролик мультиспикерный (Mafia show) —
+      для C ок (речь есть), для E reframe ожидаемо труднее (R1, многоликий кадр).
 - [ ] **C1** — Транскрипция Deepgram → transcript.json (секунды).
 - [ ] **D1/D2** — Выбор моментов (Claude, structured output) + пост-обработка → segments.json. ГЛАВНЫЙ GATE КАЧЕСТВА.
 - [ ] **E1** — Reframe 9:16 (MediaPipe face → static crop).
@@ -108,3 +118,32 @@
   ```
 - Версии воркера (A5): mediapipe 0.10.35, opencv-headless 4.13, numpy 2.4.6,
   fastapi 0.136.3, pydantic 2.13.4, ruff 0.15.16, mypy 2.1.0, pytest 9.0.3.
+
+### Грабли инструментов (A6) — КРИТИЧНО для коммитов
+- **`just` НЕ виден в Bash-инструменте** (winget-шим не на bash-PATH). Любой `just`
+  запускаем из **PowerShell с обновлением PATH из реестра** (строка выше). Дочерние
+  recipe-шеллы наследуют PATH → uv/pnpm/git внутри рецептов резолвятся.
+- **pre-commit хук установлен** (`.git/hooks/pre-commit`) и на КАЖДОМ коммите гоняет
+  `just check`. Значит **коммитим ТОЛЬКО из PowerShell** (PATH refresh), иначе хук не
+  найдёт `just`. pre-commit живёт в venv: `services\worker\.venv\Scripts\pre-commit.exe`.
+- **Кодировка коммит-сообщений:** PowerShell 5.1 пайп (`$msg | git commit -F -`) бьёт
+  кириллицу в `?????` + добавляет BOM. ПРАВИЛО: писать сообщение в файл (Write-tool,
+  UTF-8 без BOM) и `git commit -F <файл>` — git читает байты напрямую. Например
+  `services/worker/tmp/COMMIT_MSG.txt` (gitignored).
+- **codegen-цепочка для anti-drift:** title-поля из pydantic-схемы СРЕЗАЮТСЯ в
+  `export_schema.py` (`_strip_titles`) — иначе json2ts плодит мусорные алиасы и коллизии.
+  Менять контракт → только `app/models.py`, потом `just types`.
+- Enum'ы в TS становятся union-типами (`type ClipType = "hook" | ...`), не TS-enum —
+  совместимо с Next SWC `isolatedModules`.
+
+### Грабли инструментов (B)
+- **PowerShell-инструмент ДЕРЖИТ cwd между вызовами** и сейчас он на `services\worker`
+  (не на корне!). Относительные пути в PowerShell удваивались (`services\worker\services\worker\...`)
+  и тихо промахивались (Remove-Item «удалил» несуществующее → ложное «removed»).
+  ПРАВИЛО: в PowerShell всегда **абсолютные пути** (или Set-Location на абсолютный путь
+  в начале). Bash-инструмент cwd НЕ держит — там `cd` в каждой команде.
+- **ffmpeg/ffprobe НЕ на PATH Bash-инструмента** (winget после старта сессии). Любые
+  прогоны пайплайна, дёргающие ffmpeg/ffprobe/yt-dlp, — через PowerShell с registry
+  PATH refresh + `uv run` (он пробрасывает PATH и venv-скрипты в subprocess).
+- Лимит источника 90 мин в `stage0_import._check_limits` работает (JobError). Тестовый
+  ролик должен быть в пределах лимита, иначе meta.json не пишется (гейт раньше записи).
