@@ -75,7 +75,7 @@
 - [x] **B1/B2** — Import: `app/errors.py` (JobError) + `app/pipeline/stage0_import.py`.
       pure-логика (parse_fps, build_source_meta) TDD, 21 unit-тест. Реальный прогон
       (EDCwQe7P8T0, ~33 мин): mp4 1920×1080 играется, wav pcm_s16le/16000/mono,
-      meta.json (duration=1987.6, fps=23.976). DoD зелёный. 2026-06-07.
+      meta.json (duration=1987.6, fps=23.976). DoD зелёный. Коммит `fe47329`. 2026-06-07.
       ⚠️ Видео-кодек source.mp4 = **AV1** (YouTube отдаёт AV1-в-mp4 при ext=mp4).
       gyan-ffmpeg декодит AV1 → этап G ок. Если на G всплывёт декод — добавить
       `[vcodec^=avc1]` в yt-dlp format. Тестовый ролик мультиспикерный (Mafia show) —
