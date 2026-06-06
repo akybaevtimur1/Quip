@@ -1,0 +1,19 @@
+{
+  "name": "@clipflow/shared",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Контракт web↔worker. ГЕНЕРИРУЕТСЯ из services/worker/app/models.py — НЕ править руками.",
+  "types": "src/types.ts",
+  "exports": {
+    ".": {
+      "types": "./src/types.ts",
+      "default": "./src/types.ts"
+    }
+  },
+  "scripts": {
+    "json2ts": "json2ts -i contract.json -o src/types.ts --no-additionalProperties"
+  },
+  "devDependencies": {
+    "json-schema-to-typescript": "^15.0.4"
+  }
+}

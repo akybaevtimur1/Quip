@@ -33,6 +33,14 @@ line-length = 100
 # Современный ruff: select под [tool.ruff.lint], не [tool.ruff].
 select = ["E", "F", "I", "UP", "B", "ASYNC"]
 
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["app"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
 [dependency-groups]
 dev = [
     "mypy>=2.1.0",

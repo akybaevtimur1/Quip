@@ -66,7 +66,8 @@
 - [x] **A3** — `.gitignore` + дерево §3 + первый коммит `a14814e`. git status чистый. 2026-06-07.
 - [x] **A4** — `apps/web` (Next 16, Tailwind v4, App Router) + pnpm workspace + prettier.
       `pnpm --filter web dev` → :3000 отдаёт 200. Коммит `1f980fd`. 2026-06-07.
-- [ ] **A5** — init `services/worker` (FastAPI+uv), `/healthz`. STOP-GATE: 3000 и 8000 оба отвечают.
+- [x] **A5** — `services/worker` (uv, hatchling, пакет `app`), `/healthz` → ok.
+      STOP-GATE чисто: :3000 (200) + :8000 одновременно. Коммит `3030e00`. 2026-06-07.
 - [ ] **A6** — `justfile` + `models.py` (источник типов) + codegen контракта; `just check` зелёный.
 - [ ] **B1/B2** — Import: yt-dlp + аудио 16k mono + meta.json.
 - [ ] **C1** — Транскрипция Deepgram → transcript.json (секунды).
@@ -93,3 +94,17 @@
   может ложно ронять anti-drift `git diff --exit-code packages/shared`.
 - Версии (зафиксировано A4): next 16.2.7, react 19.2.4, tailwindcss 4.3.0,
   typescript 5.9.3, eslint 9.39.4, prettier ^3.8.3.
+- **Worker layout (A5):** пакет импортируется как `app` (НЕ src-layout). uv init по
+  умолчанию делает `src/<name>` + бэкенд `uv_build` — заменено на **hatchling**
+  (`[tool.hatch.build.targets.wheel] packages=["app"]`). `uv sync` ставит проект
+  editable → `app` импортируется везде.
+- **ruff config:** `select` живёт под `[tool.ruff.lint]` (не `[tool.ruff]`, как в плане) —
+  иначе deprecation-варнинг в новом ruff.
+- **Грабли Next 16 dev:** `next dev` (Turbopack) держит ОТДЕЛЬНЫЙ серверный процесс +
+  lock. `TaskStop` на pnpm-обёртке его НЕ убивает → зомби держит :3000. Гасить web/worker
+  по порту/PID:
+  ```powershell
+  foreach ($port in 3000,8000) { Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue | Select -Expand OwningProcess -Unique | % { Stop-Process -Id $_ -Force } }
+  ```
+- Версии воркера (A5): mediapipe 0.10.35, opencv-headless 4.13, numpy 2.4.6,
+  fastapi 0.136.3, pydantic 2.13.4, ruff 0.15.16, mypy 2.1.0, pytest 9.0.3.

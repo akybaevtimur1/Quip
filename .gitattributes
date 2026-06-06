@@ -1,0 +1,21 @@
+# Единый LF во всём репо: на Windows иначе CRLF↔LF даёт ложный diff и роняет
+# anti-drift гейт (`git diff --exit-code packages/shared`).
+* text=auto eol=lf
+
+# Бинарники — без нормализации.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.mp4 binary
+*.mkv binary
+*.webm binary
+*.wav binary
+*.woff binary
+*.woff2 binary
+
+# Генерируемые контракты — строго LF (страховка для anti-drift).
+packages/shared/contract.json text eol=lf
+packages/shared/src/types.ts text eol=lf

@@ -1,0 +1,27 @@
+# Хуки pre-commit. ruff/ruff-format — быстрые, по файлам; just check — полный гейт.
+# Локальные system-хуки через uv: та же версия ruff, что в `just check`, без сетевых
+# зависимостей и угадывания тегов. Требуют uv/just/pnpm на PATH при коммите.
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff check (worker)
+        entry: uv run --project services/worker ruff check --fix
+        language: system
+        types_or: [python, pyi]
+        files: ^services/worker/
+        require_serial: true
+      - id: ruff-format
+        name: ruff format (worker)
+        entry: uv run --project services/worker ruff format
+        language: system
+        types_or: [python, pyi]
+        files: ^services/worker/
+        require_serial: true
+      - id: just-check
+        name: just check (lint + types + test-unit + anti-drift)
+        entry: just check
+        language: system
+        pass_filenames: false
+        always_run: true
+        require_serial: true
