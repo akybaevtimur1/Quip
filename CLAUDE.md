@@ -64,7 +64,8 @@
 - [x] **A2** — `git init -b main` в ClipClow + `Varenik-vkusny/clipflow` (private) + origin.
       Лендинг pushedAt не изменился (2026-06-06T18:01:34Z). 2026-06-07.
 - [x] **A3** — `.gitignore` + дерево §3 + первый коммит `a14814e`. git status чистый. 2026-06-07.
-- [ ] **A4** — init `apps/web` (Next.js+Tailwind), `pnpm --filter web dev` на :3000.
+- [x] **A4** — `apps/web` (Next 16, Tailwind v4, App Router) + pnpm workspace + prettier.
+      `pnpm --filter web dev` → :3000 отдаёт 200. Коммит `1f980fd`. 2026-06-07.
 - [ ] **A5** — init `services/worker` (FastAPI+uv), `/healthz`. STOP-GATE: 3000 и 8000 оба отвечают.
 - [ ] **A6** — `justfile` + `models.py` (источник типов) + codegen контракта; `just check` зелёный.
 - [ ] **B1/B2** — Import: yt-dlp + аудио 16k mono + meta.json.
@@ -79,3 +80,16 @@
 
 > Правило журнала: после КАЖДОГО зелёного DoD — отметить [x] здесь и дописать
 > одну строку «что сделано + чем доказано». Это контекст для следующей сессии.
+
+### Расхождения плана с реальностью (учесть на будущих шагах)
+- **Tailwind v4** (Next 16 ставит v4, не v3): НЕТ `tailwind.config.ts`. Конфиг —
+  через CSS `@theme` в `apps/web/app/globals.css`. На **I1** мост токенов лендинга
+  делать через `@theme`, а НЕ через `tailwind.config.ts`, как написано в плане.
+- **Next.js 16** ломает API относительно обучающих данных (см. `apps/web/AGENTS.md`).
+  Перед написанием web-кода (I1–I3) читать `apps/web/node_modules/next/dist/docs/`
+  или свериться через context7.
+- **TODO на A6:** добавить `.gitattributes` (`* text=auto eol=lf`, плюс явный `eol=lf`
+  для `packages/shared/contract.json` и `src/types.ts`) — иначе CRLF↔LF на Windows
+  может ложно ронять anti-drift `git diff --exit-code packages/shared`.
+- Версии (зафиксировано A4): next 16.2.7, react 19.2.4, tailwindcss 4.3.0,
+  typescript 5.9.3, eslint 9.39.4, prettier ^3.8.3.
