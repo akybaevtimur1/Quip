@@ -1,0 +1,49 @@
+# ── Node / Next.js ──
+node_modules/
+.next/
+out/
+build/
+.turbo/
+.pnpm-store/
+*.tsbuildinfo
+next-env.d.ts
+
+# ── Python / uv ──
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# ── Secrets / env (примеры коммитим) ──
+.env
+.env.local
+.env.*.local
+
+# ── DB / состояние ──
+*.db
+*.db-journal
+*.sqlite
+
+# ── Артефакты воркера (Phase 0 = local-fs) ──
+services/worker/data/
+services/worker/tmp/
+
+# ── Видео-фикстуры: golden JSON коммитим, видео — НЕТ ──
+tests/fixtures/**/*.mp4
+tests/fixtures/**/*.mkv
+tests/fixtures/**/*.webm
+services/worker/tests/fixtures/**/*.mp4
+services/worker/tests/fixtures/**/*.mkv
+services/worker/tests/fixtures/**/*.webm
+
+# ── Логи (включая чужие debug.log от Electron/Chromium) ──
+*.log
+
+# ── OS / редакторы ──
+.DS_Store
+Thumbs.db
+.idea/
+*.swp
