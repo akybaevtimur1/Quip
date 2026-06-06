@@ -1,0 +1,8 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+
+# Перенесено из apps/web (pnpm 10 build-approval): не собираем из исходников.
+ignoredBuiltDependencies:
+  - sharp
+  - unrs-resolver

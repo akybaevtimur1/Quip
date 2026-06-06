@@ -1,0 +1,14 @@
+{
+  "name": "clipflow",
+  "version": "0.0.0",
+  "private": true,
+  "packageManager": "pnpm@10.29.2",
+  "scripts": {
+    "dev:web": "pnpm --filter web dev",
+    "lint:web": "pnpm --filter web lint",
+    "format": "prettier --write ."
+  },
+  "devDependencies": {
+    "prettier": "^3.8.3"
+  }
+}

@@ -1,0 +1,13 @@
+# Зависимости и сборка
+**/node_modules/
+**/.next/
+**/build/
+**/.venv/
+pnpm-lock.yaml
+
+# ГЕНЕРИРУЕМЫЕ контракты — НЕ форматируем (иначе ломаем anti-drift гейт)
+packages/shared/contract.json
+packages/shared/src/types.ts
+
+# Python — форматируется через ruff-format, не prettier
+services/worker/

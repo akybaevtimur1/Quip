@@ -42,6 +42,12 @@
   $env:PATH = [Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [Environment]::GetEnvironmentVariable("Path","User")
   ```
   Это заменяет «перезапусти терминал» для текущего процесса.
+- **`just check` гейт появляется только в A6** (до этого нет justfile/тестов). Бутстрап-
+  коммиты A3–A5 идут ДО существования гейта — это нормально и по плану.
+- **git identity** (глобальная): name=`Varenik-vkusny`, email=`akybaevtimur7@gmail.com`
+  (НЕ дзакпеловский — это осознанный конфиг фаундера, не трогаю).
+- В корне periodically появляется чужой `debug.log` (ICU-ошибки Electron) — он в
+  `.gitignore` (`*.log`), не коммитим, не удаляем.
 
 ### Каталог репо — РЕШЕНО (2026-06-07)
 - **Корень репо = `C:\Users\user\Desktop\ClipClow`** (текущая рабочая папка). Все пути
@@ -57,7 +63,7 @@
 - [x] **A1** — ffmpeg/uv/just установлены, версии печатаются. 2026-06-07.
 - [x] **A2** — `git init -b main` в ClipClow + `Varenik-vkusny/clipflow` (private) + origin.
       Лендинг pushedAt не изменился (2026-06-06T18:01:34Z). 2026-06-07.
-- [ ] **A3** — `.gitignore` + дерево каталогов из §3, чистый `git status`.
+- [x] **A3** — `.gitignore` + дерево §3 + первый коммит `a14814e`. git status чистый. 2026-06-07.
 - [ ] **A4** — init `apps/web` (Next.js+Tailwind), `pnpm --filter web dev` на :3000.
 - [ ] **A5** — init `services/worker` (FastAPI+uv), `/healthz`. STOP-GATE: 3000 и 8000 оба отвечают.
 - [ ] **A6** — `justfile` + `models.py` (источник типов) + codegen контракта; `just check` зелёный.
