@@ -176,8 +176,13 @@ def build_user_prompt(title: str, transcript: Transcript, indexed: str) -> str:
     )
 
 
-def select_segments(transcript: Transcript, title: str) -> list[Segment]:
-    """Gemini structured output → сырые сегменты → постобработка → list[Segment]."""
+def select_segments(
+    transcript: Transcript, title: str, *, usage_sink: dict[str, int] | None = None
+) -> list[Segment]:
+    """Gemini structured output → сырые сегменты → постобработка → list[Segment].
+
+    usage_sink (опц.) заполняется токенами (prompt/output/thoughts) для лога стоимости.
+    """
     from google import genai
     from google.genai import types
 
@@ -211,6 +216,12 @@ def select_segments(transcript: Transcript, title: str) -> list[Segment]:
                 time.sleep(2**attempt)
     if resp is None:
         raise JobError(_STAGE, f"Gemini недоступен после {_MAX_ATTEMPTS} попыток: {last_err}")
+
+    if usage_sink is not None and resp.usage_metadata is not None:
+        um = resp.usage_metadata
+        usage_sink["prompt"] = um.prompt_token_count or 0
+        usage_sink["output"] = um.candidates_token_count or 0
+        usage_sink["thoughts"] = getattr(um, "thoughts_token_count", 0) or 0
 
     text = resp.text
     if not text:
