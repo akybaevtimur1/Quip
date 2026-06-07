@@ -69,15 +69,23 @@ def deepgram_to_transcript(resp: dict[str, Any], *, default_language: str = "en"
 # ─────────────────────────── провайдер Deepgram (REST через httpx) ───────────────────────────
 
 
-def call_deepgram(wav: Path, *, api_key: str, model: str, language: str) -> dict[str, Any]:
-    """POST source.wav в Deepgram /v1/listen, вернуть сырой JSON. JobError при сбое/не-200."""
+def call_deepgram(
+    wav: Path, *, api_key: str, model: str, language: str | None = None
+) -> dict[str, Any]:
+    """POST source.wav в Deepgram /v1/listen, вернуть сырой JSON. JobError при сбое/не-200.
+
+    language=None → detect_language=true (авто-определение EN/RU/др.). Иначе фикс-язык.
+    """
     params = {
         "model": model,
         "smart_format": "true",
         "punctuate": "true",
-        "language": language,
         "diarize": "false",
     }
+    if language:
+        params["language"] = language
+    else:
+        params["detect_language"] = "true"
     headers = {"Authorization": f"Token {api_key}", "Content-Type": "audio/wav"}
     try:
         r = httpx.post(
@@ -103,7 +111,9 @@ def transcribe(wav: Path) -> Transcript:
         key = s.deepgram_api_key
         if key is None:
             raise JobError(_STAGE, "нет DEEPGRAM_API_KEY")
-        resp = call_deepgram(wav, api_key=key, model=s.deepgram_model, language="en")
+        resp = call_deepgram(
+            wav, api_key=key, model=s.deepgram_model
+        )  # language=None → авто-детект
         return deepgram_to_transcript(resp, default_language="en")
     raise JobError(_STAGE, f"провайдер {s.transcription_provider} ещё не реализован")
 
