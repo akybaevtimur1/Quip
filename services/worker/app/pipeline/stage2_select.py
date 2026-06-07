@@ -51,16 +51,35 @@ def snap_end_index(words: list[Word], end_idx: int, max_extend: int = 5) -> int:
     return end_idx
 
 
-def snap_start_index(words: list[Word], start_idx: int, max_extend: int = 5) -> int:
-    """Сдвинуть начало к началу предложения (после ближайшего .?! назад, в пределах окна)."""
+def snap_start_index(
+    words: list[Word], start_idx: int, max_extend: int = 5, max_fwd: int = 4
+) -> int:
+    """Начало клипа → к ГРАНИЦЕ предложения (clean start). Три уровня, backward-first:
+
+    1) предыдущее слово уже завершило предложение → старт чистый, не трогаем
+       (так СОХРАНЯЕМ короткие предложения-хуки);
+    2) иначе назад к началу текущего предложения (после ближайшего .?! в окне max_extend) —
+       включаем зачин мысли;
+    3) если начало предложения недостижимо назад → старт сидит в ХВОСТЕ предложения
+       (баг «Антимошенника»: первое слово — конец прошлой мысли) → уходим вперёд к началу
+       следующего предложения (ближайший .?! в окне max_fwd).
+    """
     if start_idx <= 0:
         return 0
+    if _is_sentence_end(words[start_idx - 1].text):
+        return start_idx
     for k in range(1, max_extend + 1):
         p = start_idx - k
         if p < 0:
             return 0
         if _is_sentence_end(words[p].text):
             return p + 1
+    for k in range(max_fwd + 1):
+        j = start_idx + k
+        if j >= len(words) - 1:
+            break
+        if _is_sentence_end(words[j].text):
+            return j + 1
     return start_idx
 
 

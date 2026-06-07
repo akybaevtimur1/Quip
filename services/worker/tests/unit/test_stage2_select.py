@@ -93,6 +93,19 @@ class TestSnapStart:
         words = uniform(10)
         assert snap_start_index(words, 0, max_extend=5) == 0
 
+    def test_skips_dangling_tail_to_next_sentence(self) -> None:
+        # старт на ХВОСТЕ длинного предложения (само слово завершает его, а начало
+        # предложения недостижимо назад в окне) → уходим в начало след. предложения.
+        # Это баг «Антимошенника»: клип не должен начинаться с последнего слова мысли.
+        words = uniform(20, sentence_ends={9})  # [9] завершает предложение, назад в 5 концов нет
+        assert snap_start_index(words, 9, max_extend=5) == 10
+
+    def test_preserves_short_opening_sentence(self) -> None:
+        # [4] завершает предыдущее предложение → [5] уже чистый старт короткого
+        # предложения "w5 w6 w7." — НЕ перепрыгиваем его (иначе теряем короткий хук).
+        words = uniform(20, sentence_ends={4, 7})
+        assert snap_start_index(words, 5, max_extend=5) == 5
+
 
 class TestResolveOverlaps:
     def _seg(self, start: float, end: float, score: float) -> object:
