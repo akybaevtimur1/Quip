@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 from app.config import get_settings
@@ -46,15 +47,27 @@ def _gemini_cost(usage: dict[str, int]) -> float:
     )
 
 
-def run_pipeline(job_id: str, source_url: str | None = None) -> Job:
-    """Прогнать весь конвейер для job_id. Возвращает Job (также пишет job.json/runs.jsonl)."""
+def run_pipeline(
+    job_id: str,
+    source_url: str | None = None,
+    on_status: Callable[[JobStatus, int], None] | None = None,
+) -> Job:
+    """Прогнать весь конвейер для job_id. Возвращает Job (также пишет job.json/runs.jsonl).
+
+    on_status(status, progress) (опц.) вызывается на границах стадий — для статуса в БД (J1).
+    """
     get_settings()  # fail-fast на отсутствии ключей выбранных провайдеров
     out = DATA_ROOT / job_id
     out.mkdir(parents=True, exist_ok=True)
     stages: dict[str, float] = {}
     t_start = time.perf_counter()
 
+    def emit(status: JobStatus, progress: int) -> None:
+        if on_status is not None:
+            on_status(status, progress)
+
     # ── Stage 0: Import (кэш по наличию source.mp4 + meta.json) ──
+    emit(JobStatus.downloading, 10)
     t0 = time.perf_counter()
     meta_path = out / "meta.json"
     if (out / "source.mp4").exists() and meta_path.exists():
@@ -68,6 +81,7 @@ def run_pipeline(job_id: str, source_url: str | None = None) -> Job:
     stages["download"] = round(time.perf_counter() - t0, 2)
 
     # ── Stage 1: Transcribe (кэш по transcript.json) ──
+    emit(JobStatus.transcribing, 35)
     t0 = time.perf_counter()
     tr_path = out / "transcript.json"
     transcribe_cost = 0.0
@@ -81,6 +95,7 @@ def run_pipeline(job_id: str, source_url: str | None = None) -> Job:
     stages["transcription"] = round(time.perf_counter() - t0, 2)
 
     # ── Stage 2: Select (кэш по segments.json) ──
+    emit(JobStatus.selecting, 60)
     t0 = time.perf_counter()
     seg_path = out / "segments.json"
     usage: dict[str, int] = {}
@@ -100,6 +115,7 @@ def run_pipeline(job_id: str, source_url: str | None = None) -> Job:
     select_cost = _gemini_cost(usage)
 
     # ── Stages 3–5: per-clip (reframe → captions → render) ──
+    emit(JobStatus.rendering, 80)
     clips: list[ClipOut] = []
     reframe_t = 0.0
     render_t = 0.0
