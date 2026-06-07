@@ -233,6 +233,18 @@
 - **Промпт вынесен в файл:** `services/worker/prompts/select_moments.v1.txt` (крутить без
   кода); `stage2_select.load_system_prompt()` грузит его, fallback — `DEFAULT_SYSTEM_PROMPT`.
 
+### Итерация качества (после Phase 0, по фидбеку фаундера; gate «сначала качество»)
+- **K3 авто-язык СДЕЛАН рано** (RU не работал на en): Deepgram `detect_language` (язык=None),
+  `transcript.language`=detected. Коммит `9af07ec`. Comedy01 (RU, Щербаков) → 7949 слов.
+- **Больше кандидатов:** `max_clips=8` (config) + промпт «surface ALL strong, до N» + cap top-N
+  по score в postprocess. Коммит `b8e078d`. comedy01: было 2 → стало 8 клипов.
+- **eval-харнесс:** `app/eval.py` (рубрика C1–C8, Q) + `docs/EVAL.md`. Коммит `358054d`.
+- **План Phase 1 (K1 RQ-очередь) написан, исполнение ОТЛОЖЕНО** (выбрали «сначала качество»):
+  `docs/superpowers/specs/2026-06-07-phase1-reliability-design.md` + `.../plans/...k1-queue.md`.
+- **В РАБОТЕ (по фидбеку):** B — курирование в UI (галочки: какие клипы оставить); C — clean-start
+  тюнинг (кривой старт); **D — dynamic reframe (окно следит за лицом)** — выбран фаундером, самое
+  сложное (план §9 относил к Phase 4; делаем раньше). reframe сейчас СТАТИЧНЫЙ (одно окно/клип).
+
 ### Решение по LLM (этап D): Gemini вместо Anthropic
 - У фаундера НЕТ Anthropic-ключа → этап D на **Gemini** (план это разрешает: LLM swappable).
 - SDK: **`google-genai` 2.8.0** (`from google import genai`). Авторитетно (интроспекция,
