@@ -85,7 +85,9 @@
       (НЕ генерёный SDK v7). pure-нормализатор TDD + контракт-тест на реальной фикстуре.
       Реальный прогон sample01: 5446 слов, en, времена в секундах (first=30.22),
       last_end 1970.7 ≤ dur+0.5, cost ≈$0.14, 51.8s. DoD зелёный. 2026-06-07.
-- [ ] **D1/D2** — Выбор моментов (Claude, structured output) + пост-обработка → segments.json. ГЛАВНЫЙ GATE КАЧЕСТВА.
+- [ ] **D1/D2** — Выбор моментов (**Gemini**, structured output) + пост-обработка → segments.json. ГЛАВНЫЙ GATE КАЧЕСТВА.
+      LLM-провайдер сменён Anthropic→**Gemini** (у фаундера нет Anthropic-ключа; swappable по плану).
+      Нужен `GEMINI_API_KEY` в `.env`.
 - [ ] **E1** — Reframe 9:16 (MediaPipe face → static crop).
 - [ ] **F1** — Субтитры ASS (группировка слов, тайминг от клипа).
 - [ ] **G1** — Cut+Encode FFmpeg → clips/*.mp4 (1080×1920).
@@ -164,3 +166,29 @@
   гоняется из `services/worker` (cwd ≠ корень). `get_settings()` ленив+кэширован —
   валидация ключа при первом вызове (не при импорте), чтобы unit-тесты жили без ключей.
 - Deepgram Nova pre-recorded ≈ **$0.0043/мин** (~$0.258/час). Наш 33-мин ролик ≈ $0.14.
+- **Внешние сервисы задокументированы:** `docs/EXTERNAL_SERVICES.md` (что/где/чем свапнуть).
+
+### Решение по LLM (этап D): Gemini вместо Anthropic
+- У фаундера НЕТ Anthropic-ключа → этап D на **Gemini** (план это разрешает: LLM swappable).
+- SDK: **`google-genai` 2.8.0** (`from google import genai`). Авторитетно (интроспекция,
+  НЕ веб-пересказ — он переврал форму):
+  ```python
+  from google import genai
+  from google.genai import types
+  client = genai.Client(api_key=GEMINI_API_KEY)
+  resp = client.models.generate_content(
+      model="gemini-2.5-pro",
+      contents=user_prompt,
+      config=types.GenerateContentConfig(
+          system_instruction=SYSTEM_PROMPT,
+          response_mime_type="application/json",
+          response_schema=SEGMENTS_SCHEMA,            # dict JSON-schema или pydantic
+          thinking_config=types.ThinkingConfig(thinking_level="high"),
+      ),
+  )
+  raw = resp.text            # сырой JSON; resp.parsed — типизировано; resp.usage_metadata — токены
+  ```
+- Модели 2026: gemini-3.1-pro-preview, gemini-3.5-flash, gemini-3.1-flash-lite,
+  **gemini-2.5-pro** (дефолт, stable, deep reasoning), gemini-2.5-flash(-lite).
+- score НЕ ограничиваем в схеме (Gemini может игнорить min/max) → клиппим в постобработке (D2).
+- Ключ в `.env`: `GEMINI_API_KEY`, `LLM_PROVIDER=gemini`, `LLM_MODEL=gemini-2.5-pro`.

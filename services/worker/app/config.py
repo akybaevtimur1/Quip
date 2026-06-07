@@ -35,10 +35,11 @@ class Settings(BaseSettings):
     deepgram_model: str = "nova-3"
     assemblyai_api_key: str | None = None
 
-    # llm (этап D)
-    llm_provider: str = "anthropic"
+    # llm (этап D, выбор моментов). Провайдер swappable; сейчас Gemini (нет Anthropic-ключа).
+    llm_provider: str = "gemini"
+    gemini_api_key: str | None = None
     anthropic_api_key: str | None = None
-    llm_model: str = "claude-opus-4-8"
+    llm_model: str = "gemini-2.5-pro"
     llm_max_output_tokens: int = 16000
 
     # pipeline tuning
