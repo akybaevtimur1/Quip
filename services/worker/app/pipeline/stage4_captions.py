@@ -20,7 +20,7 @@ _SENT_END = (".", "!", "?")
 # ── ASS-шаблон (PlayRes 1080x1920; Montserrat 90; контур 6 + тень; снизу по центру) ──
 _SCRIPT_INFO = (
     "[Script Info]\nScriptType: v4.00+\nPlayResX: 1080\nPlayResY: 1920\n"
-    "WrapStyle: 2\nScaledBorderAndShadow: yes\n"
+    "WrapStyle: 0\nScaledBorderAndShadow: yes\n"
 )
 _STYLES = (
     "[V4+ Styles]\n"
