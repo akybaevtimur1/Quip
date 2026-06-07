@@ -1,26 +1,62 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/*
+  ════════════════════════════════════════════════════════════════════════
+  ПАЛИТРА ClipFlow — менять ТОЛЬКО здесь. Все компоненты используют семантические
+  утилиты (bg-bg, bg-surface, text-ink, text-muted, text-accent, border-line,
+  text-hook/peak/thought/quote) — смена значений ниже перекрашивает весь интерфейс.
+
+  Активна: №1 Warm Charcoal + Coral. Чтобы сменить — подставь хексы другой палитры:
+    №2 Ink Black:   bg #0C0D10  surface #15171C  surface-2 #1E2128  muted #9AA3B2
+    №3 Plum Noir:   bg #16121D  surface #1F1830  surface-2 #2A2140  muted #A79DBC
+    №4 Warm Paper:  bg #FAF7F2  surface #FFFFFF  surface-2 #EEE9E1  ink #15171C  muted #727D8C  line rgba(21,23,28,.10)
+  (accent коралл и 4 цвета типов одинаковы во всех вариантах)
+  ════════════════════════════════════════════════════════════════════════
+*/
+@theme {
+  /* canvas */
+  --color-bg: #1c1813;
+  --color-surface: #231f16;
+  --color-surface-2: #2e2b1f;
+  --color-ink: #f5f7fb;
+  --color-muted: #a8b1bf;
+  --color-line: rgba(245, 247, 251, 0.1);
+
+  /* signature accent */
+  --color-accent: #ff5a3d;
+  --color-accent-2: #df3f25;
+
+  /* clip-type colors (функциональные — кодируют тип момента) */
+  --color-hook: #ff5a3d;
+  --color-peak: #bd5fff;
+  --color-thought: #1aa37a;
+  --color-quote: #2f7cf6;
+
+  /* fonts (заданы в layout.tsx через next/font) */
+  --font-display: var(--font-unbounded), system-ui, sans-serif;
+  --font-sans: var(--font-onest), system-ui, sans-serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, monospace;
+
+  --radius-card: 14px;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  background: var(--color-bg);
+  color: var(--color-ink);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* уважаем reduced-motion (a11y) */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }

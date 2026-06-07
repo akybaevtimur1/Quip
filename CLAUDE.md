@@ -123,7 +123,16 @@
 - [x] **H1** — `app/run.py` склейка Stage 0→5 + `job.json` (wire-контракт) + `runs.jsonl`.
       Кэш по наличию (source/transcript/segments) → повторы не платят Deepgram/Gemini.
       `just e2e sample01`: 5 клипов, 64с, ttfc 15.4с, job.json валиден. STOP-GATE 3 пройден. 2026-06-07.
-- [ ] **I1/I2/I3** — Минимальный web (токены лендинга, типы, компоненты).
+- [x] **I1/I2/I3** — Минимальный web. Палитра **№1 Warm Charcoal+Coral** (выбрана фаундером
+      из 4 превью; тёмная, не дженерик). Tailwind v4 `@theme` (свап палитры — 1 блок
+      globals.css). Шрифты Unbounded/Onest/IBM Plex Mono. Типы из `@clipflow/shared`
+      (`import type`, runtime-импорта нет → transpilePackages не нужен). lib (api/useJob
+      polling 2.5с/3-фейла/effect-based, format) + мок-воркер (/api/mock, прогресс по времени).
+      Компоненты: SourceForm/JobProgress(степпер+таймер+скелетоны)/ClipCard/ClipGrid/
+      ReasonChip/StatusBadge/ErrorPanel. page.tsx state-машина idle→tracking→done→error.
+      `next build` зелёный, `just check` зелёный. Мок-флоу idle→done проверен скриншотами. 2026-06-07.
+      ⚠️ Контракт: `Job.clips`/`metrics`/`error` ОПЦИОНАЛЬНЫ в TS (pydantic default → не required
+      в JSON-схеме) → на фронте `job.clips ?? []`. Скилл `ui-ux-pro-max` использован для направления.
 - [ ] **J1/J2** — worker REST+SQLite + реальный прогон. ГЛАВНЫЙ ГЕЙТ UI.
 
 > Правило журнала: после КАЖДОГО зелёного DoD — отметить [x] здесь и дописать

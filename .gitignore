@@ -42,6 +42,12 @@ services/worker/tests/fixtures/**/*.webm
 # ── ML-модели (качаются в кэш при первом использовании) ──
 *.tflite
 
+# ── Веб: мок-видео (тяжёлые, не коммитим) + временные превью/браузер ──
+apps/web/public/mock/
+palettes_preview.png
+ui_*.png
+.playwright-mcp/
+
 # ── Логи (включая чужие debug.log от Electron/Chromium) ──
 *.log
 
