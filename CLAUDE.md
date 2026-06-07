@@ -85,9 +85,12 @@
       (НЕ генерёный SDK v7). pure-нормализатор TDD + контракт-тест на реальной фикстуре.
       Реальный прогон sample01: 5446 слов, en, времена в секундах (first=30.22),
       last_end 1970.7 ≤ dur+0.5, cost ≈$0.14, 51.8s. DoD зелёный. 2026-06-07.
-- [ ] **D1/D2** — Выбор моментов (**Gemini**, structured output) + пост-обработка → segments.json. ГЛАВНЫЙ GATE КАЧЕСТВА.
-      LLM-провайдер сменён Anthropic→**Gemini** (у фаундера нет Anthropic-ключа; swappable по плану).
-      Нужен `GEMINI_API_KEY` в `.env`.
+- [~] **D1/D2** — Выбор моментов (**Gemini**, structured output) → segments.json. ГЛАВНЫЙ GATE КАЧЕСТВА.
+      LLM сменён Anthropic→**Gemini** (нет Anthropic-ключа; swappable по плану).
+      **D2 (pure-постобработка) ГОТОВА+TDD:** clamp_score, snap_start/end_index,
+      indices_to_times, resolve_overlaps, postprocess — 19 тестов, всё зелёное.
+      **D1 (вызов Gemini) написан** (`select_segments`, google-genai), но DoD ждёт
+      `GEMINI_API_KEY` в `.env` → реальный прогон на sample01 + спот-чек reason'ов.
 - [ ] **E1** — Reframe 9:16 (MediaPipe face → static crop).
 - [ ] **F1** — Субтитры ASS (группировка слов, тайминг от клипа).
 - [ ] **G1** — Cut+Encode FFmpeg → clips/*.mp4 (1080×1920).
