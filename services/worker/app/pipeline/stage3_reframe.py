@@ -63,6 +63,49 @@ def aggregate_center(centers: list[float]) -> float:
     return (vals[mid - 1] + vals[mid]) / 2
 
 
+def smooth_track(
+    samples: list[tuple[float, float]],
+    *,
+    win: int = 5,
+    dead_zone: float = 0.04,
+    max_keyframes: int = 12,
+) -> list[tuple[float, float]]:
+    """Сэмплы (t, center_x) → сглаженный трек кейфреймов для динамического кропа.
+
+    Три шага: (1) скользящее среднее окном ``win`` гасит дрожь детектора; (2) dead-zone —
+    новый кейфрейм только при сдвиге центра ≥ ``dead_zone`` (статичный кадр сворачивается
+    в ОДИН кейфрейм → окно не дёргается); (3) кап до ``max_keyframes`` (равномерно).
+    Возвращает кейфреймы (t, center) по возрастанию t; ``[]`` на пустом входе.
+    """
+    n = len(samples)
+    if n <= 1:
+        return list(samples)
+
+    # (1) скользящее среднее центров (порядок по времени уже монотонный)
+    half = max(1, win // 2)
+    smoothed: list[tuple[float, float]] = []
+    for i in range(n):
+        lo, hi = max(0, i - half), min(n, i + half + 1)
+        smoothed.append((samples[i][0], sum(c for _, c in samples[lo:hi]) / (hi - lo)))
+
+    # (2) dead-zone: держим первый; новый кейфрейм при |Δcenter| ≥ dead_zone
+    kept: list[tuple[float, float]] = [smoothed[0]]
+    for t, c in smoothed[1:]:
+        if abs(c - kept[-1][1]) >= dead_zone:
+            kept.append((t, c))
+    if len(kept) == 1:
+        return kept  # статика → одно окно (build_vf отрисует константой)
+    if kept[-1][0] != smoothed[-1][0]:
+        kept.append(smoothed[-1])  # якорим конец, чтобы окно доехало до финала клипа
+
+    # (3) кап до max_keyframes — равномерное прореживание, концы сохраняются
+    if len(kept) > max_keyframes:
+        step = (len(kept) - 1) / (max_keyframes - 1)
+        idxs = sorted({round(k * step) for k in range(max_keyframes)})
+        kept = [kept[i] for i in idxs]
+    return kept
+
+
 def decide_reframe_mode(setting: str, face_found: bool) -> str:
     """Режим reframe: 'fill' (кроп по лицу) или 'fit' (весь кадр + блюр-рамки, ничего не режет).
 
@@ -112,9 +155,13 @@ def _ensure_face_model() -> Path:
     return _FACE_MODEL_PATH
 
 
-def sample_face_centers(video: Path, start: float, end: float, *, fps: float = 2.0) -> list[float]:
-    """Центры (доля по X) крупнейшего лица по кадрам сегмента. Пусто, если лиц нет.
+def sample_face_centers(
+    video: Path, start: float, end: float, *, fps: float = 2.0
+) -> list[tuple[float, float]]:
+    """(клип-время t, доля по X) центра крупнейшего лица по кадрам сегмента.
 
+    t = idx/fps — КЛИП-относительное (кадры берём с input-seek -ss, PTS→0). Кадры без
+    лица пропускаем (трек разрежен — smooth_track это переносит). Пусто, если лиц нет.
     MediaPipe Tasks API: bounding_box в ПИКСЕЛЯХ → делим на ширину кадра.
     """
     import cv2  # noqa: PLC0415  (тяжёлые либы — ленивый импорт, pure-тесты их не тянут)
@@ -127,11 +174,11 @@ def sample_face_centers(video: Path, start: float, end: float, *, fps: float = 2
         base_options=mp_python.BaseOptions(model_asset_path=str(model_path)),
         min_detection_confidence=0.5,
     )
-    centers: list[float] = []
+    samples: list[tuple[float, float]] = []
     with tempfile.TemporaryDirectory() as td:
         frames = _extract_frames(video, start, end, Path(td), fps=fps)
         with mp_vision.FaceDetector.create_from_options(options) as detector:
-            for png in frames:
+            for idx, png in enumerate(frames):
                 img = cv2.imread(str(png))
                 if img is None:
                     continue
@@ -145,8 +192,9 @@ def sample_face_centers(video: Path, start: float, end: float, *, fps: float = 2
                     res.detections, key=lambda d: d.bounding_box.width * d.bounding_box.height
                 )
                 bb = best.bounding_box
-                centers.append(min(1.0, max(0.0, (bb.origin_x + bb.width / 2) / frame_w)))
-    return centers
+                cx = min(1.0, max(0.0, (bb.origin_x + bb.width / 2) / frame_w))
+                samples.append((idx / fps, cx))
+    return samples
 
 
 def reframe_segment(
@@ -160,17 +208,26 @@ def reframe_segment(
     out_dir: Path,
     mode_setting: str = "auto",
 ) -> tuple[str, list[CropWindow], bool]:
-    """Сегмент → (mode, crop, face_found). mode='fill' → 1 static-окно по лицу;
-    mode='fit' → весь кадр + блюр-рамки (crop пустой). Пишет reframe_<clip_id>.json.
+    """Сегмент → (mode, crop, face_found). mode='fill' → ТРЕК окон 9:16 (едет за лицом;
+    статика сворачивается в 1 окно); mode='fit' → весь кадр + блюр-рамки (crop пустой).
+    Пишет reframe_<clip_id>.json (список окон с клип-относительными t).
     """
-    centers = sample_face_centers(video, start, end)
-    face_found = bool(centers)
+    samples = sample_face_centers(video, start, end)
+    face_found = bool(samples)
     mode = decide_reframe_mode(mode_setting, face_found)
 
     crop: list[CropWindow] = []
     if mode == "fill":
-        cx = aggregate_center(centers) if face_found else 0.5
-        crop = [compute_crop_window(src_w, src_h, cx, t=start)]
+        if not face_found:
+            crop = [compute_crop_window(src_w, src_h, 0.5, t=0.0)]
+        else:
+            keys = smooth_track(samples)
+            if len(keys) == 1:
+                # статичный кадр → робастный медианный центр (устойчив к выбросам детекта)
+                cx = aggregate_center([c for _, c in samples])
+                crop = [compute_crop_window(src_w, src_h, cx, t=0.0)]
+            else:
+                crop = [compute_crop_window(src_w, src_h, c, t=t) for (t, c) in keys]
 
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / f"reframe_{clip_id}.json").write_text(

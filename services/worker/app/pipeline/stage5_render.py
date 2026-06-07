@@ -41,6 +41,44 @@ def build_vf_fit(ass_name: str, *, out_w: int = 1080, out_h: int = 1920, blur: i
     )
 
 
+def build_crop_x_expr(keyframes: list[tuple[float, int]]) -> str:
+    """Кусочно-линейный x(t) для динамического кропа (ffmpeg-выражение, БЕЗ экранирования).
+
+    1 кейфрейм → константа. N → вложенные ``if(lt(t,T_i), линейная_интерполяция, …)``;
+    после последнего кейфрейма держим X_last. Время t — КЛИП-относительное (см. build_vf_dynamic).
+    """
+    if not keyframes:
+        raise ValueError("нужен ≥1 кейфрейм для x-выражения")
+    if len(keyframes) == 1:
+        return str(keyframes[0][1])
+    expr = str(keyframes[-1][1])
+    for i in range(len(keyframes) - 1, 0, -1):
+        t0, x0 = keyframes[i - 1]
+        t1, x1 = keyframes[i]
+        seg = f"({x0}+({x1}-{x0})*(t-{t0})/({t1}-{t0}))"
+        expr = f"if(lt(t,{t1}),{seg},{expr})"
+    return expr
+
+
+def build_vf_dynamic(
+    crops: list[CropWindow], ass_name: str, *, out_w: int = 1080, out_h: int = 1920
+) -> str:
+    """FILL-динамика (окно едет за лицом): setpts ПЕРВЫМ → crop видит клип-время (0-based).
+
+    x(t) — кусочно-линейное выражение; запятые экранируем ``\\,`` для filtergraph-парсера
+    (vf уходит одним argv, без shell). w/h берём из первого окна (по построению постоянны).
+    """
+    if not crops:
+        raise JobError(_STAGE, "динамический кроп требует ≥1 окна")
+    w, h = crops[0].w, crops[0].h
+    x_expr = build_crop_x_expr([(c.t, c.x) for c in crops])
+    x_esc = x_expr.replace(",", "\\,")
+    return (
+        f"setpts=PTS-STARTPTS,crop={w}:{h}:{x_esc}:0,"
+        f"scale={out_w}:{out_h}:flags=lanczos,subtitles={ass_name}"
+    )
+
+
 def build_ffmpeg_cmd(source: str, start: float, end: float, vf: str, out_name: str) -> list[str]:
     """Команда ffmpeg: -ss ДО -i (PTS→0 для синка субтитров), -t = длительность сегмента."""
     dur = round(end - start, 3)
@@ -63,19 +101,20 @@ def render_clip(
     out_name: str,
     *,
     mode: str = "fill",
-    crop: CropWindow | None = None,
+    crop: list[CropWindow] | None = None,
 ) -> float:
     """Один клип: ffmpeg cut + (fill-кроп | fit-блюр) + burn + encode. cwd=data_dir.
 
+    crop — трек окон 9:16: 1 окно → статический кроп; >1 → динамический (x едет за лицом).
     Возвращает латентность (с). JobError при сбое/отсутствии выхода.
     """
     (data_dir / out_name).parent.mkdir(parents=True, exist_ok=True)
     if mode == "fit":
         vf = build_vf_fit(ass_name)
     else:
-        if crop is None:
-            raise JobError(_STAGE, "fill-режим требует crop-окно")
-        vf = build_vf(crop, ass_name)
+        if not crop:
+            raise JobError(_STAGE, "fill-режим требует crop-окно(а)")
+        vf = build_vf_dynamic(crop, ass_name) if len(crop) > 1 else build_vf(crop[0], ass_name)
     cmd = build_ffmpeg_cmd(source_name, start, end, vf, out_name)
     t0 = time.perf_counter()
     try:

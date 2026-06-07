@@ -11,6 +11,7 @@ from app.pipeline.stage3_reframe import (
     aggregate_center,
     compute_crop_window,
     decide_reframe_mode,
+    smooth_track,
 )
 
 
@@ -82,3 +83,49 @@ class TestDecideReframeMode:
 
     def test_forced_fit_ignores_face(self) -> None:
         assert decide_reframe_mode("fit", True) == "fit"
+
+
+class TestSmoothTrack:
+    """Динамический трек: сглаживание дрожи + dead-zone (статика → 1 кейфрейм) + кап."""
+
+    def test_empty_returns_empty(self) -> None:
+        assert smooth_track([]) == []
+
+    def test_single_sample_passthrough(self) -> None:
+        assert smooth_track([(0.0, 0.7)]) == [(0.0, 0.7)]
+
+    def test_static_collapses_to_one_keyframe(self) -> None:
+        # лицо неподвижно (один спикер) → ОДНО окно, никакого дрожания на рендере
+        samples = [(i * 0.5, 0.5) for i in range(20)]
+        out = smooth_track(samples, dead_zone=0.04)
+        assert len(out) == 1
+        assert out[0][1] == 0.5
+
+    def test_jitter_below_dead_zone_collapses(self) -> None:
+        # мелкая дрожь детектора (±0.02 < dead_zone) после сглаживания → 1 кейфрейм
+        samples = [(i * 0.5, 0.5 + (0.02 if i % 2 else -0.02)) for i in range(20)]
+        out = smooth_track(samples, win=5, dead_zone=0.05)
+        assert len(out) == 1
+        assert abs(out[0][1] - 0.5) < 0.03
+
+    def test_tracks_real_movement(self) -> None:
+        # лицо реально едет 0.2 → 0.8: трек монотонно растёт, концы близко к краям
+        samples = [(i * 0.5, 0.2 + 0.6 * i / 19) for i in range(20)]
+        out = smooth_track(samples, win=5, dead_zone=0.04, max_keyframes=12)
+        assert len(out) > 1
+        centers = [c for _, c in out]
+        assert centers == sorted(centers)  # монотонно вверх
+        assert out[0][1] < 0.4  # начинает слева
+        assert out[-1][1] > 0.6  # заканчивает справа
+
+    def test_caps_keyframes(self) -> None:
+        # пилообразное движение даёт много кандидатов → не больше max_keyframes
+        samples = [(i * 0.5, 0.2 + 0.6 * (i % 2)) for i in range(60)]
+        out = smooth_track(samples, win=3, dead_zone=0.04, max_keyframes=8)
+        assert len(out) <= 8
+
+    def test_preserves_endpoints_time(self) -> None:
+        samples = [(i * 0.5, 0.2 + 0.6 * i / 19) for i in range(20)]
+        out = smooth_track(samples, win=5, dead_zone=0.04)
+        assert out[0][0] == samples[0][0]
+        assert out[-1][0] == samples[-1][0]

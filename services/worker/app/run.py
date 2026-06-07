@@ -132,7 +132,7 @@ def run_pipeline(
         lat = render_clip(
             out, "source.mp4", seg.start, seg.end,
             f"captions_{clip_id}.ass", f"clips/{clip_id}.mp4",
-            mode=mode, crop=crop[0] if crop else None,
+            mode=mode, crop=crop,
         )  # fmt: skip
         render_t += lat
         if ttfc is None:
@@ -152,7 +152,10 @@ def run_pipeline(
                 words=words_in_segment(transcript.words, seg.start, seg.end),
             )
         )
-        print(f"  {clip_id}: {seg.start:.1f}-{seg.end:.1f} face={face_found} render={lat}s")
+        print(
+            f"  {clip_id}: {seg.start:.1f}-{seg.end:.1f} {mode} face={face_found} "
+            f"kf={len(crop)} render={lat}s"
+        )
     stages["reframe"] = round(reframe_t, 2)
     stages["render"] = round(render_t, 2)
 
