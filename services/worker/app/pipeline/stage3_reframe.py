@@ -63,6 +63,18 @@ def aggregate_center(centers: list[float]) -> float:
     return (vals[mid - 1] + vals[mid]) / 2
 
 
+def decide_reframe_mode(setting: str, face_found: bool) -> str:
+    """Режим reframe: 'fill' (кроп по лицу) или 'fit' (весь кадр + блюр-рамки, ничего не режет).
+
+    auto → лицо есть: fill, нет: fit. Иначе принудительно setting ('fill'/'fit').
+    """
+    if setting == "fill":
+        return "fill"
+    if setting == "fit":
+        return "fit"
+    return "fill" if face_found else "fit"
+
+
 # ─────────────────────────── I/O: кадры (ffmpeg) + лица (MediaPipe) ───────────────────────────
 
 
@@ -146,19 +158,25 @@ def reframe_segment(
     *,
     clip_id: str,
     out_dir: Path,
-) -> tuple[list[CropWindow], bool]:
-    """Сегмент → [CropWindow] (1 static-окно) + face_found. Пишет crop_<clip_id>.json."""
+    mode_setting: str = "auto",
+) -> tuple[str, list[CropWindow], bool]:
+    """Сегмент → (mode, crop, face_found). mode='fill' → 1 static-окно по лицу;
+    mode='fit' → весь кадр + блюр-рамки (crop пустой). Пишет reframe_<clip_id>.json.
+    """
     centers = sample_face_centers(video, start, end)
-    if centers:
-        cx = aggregate_center(centers)
-        face_found = True
-    else:
-        cx = 0.5  # fallback: center-crop
-        face_found = False
-    crop = [compute_crop_window(src_w, src_h, cx, t=start)]
+    face_found = bool(centers)
+    mode = decide_reframe_mode(mode_setting, face_found)
+
+    crop: list[CropWindow] = []
+    if mode == "fill":
+        cx = aggregate_center(centers) if face_found else 0.5
+        crop = [compute_crop_window(src_w, src_h, cx, t=start)]
+
     out_dir.mkdir(parents=True, exist_ok=True)
-    (out_dir / f"crop_{clip_id}.json").write_text(
-        json.dumps([w.model_dump() for w in crop], ensure_ascii=False, indent=2),
+    (out_dir / f"reframe_{clip_id}.json").write_text(
+        json.dumps(
+            {"mode": mode, "crop": [w.model_dump() for w in crop]}, ensure_ascii=False, indent=2
+        ),
         encoding="utf-8",
     )
-    return crop, face_found
+    return mode, crop, face_found

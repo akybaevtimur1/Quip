@@ -56,7 +56,7 @@ def run_pipeline(
 
     on_status(status, progress) (опц.) вызывается на границах стадий — для статуса в БД (J1).
     """
-    get_settings()  # fail-fast на отсутствии ключей выбранных провайдеров
+    s = get_settings()  # fail-fast на отсутствии ключей; также берём reframe_mode
     out = DATA_ROOT / job_id
     out.mkdir(parents=True, exist_ok=True)
     stages: dict[str, float] = {}
@@ -123,15 +123,16 @@ def run_pipeline(
     for i, seg in enumerate(segments, start=1):
         clip_id = f"clip_{i:02d}"
         t0 = time.perf_counter()
-        crop, face_found = reframe_segment(
+        mode, crop, face_found = reframe_segment(
             out / "source.mp4", meta.width, meta.height, seg.start, seg.end,
-            clip_id=clip_id, out_dir=out,
+            clip_id=clip_id, out_dir=out, mode_setting=s.reframe_mode,
         )  # fmt: skip
         reframe_t += time.perf_counter() - t0
         write_captions_ass(transcript.words, seg.start, seg.end, out / f"captions_{clip_id}.ass")
         lat = render_clip(
-            out, "source.mp4", crop[0], seg.start, seg.end,
+            out, "source.mp4", seg.start, seg.end,
             f"captions_{clip_id}.ass", f"clips/{clip_id}.mp4",
+            mode=mode, crop=crop[0] if crop else None,
         )  # fmt: skip
         render_t += lat
         if ttfc is None:

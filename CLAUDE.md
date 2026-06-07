@@ -224,6 +224,15 @@
   для `cv2`/`mediapipe` (нет строгих стабов).
 - **Внешние сервисы задокументированы:** `docs/EXTERNAL_SERVICES.md` (что/где/чем свапнуть).
 
+### Пост-Phase-0 улучшения (по запросу фаундера)
+- **Reframe AUTO** (stage3/stage5): лицо есть → FILL (кроп по лицу, крупно); лица нет →
+  **FIT** (весь кадр 16:9 + размытые рамки сверху/снизу — НЕ режет текст/графику по бокам).
+  Переключатель `REFRAME_MODE=auto|fill|fit` (.env). `decide_reframe_mode` + `build_vf_fit`
+  (split→bg blur+fg fit→overlay) — TDD. reframe_segment теперь пишет `reframe_<clip>.json`
+  ({mode, crop}) и возвращает (mode, crop, face_found). FIT проверен глазами на sample01.
+- **Промпт вынесен в файл:** `services/worker/prompts/select_moments.v1.txt` (крутить без
+  кода); `stage2_select.load_system_prompt()` грузит его, fallback — `DEFAULT_SYSTEM_PROMPT`.
+
 ### Решение по LLM (этап D): Gemini вместо Anthropic
 - У фаундера НЕТ Anthropic-ключа → этап D на **Gemini** (план это разрешает: LLM swappable).
 - SDK: **`google-genai` 2.8.0** (`from google import genai`). Авторитетно (интроспекция,

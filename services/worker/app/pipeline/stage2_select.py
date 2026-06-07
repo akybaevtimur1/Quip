@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import time
+from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel
@@ -123,7 +124,17 @@ def postprocess(
 
 # ─────────────────────────── промпт + structured output (Gemini) ───────────────────────────
 
-SYSTEM_PROMPT = """\
+_PROMPT_PATH = Path(__file__).resolve().parents[1] / "prompts" / "select_moments.v1.txt"
+
+
+def load_system_prompt() -> str:
+    """Системный промпт из prompts/select_moments.v1.txt (его и крутим). Fallback — дефолт ниже."""
+    if _PROMPT_PATH.exists():
+        return _PROMPT_PATH.read_text(encoding="utf-8")
+    return DEFAULT_SYSTEM_PROMPT
+
+
+DEFAULT_SYSTEM_PROMPT = """\
 You are an expert short-form video editor. You receive a word-indexed transcript of a \
 single-speaker video and must select the BEST standalone moments to cut into vertical clips.
 
@@ -195,7 +206,7 @@ def select_segments(
     indexed = build_indexed_transcript(transcript.words)
     user_prompt = build_user_prompt(title, transcript, indexed)
     cfg = types.GenerateContentConfig(
-        system_instruction=SYSTEM_PROMPT,
+        system_instruction=load_system_prompt(),
         response_mime_type="application/json",
         response_schema=_LlmSelection,
         max_output_tokens=s.llm_max_output_tokens,

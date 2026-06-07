@@ -5,7 +5,7 @@
 """
 
 from app.models import CropWindow
-from app.pipeline.stage5_render import build_ffmpeg_cmd, build_vf
+from app.pipeline.stage5_render import build_ffmpeg_cmd, build_vf, build_vf_fit
 
 
 def _crop() -> CropWindow:
@@ -19,6 +19,18 @@ class TestBuildVf:
             "crop=608:1080:880:0,scale=1080:1920:flags=lanczos,"
             "setpts=PTS-STARTPTS,subtitles=captions_clip_01.ass"
         )
+
+
+class TestBuildVfFit:
+    def test_fit_preserves_whole_frame_with_blur(self) -> None:
+        vf = build_vf_fit("captions_clip_01.ass")
+        # split на bg/fg, размытый зум-фон, вписать целиком, overlay по центру, субтитры
+        assert "split=2[bg][fg]" in vf
+        assert "force_original_aspect_ratio=increase" in vf  # bg заполняет
+        assert "gblur" in vf  # фон размыт
+        assert "force_original_aspect_ratio=decrease" in vf  # fg целиком, ничего не режет
+        assert "overlay=(W-w)/2:(H-h)/2" in vf
+        assert "subtitles=captions_clip_01.ass" in vf
 
 
 class TestBuildCmd:
