@@ -3,7 +3,11 @@ import type { Job } from "./types";
 // База воркера: реальный worker через env, иначе встроенный мок (/api/mock).
 const BASE = process.env.NEXT_PUBLIC_WORKER_URL ?? "/api/mock";
 
-export type CreateJobInput = { source_type: "youtube"; source_ref: string };
+export type CreateJobInput = {
+  source_type: "youtube";
+  source_ref: string;
+  max_clips?: number;
+};
 
 export async function createJob(input: CreateJobInput): Promise<{ id: string }> {
   const res = await fetch(`${BASE}/jobs`, {

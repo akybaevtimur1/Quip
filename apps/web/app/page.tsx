@@ -16,11 +16,15 @@ export default function Home() {
 
   const error = submitError ?? pollError;
 
-  async function handleSubmit(url: string) {
+  async function handleSubmit(url: string, maxClips: number) {
     setSubmitError(null);
     setSubmitting(true);
     try {
-      const { id } = await createJob({ source_type: "youtube", source_ref: url });
+      const { id } = await createJob({
+        source_type: "youtube",
+        source_ref: url,
+        max_clips: maxClips,
+      });
       start(id);
     } catch (e) {
       setSubmitError(e instanceof Error ? e.message : "Не удалось создать задачу");
@@ -80,7 +84,7 @@ export default function Home() {
           <JobProgress status={job?.status ?? "queued"} elapsed={elapsed} />
         ) : null}
 
-        {phase === "done" && job ? <ClipGrid job={job} /> : null}
+        {phase === "done" && job ? <ClipGrid key={job.id} job={job} /> : null}
 
         {phase === "error" && error ? (
           <ErrorPanel message={error} onRetry={handleReset} />

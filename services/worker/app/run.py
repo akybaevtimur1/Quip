@@ -51,10 +51,13 @@ def run_pipeline(
     job_id: str,
     source_url: str | None = None,
     on_status: Callable[[JobStatus, int], None] | None = None,
+    *,
+    max_clips: int | None = None,
 ) -> Job:
     """Прогнать весь конвейер для job_id. Возвращает Job (также пишет job.json/runs.jsonl).
 
     on_status(status, progress) (опц.) вызывается на границах стадий — для статуса в БД (J1).
+    max_clips (опц.) — сколько клипов запросил юзер (UI-степпер); None → дефолт из настроек.
     """
     s = get_settings()  # fail-fast на отсутствии ключей; также берём reframe_mode
     out = DATA_ROOT / job_id
@@ -105,7 +108,7 @@ def run_pipeline(
         ]
         print(f"[2] select: cached ({len(segments)} segments)")
     else:
-        segments = select_segments(transcript, meta.title, usage_sink=usage)
+        segments = select_segments(transcript, meta.title, max_clips=max_clips, usage_sink=usage)
         seg_path.write_text(
             json.dumps([s.model_dump() for s in segments], ensure_ascii=False, indent=2),
             encoding="utf-8",

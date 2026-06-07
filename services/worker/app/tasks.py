@@ -12,12 +12,14 @@ from app.models import JobStatus
 from app.run import run_pipeline
 
 
-def run_pipeline_job(job_id: str, source_type: str, source_ref: str) -> None:
+def run_pipeline_job(
+    job_id: str, source_type: str, source_ref: str, max_clips: int | None = None
+) -> None:
     def on_status(status: JobStatus, progress: int) -> None:
         db.update_status(job_id, status.value, progress)
 
     try:
-        job = run_pipeline(job_id, source_url=source_ref, on_status=on_status)
+        job = run_pipeline(job_id, source_url=source_ref, on_status=on_status, max_clips=max_clips)
         db.set_done(job_id, job)
     except JobError as e:
         db.set_failed(job_id, str(e))

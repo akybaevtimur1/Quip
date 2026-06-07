@@ -12,6 +12,7 @@ from app.pipeline.stage2_select import (
     clamp_score,
     indices_to_times,
     postprocess,
+    resolve_max_clips,
     resolve_overlaps,
     snap_end_index,
     snap_start_index,
@@ -40,6 +41,22 @@ class TestClampScore:
 
     def test_inside(self) -> None:
         assert clamp_score(0.5) == 0.5
+
+
+class TestResolveMaxClips:
+    """Сколько кандидатов отдавать: запрос юзера (UI-степпер) > дефолт, с клампом в диапазон."""
+
+    def test_none_falls_back_to_default(self) -> None:
+        assert resolve_max_clips(None, 8) == 8
+
+    def test_request_overrides_default(self) -> None:
+        assert resolve_max_clips(3, 8) == 3
+
+    def test_clamps_below_lo(self) -> None:
+        assert resolve_max_clips(0, 8, lo=1, hi=12) == 1
+
+    def test_clamps_above_hi(self) -> None:
+        assert resolve_max_clips(99, 8, lo=1, hi=12) == 12
 
 
 class TestIndicesToTimes:

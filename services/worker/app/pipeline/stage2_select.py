@@ -34,6 +34,12 @@ def clamp_score(x: float) -> float:
     return max(0.0, min(1.0, x))
 
 
+def resolve_max_clips(requested: int | None, default: int, *, lo: int = 1, hi: int = 12) -> int:
+    """Сколько кандидатов отдавать: запрос юзера (степпер) > дефолт; кламп в [lo,hi]."""
+    n = default if requested is None else requested
+    return max(lo, min(hi, n))
+
+
 def _is_sentence_end(text: str) -> bool:
     return text.strip().rstrip("\"'»").endswith(_SENT_END)
 
@@ -214,10 +220,15 @@ def build_user_prompt(title: str, transcript: Transcript, indexed: str, max_clip
 
 
 def select_segments(
-    transcript: Transcript, title: str, *, usage_sink: dict[str, int] | None = None
+    transcript: Transcript,
+    title: str,
+    *,
+    max_clips: int | None = None,
+    usage_sink: dict[str, int] | None = None,
 ) -> list[Segment]:
     """Gemini structured output → сырые сегменты → постобработка → list[Segment].
 
+    max_clips (опц.) — запрошенное юзером число клипов (UI-степпер); None → дефолт из настроек.
     usage_sink (опц.) заполняется токенами (prompt/output/thoughts) для лога стоимости.
     """
     from google import genai
@@ -228,9 +239,10 @@ def select_segments(
     if key is None:
         raise JobError(_STAGE, "нет GEMINI_API_KEY (LLM_PROVIDER=gemini)")
 
+    n_clips = resolve_max_clips(max_clips, s.max_clips)
     client = genai.Client(api_key=key)
     indexed = build_indexed_transcript(transcript.words)
-    user_prompt = build_user_prompt(title, transcript, indexed, s.max_clips)
+    user_prompt = build_user_prompt(title, transcript, indexed, n_clips)
     cfg = types.GenerateContentConfig(
         system_instruction=load_system_prompt(),
         response_mime_type="application/json",
@@ -269,7 +281,7 @@ def select_segments(
         raise JobError(_STAGE, f"Gemini вернул не-JSON: {e}") from e
 
     return postprocess(
-        raw, transcript.words, min_sec=s.clip_min_sec, max_sec=s.clip_max_sec, max_clips=s.max_clips
+        raw, transcript.words, min_sec=s.clip_min_sec, max_sec=s.clip_max_sec, max_clips=n_clips
     )
 
 

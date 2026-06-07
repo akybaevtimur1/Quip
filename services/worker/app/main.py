@@ -15,7 +15,7 @@ from typing import Any
 from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app import __version__, db
 from app.run import DATA_ROOT
@@ -45,6 +45,7 @@ app.mount("/media", StaticFiles(directory=str(DATA_ROOT)), name="media")
 class CreateJobBody(BaseModel):
     source_type: str
     source_ref: str
+    max_clips: int | None = Field(default=None, ge=1, le=10)  # UI-степпер; None → дефолт воркера
 
 
 @app.get("/healthz")
@@ -58,7 +59,7 @@ def create_job(body: CreateJobBody, bg: BackgroundTasks) -> dict[str, Any]:
     """Создать задачу: запись queued в БД + фоновый прогон пайплайна. Возвращает id/статус."""
     job_id = f"job_{uuid.uuid4().hex[:12]}"
     db.insert_job(job_id, body.source_type, body.source_ref)
-    bg.add_task(run_pipeline_job, job_id, body.source_type, body.source_ref)
+    bg.add_task(run_pipeline_job, job_id, body.source_type, body.source_ref, body.max_clips)
     return {"id": job_id, "status": "queued", "stage": "queued", "progress": 0}
 
 
