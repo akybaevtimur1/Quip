@@ -47,6 +47,7 @@ class Settings(BaseSettings):
     clip_min_sec: int = 15
     clip_max_sec: int = 60
     caption_max_words_per_group: int = 5
+    max_clips: int = 8  # сколько кандидатов отдавать (юзер выберет из них в UI)
     # reframe: auto = лицо→fill(кроп), нет лица→fit(блюр-рамки, ничего не режет);
     #          fill = всегда кроп; fit = всегда весь кадр в рамках.
     reframe_mode: Literal["auto", "fill", "fit"] = "auto"

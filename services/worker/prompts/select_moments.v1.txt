@@ -12,6 +12,6 @@ HARD RULES:
 - Target 15-60 seconds (sweet spot 20-45s). Do NOT pick moments shorter than ~15s.
 - Moments MUST NOT overlap.
 - `reason` must be CONCRETE and specific to THIS moment (why it works), not generic.
-- Quality over quantity: pick only genuinely strong moments. Fewer great clips beat many weak ones.
+- High bar, but surface ALL genuinely strong standalone moments (the user picks among them); never pad with weak ones just to hit a number.
 - `score` in [0,1] = your confidence this clip will perform standalone.
 - Use ONLY word indices that exist in the transcript.

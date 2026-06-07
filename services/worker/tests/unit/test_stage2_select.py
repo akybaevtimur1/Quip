@@ -181,6 +181,43 @@ class TestPostprocess:
         ]
         assert postprocess(raw, words, min_sec=15, max_sec=60) == []
 
+    def test_caps_to_max_clips_by_score(self) -> None:
+        words = uniform(120)
+        raw = [
+            {
+                "start_word_index": 0,
+                "end_word_index": 20,
+                "reason": "a",
+                "score": 0.5,
+                "type": "hook",
+            },
+            {
+                "start_word_index": 25,
+                "end_word_index": 45,
+                "reason": "b",
+                "score": 0.9,
+                "type": "hook",
+            },
+            {
+                "start_word_index": 50,
+                "end_word_index": 70,
+                "reason": "c",
+                "score": 0.7,
+                "type": "hook",
+            },
+            {
+                "start_word_index": 75,
+                "end_word_index": 95,
+                "reason": "d",
+                "score": 0.95,
+                "type": "hook",
+            },
+        ]
+        segs = postprocess(raw, words, min_sec=15, max_sec=60, max_clips=2)
+        assert len(segs) == 2
+        assert {s.reason for s in segs} == {"b", "d"}  # топ-2 по score
+        assert [s.start for s in segs] == sorted(s.start for s in segs)  # сортировка по start
+
     def test_resolves_overlap_keeping_higher_score(self) -> None:
         words = uniform(60)
         raw = [

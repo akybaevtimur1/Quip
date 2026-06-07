@@ -90,10 +90,11 @@ def postprocess(
     *,
     min_sec: float = 15.0,
     max_sec: float = 60.0,
+    max_clips: int = 8,
 ) -> list[Segment]:
     """Сырые сегменты LLM → валидные Segment: snap, маппинг в секунды, длительность-гейт,
-    клиппинг score, валидация type, анти-overlap. Битый/невалидный сегмент пропускаем
-    (quality over quantity), а не роняем весь прогон.
+    клиппинг score, валидация type, анти-overlap, обрезка до max_clips (топ по score).
+    Битый/невалидный сегмент пропускаем, а не роняем весь прогон.
     """
     valid_types = {t.value for t in ClipType}
     candidates: list[Segment] = []
@@ -119,7 +120,11 @@ def postprocess(
         candidates.append(
             Segment(start=start, end=end, reason=reason, score=score, type=ClipType(typ))
         )
-    return resolve_overlaps(candidates)
+    chosen = resolve_overlaps(candidates)
+    if len(chosen) > max_clips:
+        top = sorted(chosen, key=lambda s: s.score, reverse=True)[:max_clips]
+        chosen = sorted(top, key=lambda s: s.start)
+    return chosen
 
 
 # ─────────────────────────── промпт + structured output (Gemini) ───────────────────────────
@@ -149,7 +154,7 @@ HARD RULES:
 - Target 15-60 seconds (sweet spot 20-45s). Do NOT pick moments shorter than ~15s.
 - Moments MUST NOT overlap.
 - `reason` must be CONCRETE and specific to THIS moment (why it works), not generic.
-- Quality over quantity: pick only genuinely strong moments. Fewer great clips beat many weak ones.
+- High bar, but surface ALL genuinely strong standalone moments — never pad to hit a number.
 - `score` in [0,1] = your confidence this clip will perform standalone.
 - Use ONLY word indices that exist in the transcript.
 """
@@ -176,14 +181,16 @@ def build_indexed_transcript(words: list[Word], per_line: int = 10) -> str:
     return "\n".join(lines)
 
 
-def build_user_prompt(title: str, transcript: Transcript, indexed: str) -> str:
+def build_user_prompt(title: str, transcript: Transcript, indexed: str, max_clips: int = 8) -> str:
     return (
         f"Video title: {title}\n"
         f"Language: {transcript.language}  Duration: {transcript.duration:.0f}s  "
         f"Words: {len(transcript.words)}\n\n"
         f"Word-indexed transcript (each line starts with the index of its first word):\n"
         f"{indexed}\n\n"
-        f"Select the best non-overlapping moments as word index ranges."
+        f"Surface up to {max_clips} of the strongest non-overlapping moments as word index "
+        f"ranges. Include every genuinely strong standalone moment (the user will choose among "
+        f"them) — do NOT artificially limit to a few; but never pad with weak ones."
     )
 
 
@@ -204,7 +211,7 @@ def select_segments(
 
     client = genai.Client(api_key=key)
     indexed = build_indexed_transcript(transcript.words)
-    user_prompt = build_user_prompt(title, transcript, indexed)
+    user_prompt = build_user_prompt(title, transcript, indexed, s.max_clips)
     cfg = types.GenerateContentConfig(
         system_instruction=load_system_prompt(),
         response_mime_type="application/json",
@@ -242,7 +249,9 @@ def select_segments(
     except json.JSONDecodeError as e:
         raise JobError(_STAGE, f"Gemini вернул не-JSON: {e}") from e
 
-    return postprocess(raw, transcript.words, min_sec=s.clip_min_sec, max_sec=s.clip_max_sec)
+    return postprocess(
+        raw, transcript.words, min_sec=s.clip_min_sec, max_sec=s.clip_max_sec, max_clips=s.max_clips
+    )
 
 
 def select_to_file(transcript: Transcript, title: str, out_path: Any) -> list[Segment]:
