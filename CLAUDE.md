@@ -104,7 +104,11 @@
       `gemini-flash-latest` (config + .env.example). Платный тариф → можно pro.
       ⚠️ В ТВОЁМ `.env` стоит `LLM_MODEL=gemini-2.5-pro` (из шаблона) — поменять на
       `gemini-flash-latest`, иначе пайплайн 429-ит.
-- [ ] **E1** — Reframe 9:16 (MediaPipe face → static crop).
+- [x] **E1** — Reframe 9:16: `app/pipeline/stage3_reframe.py`. PURE (compute_crop_window,
+      aggregate_center=медиана) — 12 тестов. I/O: кадры через ffmpeg (AV1), лица MediaPipe
+      **Tasks API**. Реальный прогон sample01 seg0: face_found=True, crop x=880/608×1080,
+      9:16±1px, в границах; превью подтвердил лица в рамке. DoD зелёный. 2026-06-07.
+      ⚠️ sample01 мультиспикер (R1) → широкий кадр ожидаемо; single-speaker кадрировался бы плотнее.
 - [ ] **F1** — Субтитры ASS (группировка слов, тайминг от клипа).
 - [ ] **G1** — Cut+Encode FFmpeg → clips/*.mp4 (1080×1920).
 - [ ] **H1** — `run.py` склейка Stage 0→5 + runs.jsonl. STOP-GATE 3.
@@ -182,6 +186,13 @@
   гоняется из `services/worker` (cwd ≠ корень). `get_settings()` ленив+кэширован —
   валидация ключа при первом вызове (не при импорте), чтобы unit-тесты жили без ключей.
 - Deepgram Nova pre-recorded ≈ **$0.0043/мин** (~$0.258/час). Наш 33-мин ролик ≈ $0.14.
+- **MediaPipe 0.10.35 выпилил `mp.solutions`** (легаси). Используем **Tasks API**
+  (`mediapipe.tasks.python.vision.FaceDetector`), модель `.tflite` качается в кэш
+  `app/assets/` (gitignored `*.tflite`) из storage.googleapis.com. bounding_box в Tasks —
+  в ПИКСЕЛЯХ (делим на ширину кадра), а не в долях, как было в легаси.
+- Кадры для детекта берём через **ffmpeg** (декодит AV1), НЕ `cv2.VideoCapture`
+  (бандл-ffmpeg opencv может не уметь AV1). mypy: overrides `ignore_missing_imports`
+  для `cv2`/`mediapipe` (нет строгих стабов).
 - **Внешние сервисы задокументированы:** `docs/EXTERNAL_SERVICES.md` (что/где/чем свапнуть).
 
 ### Решение по LLM (этап D): Gemini вместо Anthropic

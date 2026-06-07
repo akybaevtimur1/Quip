@@ -16,6 +16,7 @@
 | 2026-06-07 | 0 Import | yt-dlp + ffmpeg (local) | 33 мин видео | 43.8с | — | $0 | mp4 192MB, wav 16k/mono 63MB |
 | 2026-06-07 | 1 Transcribe | Deepgram nova (`nova-3`) | 1987.6с аудио | 51.8с | — | ~$0.14 | 5446 слов, en, $0.0043/мин |
 | 2026-06-07 | 2 Select | Gemini `gemini-flash-latest` | 5446 слов | 39.3с | 11433 / 453 / 4758 | ~$0.016 | 4–5 сегментов, reason конкретный |
+| 2026-06-07 | 3 Reframe | MediaPipe Tasks (blaze_face) | сегмент ~21с @2fps | ~5–10с/клип | — | $0 | face_found, crop 9:16 валиден; sample мультиспикер (R1) |
 
 ## 2. Сравнение LLM-моделей (этап 2 — главный гейт качества)
 

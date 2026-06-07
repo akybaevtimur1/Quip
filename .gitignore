@@ -39,6 +39,9 @@ services/worker/tests/fixtures/**/*.mp4
 services/worker/tests/fixtures/**/*.mkv
 services/worker/tests/fixtures/**/*.webm
 
+# ── ML-модели (качаются в кэш при первом использовании) ──
+*.tflite
+
 # ── Логи (включая чужие debug.log от Electron/Chromium) ──
 *.log
 
