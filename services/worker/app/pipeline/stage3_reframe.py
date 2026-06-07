@@ -1,16 +1,21 @@
-"""Stage 3 (Reframe): source.mp4 + сегмент → crop_<clip_id>.json (1 static 9:16 окно/клип).
+"""Stage 3 (Reframe): source.mp4 + сегмент → reframe_<clip_id>.json (трек окон 9:16, cut-aware).
 
-Сэмплируем кадры сегмента (2 fps) через ffmpeg (декодит AV1), детектим лицо MediaPipe,
-берём медиану центров (устойчиво к выбросам на мультиспикере) → ОДНО static-окно 9:16.
-Нет лица → fallback center-crop (cx=0.5, face_found=False).
+Модель «держим план — режем на склейке» (как живой монтажёр / Opus / Vizard):
+1) ffmpeg scene-detect → тайминги склеек источника внутри сегмента;
+2) сэмплируем кадры (2 fps), детектим лицо MediaPipe, берём центр крупнейшего;
+3) для КАЖДОГО плана (между склейками) — один устойчивый центр (медиана лиц плана;
+   нет лица → держим центр предыдущего плана) → окно НЕПОДВИЖНО внутри плана;
+4) на склейке окно МГНОВЕННО скачет на новый план (ступенька в stage5, не панорама).
+Нет лиц вовсе → fit (весь кадр + блюр-рамки) выбирается в run/decide_reframe_mode.
 
-Границы: PURE-математика (compute_crop_window, aggregate_center) изолирована и покрыта
-unit-тестами. I/O (ffmpeg/MediaPipe) — обёртки; JobError при сбое (правило №8).
+Границы: PURE-математика (compute_crop_window, aggregate_center, build_shots, shot_centers)
+изолирована и покрыта unit-тестами. I/O (ffmpeg/MediaPipe) — обёртки; JobError при сбое (№8).
 """
 
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import tempfile
 from pathlib import Path
@@ -63,47 +68,37 @@ def aggregate_center(centers: list[float]) -> float:
     return (vals[mid - 1] + vals[mid]) / 2
 
 
-def smooth_track(
-    samples: list[tuple[float, float]],
-    *,
-    win: int = 5,
-    dead_zone: float = 0.04,
-    max_keyframes: int = 12,
-) -> list[tuple[float, float]]:
-    """Сэмплы (t, center_x) → сглаженный трек кейфреймов для динамического кропа.
+def build_shots(cuts: list[float], duration: float) -> list[tuple[float, float]]:
+    """Тайминги склеек (клип-относительные) → интервалы планов [(start, end), …].
 
-    Три шага: (1) скользящее среднее окном ``win`` гасит дрожь детектора; (2) dead-zone —
-    новый кейфрейм только при сдвиге центра ≥ ``dead_zone`` (статичный кадр сворачивается
-    в ОДИН кейфрейм → окно не дёргается); (3) кап до ``max_keyframes`` (равномерно).
-    Возвращает кейфреймы (t, center) по возрастанию t; ``[]`` на пустом входе.
+    Склейки на 0 и в конце игнорируем, сортируем, дедупим. Пустой источник (dur≤0) → [].
     """
-    n = len(samples)
-    if n <= 1:
-        return list(samples)
+    if duration <= 0:
+        return []
+    pts = sorted({round(c, 3) for c in cuts if 0 < c < duration})
+    bounds = [0.0, *pts, duration]
+    return [(bounds[i], bounds[i + 1]) for i in range(len(bounds) - 1) if bounds[i + 1] > bounds[i]]
 
-    # (1) скользящее среднее центров (порядок по времени уже монотонный)
-    half = max(1, win // 2)
-    smoothed: list[tuple[float, float]] = []
-    for i in range(n):
-        lo, hi = max(0, i - half), min(n, i + half + 1)
-        smoothed.append((samples[i][0], sum(c for _, c in samples[lo:hi]) / (hi - lo)))
 
-    # (2) dead-zone: держим первый; новый кейфрейм при |Δcenter| ≥ dead_zone
-    kept: list[tuple[float, float]] = [smoothed[0]]
-    for t, c in smoothed[1:]:
-        if abs(c - kept[-1][1]) >= dead_zone:
-            kept.append((t, c))
-    if len(kept) == 1:
-        return kept  # статика → одно окно (build_vf отрисует константой)
-    if kept[-1][0] != smoothed[-1][0]:
-        kept.append(smoothed[-1])  # якорим конец, чтобы окно доехало до финала клипа
+def shot_centers(
+    samples: list[tuple[float, float]],
+    shots: list[tuple[float, float]],
+    *,
+    default: float = 0.5,
+) -> list[tuple[float, float]]:
+    """Один устойчивый центр на план → [(shot_start, center), …].
 
-    # (3) кап до max_keyframes — равномерное прореживание, концы сохраняются
-    if len(kept) > max_keyframes:
-        step = (len(kept) - 1) / (max_keyframes - 1)
-        idxs = sorted({round(k * step) for k in range(max_keyframes)})
-        kept = [kept[i] for i in idxs]
-    return kept
+    center = медиана центров лиц внутри плана; план без лиц НЕ прыгает в центр, а держит
+    кадр предыдущего плана (первый план без лиц → ``default``).
+    """
+    out: list[tuple[float, float]] = []
+    prev = default
+    for s0, s1 in shots:
+        cs = [c for (t, c) in samples if s0 <= t < s1]
+        center = aggregate_center(cs) if cs else prev
+        out.append((s0, center))
+        prev = center
+    return out
 
 
 def decide_reframe_mode(setting: str, face_found: bool) -> str:
@@ -137,6 +132,28 @@ def _extract_frames(
     if proc.returncode != 0:
         raise JobError(_STAGE, f"ffmpeg кадры код {proc.returncode}: {(proc.stderr or '')[-300:]}")
     return sorted(out_dir.glob("f_*.png"))
+
+
+def detect_cuts(video: Path, start: float, end: float, *, threshold: float = 0.3) -> list[float]:
+    """Тайминги склеек источника внутри сегмента (ffmpeg scene-detect), КЛИП-относительные.
+
+    -ss ДО -i → pts_time 0-based (как и рендер). Пустой список = склеек нет (один план).
+    JobError при сбое ffmpeg (№8: без тихого фолбэка).
+    """
+    cmd = [
+        "ffmpeg", "-hide_banner", "-ss", str(start), "-to", str(end), "-i", str(video),
+        "-vf", f"select='gt(scene,{threshold})',showinfo", "-an", "-f", "null", "-",
+    ]  # fmt: skip
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+    except FileNotFoundError as e:
+        raise JobError(_STAGE, f"не найден ffmpeg: {e}") from e
+    if proc.returncode != 0:
+        raise JobError(_STAGE, f"ffmpeg scene код {proc.returncode}: {(proc.stderr or '')[-300:]}")
+    cuts: list[float] = []
+    for m in re.finditer(r"pts_time:([0-9.]+)", proc.stderr or ""):
+        cuts.append(float(m.group(1)))
+    return cuts
 
 
 def _ensure_face_model() -> Path:
@@ -208,9 +225,9 @@ def reframe_segment(
     out_dir: Path,
     mode_setting: str = "auto",
 ) -> tuple[str, list[CropWindow], bool]:
-    """Сегмент → (mode, crop, face_found). mode='fill' → ТРЕК окон 9:16 (едет за лицом;
-    статика сворачивается в 1 окно); mode='fit' → весь кадр + блюр-рамки (crop пустой).
-    Пишет reframe_<clip_id>.json (список окон с клип-относительными t).
+    """Сегмент → (mode, crop, face_found). mode='fill' → ОДНО окно 9:16 на план источника
+    (держим внутри плана, скачок на склейке); mode='fit' → весь кадр + блюр-рамки (crop пустой).
+    Пишет reframe_<clip_id>.json (список окон с клип-относительными t = начало плана).
     """
     samples = sample_face_centers(video, start, end)
     face_found = bool(samples)
@@ -221,13 +238,12 @@ def reframe_segment(
         if not face_found:
             crop = [compute_crop_window(src_w, src_h, 0.5, t=0.0)]
         else:
-            keys = smooth_track(samples)
-            if len(keys) == 1:
-                # статичный кадр → робастный медианный центр (устойчив к выбросам детекта)
-                cx = aggregate_center([c for _, c in samples])
-                crop = [compute_crop_window(src_w, src_h, cx, t=0.0)]
-            else:
-                crop = [compute_crop_window(src_w, src_h, c, t=t) for (t, c) in keys]
+            cuts = detect_cuts(video, start, end)
+            shots = build_shots(cuts, end - start)
+            crop = [
+                compute_crop_window(src_w, src_h, c, t=t0)
+                for (t0, c) in shot_centers(samples, shots)
+            ]
 
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / f"reframe_{clip_id}.json").write_text(

@@ -9,9 +9,10 @@ import pytest
 from app.errors import JobError
 from app.pipeline.stage3_reframe import (
     aggregate_center,
+    build_shots,
     compute_crop_window,
     decide_reframe_mode,
-    smooth_track,
+    shot_centers,
 )
 
 
@@ -85,47 +86,45 @@ class TestDecideReframeMode:
         assert decide_reframe_mode("fit", True) == "fit"
 
 
-class TestSmoothTrack:
-    """Динамический трек: сглаживание дрожи + dead-zone (статика → 1 кейфрейм) + кап."""
+class TestBuildShots:
+    """Интервалы планов из таймингов склеек источника (cut-aware reframe)."""
 
-    def test_empty_returns_empty(self) -> None:
-        assert smooth_track([]) == []
+    def test_no_cuts_one_shot(self) -> None:
+        assert build_shots([], 20.0) == [(0.0, 20.0)]
 
-    def test_single_sample_passthrough(self) -> None:
-        assert smooth_track([(0.0, 0.7)]) == [(0.0, 0.7)]
+    def test_splits_at_cuts(self) -> None:
+        assert build_shots([5.0, 10.0], 20.0) == [(0.0, 5.0), (5.0, 10.0), (10.0, 20.0)]
 
-    def test_static_collapses_to_one_keyframe(self) -> None:
-        # лицо неподвижно (один спикер) → ОДНО окно, никакого дрожания на рендере
-        samples = [(i * 0.5, 0.5) for i in range(20)]
-        out = smooth_track(samples, dead_zone=0.04)
-        assert len(out) == 1
-        assert out[0][1] == 0.5
+    def test_ignores_out_of_range_and_sorts(self) -> None:
+        # склейки на 0 и в конце игнорируем; неотсортированные — сортируем
+        assert build_shots([10.0, 0.0, 20.0, 5.0], 20.0) == [
+            (0.0, 5.0),
+            (5.0, 10.0),
+            (10.0, 20.0),
+        ]
 
-    def test_jitter_below_dead_zone_collapses(self) -> None:
-        # мелкая дрожь детектора (±0.02 < dead_zone) после сглаживания → 1 кейфрейм
-        samples = [(i * 0.5, 0.5 + (0.02 if i % 2 else -0.02)) for i in range(20)]
-        out = smooth_track(samples, win=5, dead_zone=0.05)
-        assert len(out) == 1
-        assert abs(out[0][1] - 0.5) < 0.03
+    def test_dedups_cuts(self) -> None:
+        assert build_shots([5.0, 5.0, 10.0], 20.0) == [(0.0, 5.0), (5.0, 10.0), (10.0, 20.0)]
 
-    def test_tracks_real_movement(self) -> None:
-        # лицо реально едет 0.2 → 0.8: трек монотонно растёт, концы близко к краям
-        samples = [(i * 0.5, 0.2 + 0.6 * i / 19) for i in range(20)]
-        out = smooth_track(samples, win=5, dead_zone=0.04, max_keyframes=12)
-        assert len(out) > 1
-        centers = [c for _, c in out]
-        assert centers == sorted(centers)  # монотонно вверх
-        assert out[0][1] < 0.4  # начинает слева
-        assert out[-1][1] > 0.6  # заканчивает справа
+    def test_zero_duration_empty(self) -> None:
+        assert build_shots([], 0.0) == []
 
-    def test_caps_keyframes(self) -> None:
-        # пилообразное движение даёт много кандидатов → не больше max_keyframes
-        samples = [(i * 0.5, 0.2 + 0.6 * (i % 2)) for i in range(60)]
-        out = smooth_track(samples, win=3, dead_zone=0.04, max_keyframes=8)
-        assert len(out) <= 8
 
-    def test_preserves_endpoints_time(self) -> None:
-        samples = [(i * 0.5, 0.2 + 0.6 * i / 19) for i in range(20)]
-        out = smooth_track(samples, win=5, dead_zone=0.04)
-        assert out[0][0] == samples[0][0]
-        assert out[-1][0] == samples[-1][0]
+class TestShotCenters:
+    """Один устойчивый центр на план (медиана лиц); план без лица → держим предыдущий."""
+
+    def test_median_per_shot(self) -> None:
+        samples = [(0.1, 0.3), (0.6, 0.5), (1.0, 0.4), (5.5, 0.8)]
+        out = shot_centers(samples, [(0.0, 5.0), (5.0, 10.0)])
+        assert out == [(0.0, 0.4), (5.0, 0.8)]  # медиана(0.3,0.4,0.5)=0.4; один сэмпл=0.8
+
+    def test_empty_shot_carries_previous(self) -> None:
+        # план без лиц не прыгает в центр, а держит кадр прошлого плана
+        samples = [(1.0, 0.6)]
+        out = shot_centers(samples, [(0.0, 5.0), (5.0, 10.0), (10.0, 15.0)])
+        assert out == [(0.0, 0.6), (5.0, 0.6), (10.0, 0.6)]
+
+    def test_first_shot_empty_uses_default(self) -> None:
+        samples = [(6.0, 0.7)]
+        out = shot_centers(samples, [(0.0, 5.0), (5.0, 10.0)], default=0.5)
+        assert out == [(0.0, 0.5), (5.0, 0.7)]

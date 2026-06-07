@@ -6,7 +6,7 @@
 
 from app.models import CropWindow
 from app.pipeline.stage5_render import (
-    build_crop_x_expr,
+    build_crop_x_step_expr,
     build_ffmpeg_cmd,
     build_vf,
     build_vf_dynamic,
@@ -39,29 +39,30 @@ class TestBuildVfFit:
         assert "subtitles=captions_clip_01.ass" in vf
 
 
-class TestBuildCropXExpr:
-    """Time-varying x для динамического кропа: 1 кф → константа, N → кусочно-линейно."""
+class TestBuildCropXStepExpr:
+    """Ступенчатое x(t): константа внутри плана, мгновенный скачок на границе (hold & cut)."""
 
-    def test_single_keyframe_is_constant(self) -> None:
-        assert build_crop_x_expr([(0.0, 656)]) == "656"
+    def test_single_is_constant(self) -> None:
+        assert build_crop_x_step_expr([(0.0, 656)]) == "656"
 
-    def test_two_keyframes_linear_interp(self) -> None:
-        # между t=0 и t=2 линейная интерполяция x: 100→300; после t=2 держим 300
-        expr = build_crop_x_expr([(0.0, 100), (2.0, 300)])
-        assert expr == "if(lt(t,2.0),(100+(300-100)*(t-0.0)/(2.0-0.0)),300)"
+    def test_two_shots_step(self) -> None:
+        # x держится 100 до t=2, затем мгновенно 300 (НЕ интерполяция)
+        assert build_crop_x_step_expr([(0.0, 100), (2.0, 300)]) == "if(lt(t,2.0),100,300)"
 
-    def test_three_keyframes_nested(self) -> None:
-        expr = build_crop_x_expr([(0.0, 100), (1.0, 200), (2.0, 150)])
-        # вложенные if: сначала [0,1), потом [1,2), иначе последний x (две закрывающие скобки)
-        assert expr.startswith("if(lt(t,1.0),")
-        assert "if(lt(t,2.0)," in expr
-        assert expr.endswith(",150))")
+    def test_three_shots_nested_step(self) -> None:
+        expr = build_crop_x_step_expr([(0.0, 100), (2.0, 300), (5.0, 200)])
+        assert expr == "if(lt(t,2.0),100,if(lt(t,5.0),300,200))"
+
+    def test_collapses_consecutive_equal_x(self) -> None:
+        # соседние планы с одинаковым x → без лишнего скачка (граница уезжает на смену x)
+        expr = build_crop_x_step_expr([(0.0, 100), (2.0, 100), (5.0, 300)])
+        assert expr == "if(lt(t,5.0),100,300)"
 
     def test_empty_raises(self) -> None:
         import pytest
 
         with pytest.raises(ValueError):
-            build_crop_x_expr([])
+            build_crop_x_step_expr([])
 
 
 class TestBuildVfDynamic:

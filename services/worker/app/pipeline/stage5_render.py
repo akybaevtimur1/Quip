@@ -41,37 +41,40 @@ def build_vf_fit(ass_name: str, *, out_w: int = 1080, out_h: int = 1920, blur: i
     )
 
 
-def build_crop_x_expr(keyframes: list[tuple[float, int]]) -> str:
-    """Кусочно-линейный x(t) для динамического кропа (ffmpeg-выражение, БЕЗ экранирования).
+def build_crop_x_step_expr(windows: list[tuple[float, int]]) -> str:
+    """СТУПЕНЧАТЫЙ x(t) (hold & cut): x держится константой внутри плана, мгновенно скачет
+    на границе плана. Вход — (shot_start_t, x) по возрастанию t. Соседние равные x схлопываем.
 
-    1 кейфрейм → константа. N → вложенные ``if(lt(t,T_i), линейная_интерполяция, …)``;
-    после последнего кейфрейма держим X_last. Время t — КЛИП-относительное (см. build_vf_dynamic).
+    1 план → константа. N → вложенные ``if(lt(t,T_i), X_{i-1}, …)``. БЕЗ экранирования
+    (его делает build_vf_dynamic). Время t — КЛИП-относительное.
     """
-    if not keyframes:
-        raise ValueError("нужен ≥1 кейфрейм для x-выражения")
-    if len(keyframes) == 1:
-        return str(keyframes[0][1])
-    expr = str(keyframes[-1][1])
-    for i in range(len(keyframes) - 1, 0, -1):
-        t0, x0 = keyframes[i - 1]
-        t1, x1 = keyframes[i]
-        seg = f"({x0}+({x1}-{x0})*(t-{t0})/({t1}-{t0}))"
-        expr = f"if(lt(t,{t1}),{seg},{expr})"
+    if not windows:
+        raise ValueError("нужен ≥1 план для x-выражения")
+    reduced: list[tuple[float, int]] = [windows[0]]
+    for t, x in windows[1:]:
+        if x != reduced[-1][1]:
+            reduced.append((t, x))
+    if len(reduced) == 1:
+        return str(reduced[0][1])
+    expr = str(reduced[-1][1])
+    for i in range(len(reduced) - 1, 0, -1):
+        boundary = reduced[i][0]
+        x_before = reduced[i - 1][1]
+        expr = f"if(lt(t,{boundary}),{x_before},{expr})"
     return expr
 
 
 def build_vf_dynamic(
     crops: list[CropWindow], ass_name: str, *, out_w: int = 1080, out_h: int = 1920
 ) -> str:
-    """FILL-динамика (окно едет за лицом): setpts ПЕРВЫМ → crop видит клип-время (0-based).
-
-    x(t) — кусочно-линейное выражение; запятые экранируем ``\\,`` для filtergraph-парсера
-    (vf уходит одним argv, без shell). w/h берём из первого окна (по построению постоянны).
+    """FILL cut-aware: окно держит план, скачок на склейке. setpts ПЕРВЫМ → crop видит
+    клип-время (0-based). x(t) — СТУПЕНЧАТОЕ выражение; запятые экранируем ``\\,`` для
+    filtergraph-парсера (vf уходит одним argv, без shell). w/h из первого окна (постоянны).
     """
     if not crops:
         raise JobError(_STAGE, "динамический кроп требует ≥1 окна")
     w, h = crops[0].w, crops[0].h
-    x_expr = build_crop_x_expr([(c.t, c.x) for c in crops])
+    x_expr = build_crop_x_step_expr([(c.t, c.x) for c in crops])
     x_esc = x_expr.replace(",", "\\,")
     return (
         f"setpts=PTS-STARTPTS,crop={w}:{h}:{x_esc}:0,"
