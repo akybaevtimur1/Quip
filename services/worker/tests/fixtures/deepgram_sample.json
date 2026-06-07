@@ -1,0 +1,125 @@
+{
+  "metadata": {
+    "duration": 1987.6978,
+    "channels": 1
+  },
+  "results": {
+    "channels": [
+      {
+        "alternatives": [
+          {
+            "transcript": "Hey, Vin. Making money. We're having fun. I think we're making a difference. Are you",
+            "confidence": 0.9951172,
+            "words": [
+              {
+                "word": "hey",
+                "start": 30.220001,
+                "end": 30.62,
+                "confidence": 0.598999,
+                "punctuated_word": "Hey,"
+              },
+              {
+                "word": "vin",
+                "start": 30.62,
+                "end": 31.02,
+                "confidence": 0.72509766,
+                "punctuated_word": "Vin."
+              },
+              {
+                "word": "making",
+                "start": 31.02,
+                "end": 31.580002,
+                "confidence": 0.63916016,
+                "punctuated_word": "Making"
+              },
+              {
+                "word": "money",
+                "start": 31.580002,
+                "end": 32.300003,
+                "confidence": 0.89208984,
+                "punctuated_word": "money."
+              },
+              {
+                "word": "we're",
+                "start": 32.78,
+                "end": 33.100002,
+                "confidence": 0.9404297,
+                "punctuated_word": "We're"
+              },
+              {
+                "word": "having",
+                "start": 33.100002,
+                "end": 33.34,
+                "confidence": 1.0,
+                "punctuated_word": "having"
+              },
+              {
+                "word": "fun",
+                "start": 33.34,
+                "end": 33.82,
+                "confidence": 0.9609375,
+                "punctuated_word": "fun."
+              },
+              {
+                "word": "i",
+                "start": 33.82,
+                "end": 33.98,
+                "confidence": 0.98095703,
+                "punctuated_word": "I"
+              },
+              {
+                "word": "think",
+                "start": 33.98,
+                "end": 34.14,
+                "confidence": 1.0,
+                "punctuated_word": "think"
+              },
+              {
+                "word": "we're",
+                "start": 34.14,
+                "end": 34.3,
+                "confidence": 0.9995117,
+                "punctuated_word": "we're"
+              },
+              {
+                "word": "making",
+                "start": 34.3,
+                "end": 34.46,
+                "confidence": 1.0,
+                "punctuated_word": "making"
+              },
+              {
+                "word": "a",
+                "start": 34.46,
+                "end": 34.620003,
+                "confidence": 0.7558594,
+                "punctuated_word": "a"
+              },
+              {
+                "word": "difference",
+                "start": 34.620003,
+                "end": 35.260002,
+                "confidence": 0.99902344,
+                "punctuated_word": "difference."
+              },
+              {
+                "word": "are",
+                "start": 37.260002,
+                "end": 37.5,
+                "confidence": 0.9941406,
+                "punctuated_word": "Are"
+              },
+              {
+                "word": "you",
+                "start": 37.5,
+                "end": 37.66,
+                "confidence": 1.0,
+                "punctuated_word": "you"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

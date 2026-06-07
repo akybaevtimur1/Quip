@@ -80,7 +80,11 @@
       gyan-ffmpeg декодит AV1 → этап G ок. Если на G всплывёт декод — добавить
       `[vcodec^=avc1]` в yt-dlp format. Тестовый ролик мультиспикерный (Mafia show) —
       для C ок (речь есть), для E reframe ожидаемо труднее (R1, многоликий кадр).
-- [ ] **C1** — Транскрипция Deepgram → transcript.json (секунды).
+- [x] **C1** — Транскрипция: `app/config.py` (pydantic-settings, fail-fast) +
+      `app/pipeline/stage1_transcribe.py`. Deepgram REST `/v1/listen` через httpx
+      (НЕ генерёный SDK v7). pure-нормализатор TDD + контракт-тест на реальной фикстуре.
+      Реальный прогон sample01: 5446 слов, en, времена в секундах (first=30.22),
+      last_end 1970.7 ≤ dur+0.5, cost ≈$0.14, 51.8s. DoD зелёный. 2026-06-07.
 - [ ] **D1/D2** — Выбор моментов (Claude, structured output) + пост-обработка → segments.json. ГЛАВНЫЙ GATE КАЧЕСТВА.
 - [ ] **E1** — Reframe 9:16 (MediaPipe face → static crop).
 - [ ] **F1** — Субтитры ASS (группировка слов, тайминг от клипа).
@@ -147,3 +151,16 @@
   PATH refresh + `uv run` (он пробрасывает PATH и venv-скрипты в subprocess).
 - Лимит источника 90 мин в `stage0_import._check_limits` работает (JobError). Тестовый
   ролик должен быть в пределах лимита, иначе meta.json не пишется (гейт раньше записи).
+
+### Грабли инструментов (C)
+- **`deepgram-sdk` 7.3.1 = генерёный клиент** (куча `...V1`, Agent-API), классического
+  `DeepgramClient.listen.rest` нет. Решение: зовём стабильный REST `/v1/listen` через
+  **httpx** напрямую (`stage1_transcribe.call_deepgram`). Провайдер-абстракция цела,
+  фикстуры снимать проще. deepgram-sdk пока висит в депах неиспользуемым — можно убрать.
+- **smart_format=true раздувает ответ:** добавляет `paragraphs`, дублирующие ВСЕ слова
+  (15-словная фикстура была 225KB!). Для golden-фикстуры выкидываем `alt["paragraphs"]`
+  и тримим metadata → 3.6KB.
+- **config.py:** `.env` читается по АБСОЛЮТНОМУ пути (`parents[3]/.env`), т.к. воркер
+  гоняется из `services/worker` (cwd ≠ корень). `get_settings()` ленив+кэширован —
+  валидация ключа при первом вызове (не при импорте), чтобы unit-тесты жили без ключей.
+- Deepgram Nova pre-recorded ≈ **$0.0043/мин** (~$0.258/час). Наш 33-мин ролик ≈ $0.14.
