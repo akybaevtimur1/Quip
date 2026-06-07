@@ -11,6 +11,7 @@ LLM (Gemini, structured output) возвращает ИНДЕКСЫ СЛОВ (н
 from __future__ import annotations
 
 import json
+import time
 from typing import Any
 
 from pydantic import BaseModel
@@ -20,6 +21,7 @@ from app.errors import JobError
 from app.models import ClipType, Segment, Transcript, Word
 
 _STAGE = "select"
+_MAX_ATTEMPTS = 4  # ретраи транзиентных 429/503 (free-tier перегрузки), бэк-офф 1/2/4с
 
 # ─────────────────────────── pure-постобработка (unit-тесты) ───────────────────────────
 
@@ -187,20 +189,28 @@ def select_segments(transcript: Transcript, title: str) -> list[Segment]:
     client = genai.Client(api_key=key)
     indexed = build_indexed_transcript(transcript.words)
     user_prompt = build_user_prompt(title, transcript, indexed)
+    cfg = types.GenerateContentConfig(
+        system_instruction=SYSTEM_PROMPT,
+        response_mime_type="application/json",
+        response_schema=_LlmSelection,
+        max_output_tokens=s.llm_max_output_tokens,
+    )
 
-    try:
-        resp = client.models.generate_content(
-            model=s.llm_model,
-            contents=user_prompt,
-            config=types.GenerateContentConfig(
-                system_instruction=SYSTEM_PROMPT,
-                response_mime_type="application/json",
-                response_schema=_LlmSelection,
-                max_output_tokens=s.llm_max_output_tokens,
-            ),
-        )
-    except Exception as e:  # SDK кидает разные типы ошибок — оборачиваем в JobError
-        raise JobError(_STAGE, f"Gemini ошибка: {e}") from e
+    # Ретраи транзиентных ошибок (free-tier 429/503). Без тихого фолбэка: исчерпали → JobError.
+    resp: Any = None
+    last_err: Exception | None = None
+    for attempt in range(_MAX_ATTEMPTS):
+        try:
+            resp = client.models.generate_content(
+                model=s.llm_model, contents=user_prompt, config=cfg
+            )
+            break
+        except Exception as e:  # SDK кидает разные типы (ServerError/ClientError) — оборачиваем
+            last_err = e
+            if attempt < _MAX_ATTEMPTS - 1:
+                time.sleep(2**attempt)
+    if resp is None:
+        raise JobError(_STAGE, f"Gemini недоступен после {_MAX_ATTEMPTS} попыток: {last_err}")
 
     text = resp.text
     if not text:

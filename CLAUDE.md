@@ -85,12 +85,15 @@
       (НЕ генерёный SDK v7). pure-нормализатор TDD + контракт-тест на реальной фикстуре.
       Реальный прогон sample01: 5446 слов, en, времена в секундах (first=30.22),
       last_end 1970.7 ≤ dur+0.5, cost ≈$0.14, 51.8s. DoD зелёный. 2026-06-07.
-- [~] **D1/D2** — Выбор моментов (**Gemini**, structured output) → segments.json. ГЛАВНЫЙ GATE КАЧЕСТВА.
-      LLM сменён Anthropic→**Gemini** (нет Anthropic-ключа; swappable по плану).
-      **D2 (pure-постобработка) ГОТОВА+TDD:** clamp_score, snap_start/end_index,
-      indices_to_times, resolve_overlaps, postprocess — 19 тестов, всё зелёное.
-      **D1 (вызов Gemini) написан** (`select_segments`, google-genai), но DoD ждёт
-      `GEMINI_API_KEY` в `.env` → реальный прогон на sample01 + спот-чек reason'ов.
+- [x] **D1/D2** — Выбор моментов (**Gemini**, structured output) → segments.json. ГЛАВНЫЙ GATE.
+      LLM Anthropic→**Gemini** (нет Anthropic-ключа; swappable). D2 pure (clamp/snap/
+      indices_to_times/resolve_overlaps/postprocess) — 19 тестов. D1 `select_segments` с
+      ретраями (R7). Реальный прогон sample01: 4–5 сегментов, 15–60с, без overlap, reason
+      КОНКРЕТНЫЙ, score∈[0,1]. ~$0.016/прогон, ~39с. DoD зелёный. 2026-06-07.
+      ⚠️ free-tier: **2.5-pro = квота 0**, **2.5-flash транзиентно 503** → дефолт
+      `gemini-flash-latest` (config + .env.example). Платный тариф → можно pro.
+      ⚠️ В ТВОЁМ `.env` стоит `LLM_MODEL=gemini-2.5-pro` (из шаблона) — поменять на
+      `gemini-flash-latest`, иначе пайплайн 429-ит.
 - [ ] **E1** — Reframe 9:16 (MediaPipe face → static crop).
 - [ ] **F1** — Субтитры ASS (группировка слов, тайминг от клипа).
 - [ ] **G1** — Cut+Encode FFmpeg → clips/*.mp4 (1080×1920).

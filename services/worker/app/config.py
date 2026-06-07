@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     llm_provider: str = "gemini"
     gemini_api_key: str | None = None
     anthropic_api_key: str | None = None
-    llm_model: str = "gemini-2.5-pro"
+    llm_model: str = "gemini-flash-latest"
     llm_max_output_tokens: int = 16000
 
     # pipeline tuning
