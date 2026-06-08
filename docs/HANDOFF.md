@@ -11,121 +11,280 @@
 FastAPI / uv, пакет `app`), `packages/shared` (TS-типы, codegen из `app/models.py`).
 
 ## 2. Статус (что готово)
-- **Phase 0 (A→J) ЗАВЕРШЁН**: сквозной пайплайн + web UI + worker REST/SQLite, проверен e2e.
-- **Качество (фидбек фаундера), всё в коммитах:**
-  - **R1 Reframe 2.0** — ✅ 2026-06-08, `352284c`→`91fbc14`. PySceneDetect кадроточные склейки;
-    режим НА ШОТ по геометрии лиц (1 лицо→fill full-bleed / 2 разнесённых→fit широко / нет→fit).
-    **R1c (`91fbc14`) — КОРНЕВОЙ фикс флешей+подлага аудио**: рендер = ОДИН проход (аудио непрерывным
-    `-map 0:a` → нет подлага; видео split→trim ПО КАДРАМ+crop/fit+setsar→concat-ФИЛЬТР; старт выровнен
-    на границу кадра → кроп ровно на склейке, нет чёрных кадров). Прежний per-shot-files+concat-демукс
-    (R1.3b) ВЫПИЛЕН — он давал и подлаг аудио, и чёрный кадр. Покадрово доказано на видео фаундера.
-  - **D2** — cut-aware reframe: окно держит план, скачок на склейке (не плавает). `abd7760`. (заменён R1)
-  - **C** — clean-start: клип не начинается с хвоста предложения. `100693c`.
-  - **B** — курирование в UI: степпер «сколько клипов» + чекбоксы выбора + «скачать выбранные». `0829bea`.
-  - **Active-speaker reframe** — наведение на ГОВОРЯЩЕГО (LR-ASD), ЗА ФЛАГОМ `REFRAME_SPEAKER`.
-    `5f1011f`/`70f02b1`/`7e1690b`. ⚠️ **ОТКРЫТО: ждём визуальный вердикт фаундера** (тот ли человек?
-    кадр не тесный?) + тюнинг `reframe_speaker_crop_scale` (сейчас 0.55). Стоимость ~2× длительности
-    видео на CPU → off по умолчанию (быстрый largest-face). ⚠️ speaker-путь ещё на ffmpeg detect_cuts
-    (R1 перевёл только default-путь на PySceneDetect); speaker-окна адаптируются в ShotPlan.
-- **Отложено**: K1 (RQ+Redis очередь) — план в `docs/superpowers/plans/2026-06-07-phase1-k1-queue.md`,
-  исполнение НЕ начато (выбрали «сначала качество»).
+
+### Phase 0 (A→J) ЗАВЕРШЁН
+Сквозной пайплайн + web UI + worker REST/SQLite, проверен e2e. Детали — в CLAUDE.md журнале.
+
+### Качество (итерации после Phase 0)
+
+**R1 Reframe 2.0 — ✅ СДЕЛАН (2026-06-08, коммиты `352284c`→`f6bd15c`)**
+
+Полная переработка reframe-стадии с нуля. Суть: **per-shot модель** — кроп постоянен внутри
+плана источника, меняется РОВНО на склейке. Нет плавного пана, нет time-expression в ffmpeg.
+
+Что изменилось от начала до конца R1:
+- **R1.1** — PySceneDetect ContentDetector вместо сырого ffmpeg scene-порога (кадроточные склейки).
+- **R1.2** — pure `build_shot_plan`: режим (`fill`/`fit`) решается НА ШОТ по геометрии лиц.
+- **R1.3b** — per-shot рендер: каждый шот = отдельный сегмент → concat-демуксер + burn субтитров.
+  ⛔ Этот подход УБРАН в R1c (он давал аудио-подлаги и чёрные кадры на стыках).
+- **R1b** — геометрия лиц: 2+ разнесённых лица → fit широко; одно/кластер → fill full-bleed.
+- **R1c** — ОДИН проход рендера (корневой фикс): аудио непрерывным `-map 0:a`, видео через
+  `split→trim(frame-exact)→crop/fit→concat`-ФИЛЬТР. Старт выровнен на кадр. Подлаги ушли.
+- **R1d** — `stabilize_plan`: короткий шот < `REFRAME_MIN_HOLD_SEC` поглощается предыдущим.
+  Гасит рапидное чередование fill↔fit на коротких шотах (0.4–0.8с) = «мигающий» кроп.
+
+**Текущее состояние R1: ждём вердикт фаундера** (флеши/аудио ушли? правильный человек?)
+
+**Другие улучшения:**
+- **K3 авто-язык** — Deepgram `detect_language` (lang=None), RU работает. `9af07ec`.
+- **Больше клипов** — `max_clips=8` (config) + промпт расширен. `b8e078d`.
+- **eval-харнесс** — `app/eval.py` (рубрика C1–C8, Q). `358054d`.
+- **D2** — cut-aware reframe (заменён R1). `abd7760`.
+- **C** — clean-start: клип не начинается с хвоста предложения. `100693c`.
+- **B** — курирование в UI: степпер клипов + чекбоксы + «скачать выбранные». `0829bea`.
+- **Active-speaker (ASD)** — наведение на ГОВОРЯЩЕГО, за флагом `REFRAME_SPEAKER`.
+  ⚠️ Speaker-путь всё ещё на ffmpeg `detect_cuts` (НЕ PySceneDetect). Default = off.
+  `5f1011f`/`70f02b1`/`7e1690b`.
+
+**Отложено**: K1 (RQ+Redis очередь) — план в `docs/superpowers/plans/...k1-queue.md`, не начат.
 
 ## 3. КАК ЗАПУСТИТЬ (Windows, PowerShell-инструмент)
-Каждая команда — с обновлением PATH (бинарники winget видны только так):
+
+**⚠️⚠️ ОБЯЗАТЕЛЬНО: обновлять PATH в каждом PowerShell-вызове:**
 ```powershell
 $env:PATH = [Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [Environment]::GetEnvironmentVariable("Path","User")
 ```
-- **⚠️⚠️ ПОСЛЕ ЛЮБОЙ ПРАВКИ КОДА ВОРКЕРА — ПЕРЕЗАПУСТИ ВОРКЕР** (uvicorn БЕЗ `--reload`!).
-  Иначе UI крутит СТАРЫЙ код в памяти и «изменений не видно» (реально потеряли сессию на этом
-  2026-06-08: фаундер тестил до-R1 код, воркер висел с утра). Убить по порту (см. ниже) + поднять заново.
-- **Поднять стек для теста (UI):**
-  ```powershell
-  # worker (active-speaker ВКЛ): из services/worker
-  $env:REFRAME_SPEAKER="true"; uv run --extra asd uvicorn app.main:app --host 0.0.0.0 --port 8000
-  # worker БЫСТРЫЙ (largest-face, без torch): из services/worker
-  uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
-  # web: из корня
-  pnpm --filter web dev
-  ```
-  Тестировать: **http://localhost:3000**. (web/.env.local → NEXT_PUBLIC_WORKER_URL=http://localhost:8000)
-- **Убить зомби-серверы по порту** (Next/uvicorn TaskStop НЕ убивает):
-  ```powershell
-  foreach ($p in 3000,8000){ Get-NetTCPConnection -LocalPort $p -State Listen -EA SilentlyContinue | Select -Expand OwningProcess -Unique | %{ Stop-Process -Id $_ -Force } }
-  ```
-- **CLI e2e (дёшево, кэш):** из services/worker: `uv run python -m app.run comedy01`
-  (стадии 0–2 кэшируются по наличию source.mp4/transcript.json/segments.json → не платим повторно).
-  Удалить `data/comedy01/segments.json` → пересобрать выбор моментов (свежий Gemini ~$0.016).
-- **Гейт перед коммитом (ОБЯЗАТЕЛЬНО зелёный):** из services/worker: `just check`.
 
-## 4. Тестовые данные (в `services/worker/data/`, gitignored)
-- **comedy01** — RU интервью «Звёзды против мошенников» (Щербаков). Полный кэш (source/transcript
-  7949 слов/segments 5/клипы). Лучший для теста reframe без оплаты.
-- **sample01** — EN «Mafia» (мультиспикер), кэш есть.
+**⚠️⚠️ ПОСЛЕ ЛЮБОЙ ПРАВКИ КОДА ВОРКЕРА — ПЕРЕЗАПУСТИ ВОРКЕР.**
+uvicorn запущен БЕЗ `--reload` → старый код остаётся в памяти. Проверить через reframe_<clip>.json
+формат: должен быть `{shots:[…]}`, а не `{mode,crop}`. Убить + запустить заново (ниже).
+
+**Поднять стек для теста (UI):**
+```powershell
+# worker БЫСТРЫЙ (largest-face, без torch): из services/worker
+$env:PATH = [Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [Environment]::GetEnvironmentVariable("Path","User")
+cd C:\Users\user\Desktop\ClipClow\services\worker
+uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
+
+# worker с active-speaker (ASD, torch, медленнее ~2×):
+$env:REFRAME_SPEAKER="true"
+uv run --extra asd uvicorn app.main:app --host 0.0.0.0 --port 8000
+
+# web: из корня
+$env:PATH = [Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [Environment]::GetEnvironmentVariable("Path","User")
+cd C:\Users\user\Desktop\ClipClow
+pnpm --filter web dev
+```
+Тестировать: **http://localhost:3000**
+
+**Убить зомби-серверы по порту:**
+```powershell
+foreach ($p in 3000,8000){ Get-NetTCPConnection -LocalPort $p -State Listen -EA SilentlyContinue | Select -Expand OwningProcess -Unique | %{ Stop-Process -Id $_ -Force } }
+```
+
+**CLI e2e (дёшево, кэш):** из `services/worker`:
+```powershell
+uv run python -m app.run comedy01
+# стадии 0-2 кэшируются → повторный прогон не платит Deepgram/Gemini
+# удалить data/comedy01/segments.json → пересобрать выбор (Gemini ~$0.016)
+```
+
+**Гейт перед коммитом (ОБЯЗАТЕЛЬНО зелёный):**
+```powershell
+cd C:\Users\user\Desktop\ClipClow\services\worker
+just check
+```
+
+## 4. Тестовые данные (`services/worker/data/`, gitignored)
+
+| Датасет | Описание | Кэш |
+|---------|----------|-----|
+| `comedy01` | RU интервью «Звёзды против мошенников» (Щербаков, ~33 мин) | source + transcript + segments + clips |
+| `sample01` | EN «Mafia» (мультиспикер) | source + transcript + segments + clips |
+
+`comedy01` — основной для теста reframe без оплаты. Все стадии 0–2 уже прогнаны.
 
 ## 5. Архитектура (где что)
-- `app/pipeline/stage0_import…stage5_render.py` — чистые стадии (pure-логика + тонкие I/O-обёртки).
-- `app/run.py` — склейка стадий 0→5 + job.json + runs.jsonl (телеметрия). CLI и REST зовут её.
-- `app/main.py` (POST/GET /jobs, /healthz, /media), `app/tasks.py` (фон), `app/db.py` (SQLite).
-- `app/models.py` — ЕДИНЫЙ источник типов. Менять контракт ТОЛЬКО здесь → `just types` (codegen).
-- **Reframe:** `stage3_reframe.py` (cut-aware largest-face D2: detect_cuts→build_shots→shot_centers);
-  `stage3_speaker.py` (PURE: build_tracks IOU + pick_speaker_centers argmax); `asd_reframe.py`
-  (I/O: MediaPipe@25fps→tracks→crop+ASD→центр говорящего); `app/asd/` (вендоренное ядро LR-ASD
-  `_vendor/` MIT + `scorer.py` наш + `weights/`). Reframe-режимы: `REFRAME_MODE=auto|fill|fit`,
-  `REFRAME_SPEAKER=true|false`, `REFRAME_SPEAKER_CROP_SCALE=0.55`.
-- **Web:** `app/page.tsx` (state idle→tracking→done→error), `components/` (SourceForm со степпером,
-  ClipGrid с чекбоксами, ClipCard, JobProgress…), `lib/` (api/useJob polling/format), `app/api/mock`.
 
-## 6. ГРАБЛИ (критично — не наступать снова)
-- **PowerShell-инструмент**: для Windows/uv/just/pnpm/ffmpeg + всегда PATH-refresh (см. §3).
-  Держит cwd между вызовами → используй АБСОЛЮТНЫЕ пути. `2>&1` на нативных exe ломает exit-code.
-- **Bash-инструмент**: настоящий bash; ffmpeg/just НЕ на его PATH; для python-однострочников ок,
-  но Cyrillic в консоль бьётся → писать вывод в файл и читать Read-ом.
-- **Коммит ТОЛЬКО из PowerShell** (pre-commit зовёт `just check`, нужен PATH). Сообщение —
-  в файл `services/worker/tmp/COMMIT_MSG.txt` (UTF-8) + `git commit -F` (PS-пайп бьёт кириллицу/BOM).
-- **pre-commit ruff-format переформатирует** под стиль → если хук «reformatted N files» и упал,
-  просто `git add` заново + повторить коммит. Вендоренное (`app/asd/_vendor`) исключено в
-  `.pre-commit-config.yaml` + `[tool.ruff] force-exclude`.
-- **Типы — только `just types`** (из models.py); руками `packages/shared/*` НЕ трогать (anti-drift).
-- **TDD на pure-логике обязателен** (правило плана). Тесты в `services/worker/tests/unit/`.
-- **Спайк-окружение ASD** (torch CPU + LR-ASD клон) — в `services/worker/tmp/spike/` (gitignored, ~ГБ;
-  можно удалить, если место надо). torch/scipy/psf поставлены в worker-venv (опц. группа `asd`).
+```
+apps/web/                    — Next 16 фронт
+  app/page.tsx               — state-машина idle→tracking→done→error
+  components/                — SourceForm (степпер), ClipGrid (чекбоксы), ClipCard, JobProgress…
+  lib/                       — api (useJob polling 2.5с/3-фейла), format утилиты
+  app/api/mock/              — мок-воркер для dev без реального воркера
 
-## 6b. Тюнинг reframe (кнобы в config / .env — крутить тут, перегонять comedy01)
-- `REFRAME_SCENE_THRESHOLD` 27.0 — порог PySceneDetect ContentDetector (R1, default-путь;
-  ВЫШЕ → меньше склеек/ложных; шкала ~0..255, НЕ ffmpeg 0..1).
-- `REFRAME_MIN_SCENE_SEC` 0.4 — мин. длина плана (анти-дребезг; выше → меньше коротких fit-перебивок).
-- `REFRAME_MIN_HOLD_SEC` 1.5 — АНТИ-ФЛЕШ (R1d): шот короче этого НЕ переключает кадр, держим
-  предыдущий (гасит мигание fill↔fit/скачки центра на коротких шотах). Выше → спокойнее/стабильнее.
-- `REFRAME_SPEAKER` true/false — наведение на говорящего (ASD) vs largest-face.
-- `REFRAME_CUT_THRESHOLD` 0.4 — порог ffmpeg-склеек, теперь ТОЛЬКО speaker-путь (ASD ещё на нём).
-- `REFRAME_DEAD_ZONE` 0.12 — теперь = tolerance слияния планов (merge_shot_plan): смежные
-  fill-планы с близким центром → 1 сегмент (выше → меньше микро-reframe между похожими планами).
-- `REFRAME_SPEAKER_CROP_SCALE` 0.55 — насколько широкий кадр вокруг лица (ASD-путь).
-- Проверка эффекта: `data/comedy01/reframe_clip_01.json` → теперь {shots:[{t0,t1,mode,center}]};
-  считать fit-шоты (b-roll) и смены center (reframe). Прогон: `uv run python -m app.run comedy01` ($0, кэш).
-- Тест reframe БЕЗ Deepgram (когда транскрипт не нужен): `tmp/test_reframe_comedians.py <start> <end>`.
+packages/shared/             — TS-типы (ТОЛЬКО codegen, не трогать руками)
+  contract.json              — JSON-схема из models.py
+  src/types.ts               — TypeScript типы
 
-## 7. БЛИЖАЙШЕЕ (что делать в новой сессии)
-> 🎯 Продуктовый вектор «догнать Opus Clip» — в `docs/ROADMAP.md` (приоритеты R1→R6).
-> R1 ✅ СДЕЛАН. **Следующий — R2 (не только подкасты + мягкий empty-state).**
-1. **R1 — вердикт фаундера по скринам** (отправлены: cic_sheet/cic_boundary/clip01_sheet):
-   нет флешей? b-roll широко ок? Если ок — закрыть. Тюнинг при необходимости — кнобы §6b
-   (scene_threshold/min_scene_sec против коротких ложных fit-перебивок).
-2. **R1b СДЕЛАН (`e8437e6`)** — «широко vs тайт» по геометрии лиц: 2+ разнесённых лица → fit
-   (широко обоих, как OpusClip); одно/кластер → fill (full-bleed) на крупнейшем; нет лиц → fit.
-   `sample_faces` отдаёт ВСЕ лица (cx+ширина), pure `shot_is_wide`. Выбор фаундера: одиночка =
-   full-bleed (без блюр-рамок), 2 человека = широко. ⚠️ ОТКРЫТО: на close-up-источнике (16:9, 1
-   лицо) full-bleed = тайт by physics; «менее тесно» = только через блюр-рамки (фаундер отклонил).
-   MEDIUM-режим (кроп шире лица + лёгкие рамки) — прототип был, отклонён (хочет full-bleed).
-3. **⚠️ НАХОДКА: двойные субтитры** — видео с УЖЕ вшитыми субтитрами (как Kanye/Elon) → наши
-   прожигаются поверх чужих. Нужна опция «не жечь субтитры» / детект существующих. Не для R1.
-4. **R2** — stage2 (Gemini) расширить на не-подкасты (визуальные хуки/экшен) + мягкий empty-state
-   с диагностикой. См. ROADMAP R2.
-5. **⚠️ НАХОДКА R1: Deepgram режет upload больших wav** (Comedians 19мин/37МБ wav → HTTP 408
-   SLOW_UPLOAD / Server disconnected). Сетевое окружения, но стоит: (а) сжать аудио перед upload
-   (mp3/opus вместо pcm 16k — ~3× меньше) ИЛИ Deepgram URL-ingest; (б) ретраи на 408/disconnect в
-   call_deepgram. Сейчас длинные видео через UI могут падать на транскрипции.
-4. Возможные улучшения: кэш транскрипции по hash(source) (UI-джоб каждый раз платит Deepgram);
-   active-speaker дефолт (флаг on/off, `--extra asd` ставит torch); K1-очередь (по плану, отложено).
-- Ключи в `.env` (корень): DEEPGRAM_API_KEY, GEMINI_API_KEY, LLM_MODEL=gemini-flash-latest.
-  Экономика: ~$0.16/видео (33 мин), доминанта — транскрипция (см. BENCHMARKS).
+services/worker/
+  app/
+    models.py                — ЕДИНЫЙ источник типов (контракт). Менять здесь → just types
+    config.py                — pydantic-settings, fail-fast при отсутствии ключа, lru_cache
+    errors.py                — JobError (нет тихих фолбэков, правило №8)
+    db.py                    — SQLite, row_to_wire
+    tasks.py                 — фоновый worker (asyncio), обновляет статус
+    main.py                  — FastAPI: POST/GET /jobs, /healthz, CORS :3000, StaticFiles /media
+    run.py                   — СКЛЕЙКА стадий 0→5 (оркестрация, не логика). job.json + runs.jsonl
+
+    pipeline/
+      stage0_import.py       — yt-dlp download + ffprobe meta (SourceMeta)
+      stage1_transcribe.py   — Deepgram REST /v1/listen через httpx (НЕ SDK!)
+      stage2_select.py       — Gemini structured output → сегменты. Промпт в prompts/
+      stage3_reframe.py      — Reframe per-shot: PySceneDetect + MediaPipe лица + ShotPlan
+      stage4_captions.py     — ASS субтитры (Montserrat 90, upper, group_words)
+      stage5_render.py       — Один проход ffmpeg: split→trim→crop/fit→concat→subtitles
+
+    asd/                     — Active-speaker detection (LR-ASD вендоринг, MIT)
+      _vendor/               — вендоренное ядро (~ГБ torch-зависимости, gitignored)
+      scorer.py              — ленивый torch, optional asd-экстра
+    pipeline/stage3_speaker.py — PURE IOU-трекинг лиц + выбор говорящей дорожки (без torch)
+    pipeline/asd_reframe.py  — I/O: MediaPipe@25fps → tracks → окна говорящего (нужен asd-экстра)
+
+  prompts/
+    select_moments.v1.txt    — промпт Gemini (крутить без перекодировки)
+
+  tests/unit/
+    test_stage3_reframe.py   — ~60+ тестов: cuts, shots, plan, stabilize, merge, wide
+    test_stage5_render.py    — ~10 тестов: filter_complex, single_pass_cmd
+    …                        — остальные стадии аналогично
+```
+
+## 6. Reframe в деталях (для понимания кода)
+
+### Поток данных `reframe_segment`
+
+```
+source.mp4 + (start, end)
+  │
+  ├─ detect_scene_cuts()  ← PySceneDetect ContentDetector, frame-accurate
+  │    └→ list[float]  # клип-относительные склейки (секунды)
+  │
+  ├─ build_shots()  ← cuts → список интервалов [(t0, t1), …]
+  │
+  ├─ sample_faces()  ← ffmpeg кадры (2fps) + MediaPipe Tasks API
+  │    └→ list[(t, [(cx, w_frac), …])]  # ВСЕ лица: центр X + ширина (доли кадра)
+  │
+  ├─ build_shot_plan()  ← face_frames + shots → логика per-shot:
+  │    нет лиц → fit
+  │    2+ разнесённых (span > 9:16-ширина) → fit широко (оба видны)
+  │    одно/кластер → fill на крупнейшем (медиана)
+  │    └→ list[ShotPlan]
+  │
+  ├─ [speaker=True] windows_to_shot_plan()  ← ASD-путь, заменяет fill-центры
+  │
+  ├─ merge_shot_plan(tolerance=dead_zone)   ← сливает смежные равные (статика → 1 кодировка)
+  ├─ stabilize_plan(min_hold_sec)           ← короткие шоты поглощает → нет «мигания»
+  └─ merge_shot_plan(tolerance=dead_zone)   ← второй проход после stabilize
+
+Результат: list[ShotPlan] → пишется в reframe_<clip_id>.json
+```
+
+### Поток данных `render_clip` (один проход, R1c)
+
+```
+source.mp4 + aligned_start + shots
+  │
+  ├─ build_reframe_filter()  ← filter_complex строка:
+  │    [0:v]setpts=PTS-STARTPTS,split=N[a0][a1]…
+  │    [a{i}]trim=start_frame={f0}:end_frame={f1},setpts=PTS-STARTPTS,{crop_or_fit},setsar=1[s{i}]
+  │    [s0][s1]…concat=n=N:v=1[cv];[cv]subtitles={ass}[outv]
+  │
+  ├─ build_single_pass_cmd()  ← ffmpeg -ss {aligned_start} -i source -t {dur}
+  │    -filter_complex {fc} -map [outv] -map 0:a  ← аудио НЕПРЕРЫВНЫМ
+  │    -c:v libx264 -crf 20 -c:a aac -b:a 128k
+  │
+  └─ _run_ffmpeg()  → clips/<clip_id>.mp4
+```
+
+**Ключевые инварианты:**
+- `aligned_start = round(seg_start * fps) / fps` → trim-кадры совпадают с реальными склейками
+- fit-шот использует уникальные лейблы `[bg{i}]`, `[fg{i}]` (глобальные → коллизия на 2+ fit)
+- `setsar=1` на КАЖДОМ сегменте (fill и fit дают разный sample-aspect-ratio → concat без него падает)
+- аудио `-map 0:a` — никогда не режем (непрерывный поток → ноль AAC-прайминга = ноль подлагов)
+
+### ShotPlan (frozen dataclass)
+
+```python
+@dataclass(frozen=True)
+class ShotPlan:
+    t0: float       # старт шота (клип-relative, секунды)
+    t1: float       # конец шота
+    mode: str       # "fill" | "fit"
+    center: float | None  # доля X кадра (только fill); fit → None
+```
+
+`reframe_<clip_id>.json` → `{shots: [{t0, t1, mode, center}, …]}`
+
+## 7. Кнобы качества (`.env` / `config.py`)
+
+| Переменная | Дефолт | Описание |
+|------------|--------|----------|
+| `REFRAME_SCENE_THRESHOLD` | 27.0 | ContentDetector порог (выше → меньше ложных склеек) |
+| `REFRAME_MIN_SCENE_SEC` | 0.4 | Мин. длина плана (анти-дребезг коротких шотов) |
+| `REFRAME_MIN_HOLD_SEC` | 1.5 | Анти-флеш: шот короче → поглощается предыдущим |
+| `REFRAME_DEAD_ZONE` | 0.12 | Tolerance слияния fill-планов с близким центром |
+| `REFRAME_SPEAKER` | false | Наведение на говорящего (ASD, нужен `--extra asd`) |
+| `REFRAME_SPEAKER_CROP_SCALE` | 0.55 | Ширина кропа вокруг лица (ASD-путь) |
+| `REFRAME_CUT_THRESHOLD` | 0.4 | ffmpeg-порог для SPEAKER-пути (ASD ещё на нём!) |
+| `REFRAME_MODE` | auto | auto / fill / fit глобально |
+| `LLM_MODEL` | gemini-flash-latest | ⚠️ gemini-2.5-pro = квота 0 на free tier |
+| `MAX_CLIPS` | 8 | Макс. кандидатов от Gemini |
+
+**Проверка эффекта без оплаты:**
+```powershell
+# Прогнать comedy01 (transcript+segments кэшированы)
+uv run python -m app.run comedy01
+
+# Посмотреть план шотов clip_01
+cat data\comedy01\reframe_clip_01.json
+# Ожидаемо: {shots:[{t0,t1,mode,center},...]} — несколько fit-шотов (b-roll широко)
+```
+
+## 8. Известные проблемы и грабли
+
+### Критичные грабли инструментов
+
+| Грабля | Правило |
+|--------|---------|
+| PowerShell держит cwd между вызовами | Всегда абсолютные пути или `Set-Location` в начале |
+| Bash-инструмент не видит ffmpeg/just (winget PATH) | Любые прогоны пайплайна — через PowerShell с PATH-refresh |
+| Коммит из Bash-инструмента → кириллица `?????` + BOM | Коммитить ТОЛЬКО из PowerShell; сообщение через файл + `-F` |
+| pre-commit ruff-format переформатирует → хук падает | После `reformatted N files` → `git add` заново + повторный коммит |
+| uv sync без `--extra asd` удаляет torch → mypy падает | В dev-среде: всегда `uv sync --extra asd` |
+
+### Известные баги (не фиксим сейчас)
+
+| Баг | Описание | Приоритет |
+|-----|----------|-----------|
+| Двойные субтитры | Видео с вшитыми субтитрами → наши прожигаются поверх | R1/R2 |
+| Deepgram 408 SLOW_UPLOAD | >19 мин (37 МБ wav) → таймаут | R2-ish |
+| shot_is_wide не срабатывает | Второй человек в профиль/затылком → MediaPipe видит 1 лицо | physics |
+| Speaker-путь на старых cuts | ASD ещё на ffmpeg detect_cuts, не на PySceneDetect | Phase 1 |
+
+### Deepgram SLOW_UPLOAD (временный обходной путь)
+Если видео > 15 мин → может упасть на транскрипции. Варианты:
+1. Сжать аудио: `ffmpeg -i source.wav -c:a libmp3lame -q:a 4 source.mp3` (~3× меньше)
+2. Deepgram URL-ingest (не через upload, а через ссылку) — TODO в stage1
+
+## 9. БЛИЖАЙШЕЕ (что делать в новой сессии)
+
+> 🎯 **R1 вердикт** — ключевое: фаундер тестирует R1c+R1d. Флеши ушли? Аудио норм?
+> Если да → закрыть R1 и двигаться на R2.
+
+1. **R1 вердикт фаундера** — попросить прогнать его видео через UI (воркер на последнем коде).
+   Кнобы при необходимости (§7): поднять `REFRAME_MIN_HOLD_SEC` (стабильнее), снизить
+   `REFRAME_SCENE_THRESHOLD` (больше склеек) или поднять (меньше ложных).
+
+2. **R2** — stage2 (Gemini) расширить на не-подкасты (визуальные хуки, экшен) + мягкий
+   empty-state с диагностикой. См. `docs/ROADMAP.md` R2.
+
+3. **«Тот человек»** — детект тел (не только лиц), фронтальный = главный. Brainstorm был:
+   detect PEOPLE (body bbox), frontal-to-camera = main, Gemini hybrid для спорных шотов.
+   НЕ реализовано — отложено за «сначала флеши».
+
+4. **Кэш транскрипции по hash(source)** — UI-джоб каждый раз платит Deepgram. Дёшево сделать:
+   hash(source.mp4) → ключ кэша; повторные прогоны бесплатны.
+
+- Ключи в `.env` (корень): `DEEPGRAM_API_KEY`, `GEMINI_API_KEY`, `LLM_MODEL=gemini-flash-latest`
+- Экономика: ~$0.16/видео (33 мин), доминанта — транскрипция ($0.14). Бенчмарки → `docs/BENCHMARKS.md`.

@@ -228,11 +228,12 @@
 - **Внешние сервисы задокументированы:** `docs/EXTERNAL_SERVICES.md` (что/где/чем свапнуть).
 
 ### Пост-Phase-0 улучшения (по запросу фаундера)
-- **Reframe AUTO** (stage3/stage5): лицо есть → FILL (кроп по лицу, крупно); лица нет →
-  **FIT** (весь кадр 16:9 + размытые рамки сверху/снизу — НЕ режет текст/графику по бокам).
-  Переключатель `REFRAME_MODE=auto|fill|fit` (.env). `decide_reframe_mode` + `build_vf_fit`
-  (split→bg blur+fg fit→overlay) — TDD. reframe_segment теперь пишет `reframe_<clip>.json`
-  ({mode, crop}) и возвращает (mode, crop, face_found). FIT проверен глазами на sample01.
+- **Reframe AUTO** (первый вариант): `decide_reframe_mode` + `build_vf_fit`. reframe_<clip>.json
+  был `{mode, crop}` (одно значение на весь сегмент).
+  ⛔ **ПОЛНОСТЬЮ ЗАМЕНЕНО R1** (per-shot модель, см. R1-секции ниже). `decide_reframe_mode`,
+  `build_vf_fit`, `build_vf_fill`, `build_ffmpeg_cmd`, `shot_centers`, `detect_cuts` (основной путь)
+  — все УДАЛЕНЫ. `reframe_<clip>.json` теперь `{shots:[{t0,t1,mode,center}…]}`.
+  Текущий код: `stage3_reframe.py` (pure) + `stage5_render.py` (один проход).
 - **Промпт вынесен в файл:** `services/worker/prompts/select_moments.v1.txt` (крутить без
   кода); `stage2_select.load_system_prompt()` грузит его, fallback — `DEFAULT_SYSTEM_PROMPT`.
 
