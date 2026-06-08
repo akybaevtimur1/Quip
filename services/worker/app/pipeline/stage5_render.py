@@ -41,6 +41,52 @@ def build_vf_fit(ass_name: str, *, out_w: int = 1080, out_h: int = 1920, blur: i
     )
 
 
+def build_vf_fill(crop: CropWindow, *, out_w: int = 1080, out_h: int = 1920) -> str:
+    """Per-shot FILL (R1.3): crop → scale(lanczos) → setpts(PTS→0). БЕЗ субтитров.
+
+    Каждый шот рендерим отдельным сегментом со СВОИМ статическим кропом → смена кадра
+    ровно на склейке (встык concat), флешей нет by-design. Субтитры жжём после concat.
+    """
+    return (
+        f"crop={crop.w}:{crop.h}:{crop.x}:{crop.y},"
+        f"scale={out_w}:{out_h}:flags=lanczos,setpts=PTS-STARTPTS"
+    )
+
+
+def build_vf_fit_shot(*, out_w: int = 1080, out_h: int = 1920, blur: int = 20) -> str:
+    """Per-shot FIT (R1.3): весь кадр + размытый зум-фон (b-roll широко). БЕЗ субтитров."""
+    return (
+        f"setpts=PTS-STARTPTS,split=2[bg][fg];"
+        f"[bg]scale={out_w}:{out_h}:force_original_aspect_ratio=increase,"
+        f"crop={out_w}:{out_h},gblur=sigma={blur}[bgb];"
+        f"[fg]scale={out_w}:{out_h}:force_original_aspect_ratio=decrease[fgb];"
+        f"[bgb][fgb]overlay=(W-w)/2:(H-h)/2"
+    )
+
+
+def build_concat_list(shot_files: list[str]) -> str:
+    """Контент файла-списка для ffmpeg concat-демуксера (по одному ``file '<имя>'`` на строку)."""
+    if not shot_files:
+        raise JobError(_STAGE, "concat: пустой список шотов")
+    return "".join(f"file '{f}'\n" for f in shot_files)
+
+
+def build_concat_burn_cmd(list_file: str, ass_name: str, out_name: str) -> list[str]:
+    """Финальный проход: concat-демуксер шотов + burn субтитров (один re-encode видео, аудио aac).
+
+    Шоты уже встык 0-based → concat даёт непрерывный клип-таймлайн → .ass (0-based) совпадает.
+    -safe 0 → относительные пути в списке (cwd=data_dir, как и burn) без ада escaping.
+    """
+    return [
+        "ffmpeg", "-y",
+        "-f", "concat", "-safe", "0", "-i", list_file,
+        "-vf", f"subtitles={ass_name}",
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
+        "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart",
+        out_name,
+    ]  # fmt: skip
+
+
 def build_crop_x_step_expr(windows: list[tuple[float, int]]) -> str:
     """СТУПЕНЧАТЫЙ x(t) (hold & cut): x держится константой внутри плана, мгновенно скачет
     на границе плана. Вход — (shot_start_t, x) по возрастанию t. Соседние равные x схлопываем.

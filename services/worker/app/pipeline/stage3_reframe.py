@@ -159,6 +159,53 @@ def build_shot_plan(
     return out
 
 
+def merge_shot_plan(plan: list[ShotPlan], *, tolerance: float = 0.0) -> list[ShotPlan]:
+    """Сливаю смежные шоты с одинаковым (режим, центр) в один сегмент рендера.
+
+    Зачем: статичная камера (N склеек, тот же кадр) → 1 кодировка, не N. Шот примыкает к
+    текущему сегменту, если режим тот же И (fit, либо fill с |center − ДЕРЖИМЫЙ| ≤ tolerance).
+    Сравнение с ДЕРЖИМЫМ центром сегмента (не предыдущим) → медленный дрейф не накапливается.
+    Слитый сегмент: [run_t0, last_t1], центр = первый (держимый).
+    """
+    if not plan:
+        return []
+    out: list[ShotPlan] = []
+    cur = plan[0]
+    for nxt in plan[1:]:
+        same_mode = nxt.mode == cur.mode
+        joins = same_mode and (
+            cur.mode == "fit"
+            or (
+                cur.center is not None
+                and nxt.center is not None
+                and abs(nxt.center - cur.center) <= tolerance
+            )
+        )
+        if joins:
+            cur = ShotPlan(t0=cur.t0, t1=nxt.t1, mode=cur.mode, center=cur.center)
+        else:
+            out.append(cur)
+            cur = nxt
+    out.append(cur)
+    return out
+
+
+def windows_to_shot_plan(
+    windows: list[CropWindow], *, duration: float, src_w: int
+) -> list[ShotPlan]:
+    """Speaker-адаптер: окна говорящего (CropWindow на план, t=старт) → ShotPlan для рендера.
+
+    center восстанавливаем из пикселей: (x + w/2)/src_w. t1 шота = старт следующего окна
+    (последнего → duration). Все fill (speaker-режим подразумевает лица). Пусто → [] (fallback).
+    """
+    out: list[ShotPlan] = []
+    for i, w in enumerate(windows):
+        t1 = windows[i + 1].t if i + 1 < len(windows) else duration
+        center = (w.x + w.w / 2) / src_w
+        out.append(ShotPlan(t0=w.t, t1=t1, mode="fill", center=center))
+    return out
+
+
 def decide_reframe_mode(setting: str, face_found: bool) -> str:
     """Режим reframe: 'fill' (кроп по лицу) или 'fit' (весь кадр + блюр-рамки, ничего не режет).
 
