@@ -55,8 +55,12 @@ class Settings(BaseSettings):
     # off → cut-aware largest-face (D2). reframe_speaker_crop_scale — тюнинг кадра под MediaPipe.
     reframe_speaker: bool = False
     reframe_speaker_crop_scale: float = 0.55
-    # умная статика (гасит «флеши»): порог детекта склеек (выше → меньше ложных) +
-    # dead-zone (окно НЕ двигаем, пока центр не уехал > доли ширины → держим кадр через склейки).
+    # per-shot reframe (R1): склейки PySceneDetect ContentDetector (НЕ ffmpeg-шкала 0..1).
+    # scene_threshold ~27 (выше → меньше ложных склеек); min_scene_sec — анти-дребезг (мин. план).
+    reframe_scene_threshold: float = 27.0
+    reframe_min_scene_sec: float = 0.4
+    # умная статика: порог ffmpeg-склеек для SPEAKER-пути (ASD ещё на detect_cuts) + dead-zone
+    # (= tolerance слияния планов: смежные планы с близким центром → 1 сегмент, без дёрганья).
     reframe_cut_threshold: float = 0.4
     reframe_dead_zone: float = 0.12
 

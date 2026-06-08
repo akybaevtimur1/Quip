@@ -1,8 +1,10 @@
-"""Stage 5 (Render): source + crop + captions → clips/<clip_id>.mp4 (1080×1920, один проход ffmpeg).
+"""Stage 5 (Render): source + план шотов + captions → clips/<clip_id>.mp4 (1080×1920, per-shot).
 
-Один проход: cut (input -ss + -t) → crop → scale 1080×1920 → setpts (PTS→0) → burn субтитров
-→ libx264/aac. -ss ДО -i сбрасывает PTS к нулю, чтобы клип-тайминг .ass совпал (R3).
-ffmpeg запускаем с cwd=data/<job_id> и ОТНОСИТЕЛЬНЫМ subtitles=<file>.ass (без ада escaping).
+Per-shot (R1): каждый план — отдельный сегмент (cut + свой static-crop ИЛИ fit-блюр) →
+concat-демуксер → burn субтитров ВТОРЫМ проходом. Кроп меняется ровно на склейке (встык
+concat) → флешей нет by-design. -ss ДО -i сбрасывает PTS к нулю → шоты встык 0-based →
+непрерывный клип-таймлайн → .ass (0-based) совпадает (R3). ffmpeg с cwd=data/<job_id> и
+ОТНОСИТЕЛЬНЫМИ путями (subtitles=<file>.ass, concat-список) — без ада escaping.
 
 Границы: сборка фильтра/команды — PURE (unit-тесты). Запуск ffmpeg — обёртка, JobError при сбое.
 """
@@ -12,33 +14,15 @@ from __future__ import annotations
 import subprocess
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from app.errors import JobError
 from app.models import CropWindow
 
+if TYPE_CHECKING:
+    from app.pipeline.stage3_reframe import ShotPlan
+
 _STAGE = "render"
-
-
-def build_vf(crop: CropWindow, ass_name: str, *, out_w: int = 1080, out_h: int = 1920) -> str:
-    """FILL: crop → scale(lanczos) → setpts(PTS→0) → burn субтитров (отн. имя .ass)."""
-    return (
-        f"crop={crop.w}:{crop.h}:{crop.x}:{crop.y},"
-        f"scale={out_w}:{out_h}:flags=lanczos,setpts=PTS-STARTPTS,subtitles={ass_name}"
-    )
-
-
-def build_vf_fit(ass_name: str, *, out_w: int = 1080, out_h: int = 1920, blur: int = 20) -> str:
-    """FIT: весь кадр целиком в центре + размытый зум-фон сверху/снизу (ничего не режет).
-
-    split → bg(заполнить+crop+blur) + fg(вписать целиком) → overlay по центру → субтитры.
-    """
-    return (
-        f"setpts=PTS-STARTPTS,split=2[bg][fg];"
-        f"[bg]scale={out_w}:{out_h}:force_original_aspect_ratio=increase,"
-        f"crop={out_w}:{out_h},gblur=sigma={blur}[bgb];"
-        f"[fg]scale={out_w}:{out_h}:force_original_aspect_ratio=decrease[fgb];"
-        f"[bgb][fgb]overlay=(W-w)/2:(H-h)/2,subtitles={ass_name}"
-    )
 
 
 def build_vf_fill(crop: CropWindow, *, out_w: int = 1080, out_h: int = 1920) -> str:
@@ -87,47 +71,6 @@ def build_concat_burn_cmd(list_file: str, ass_name: str, out_name: str) -> list[
     ]  # fmt: skip
 
 
-def build_crop_x_step_expr(windows: list[tuple[float, int]]) -> str:
-    """СТУПЕНЧАТЫЙ x(t) (hold & cut): x держится константой внутри плана, мгновенно скачет
-    на границе плана. Вход — (shot_start_t, x) по возрастанию t. Соседние равные x схлопываем.
-
-    1 план → константа. N → вложенные ``if(lt(t,T_i), X_{i-1}, …)``. БЕЗ экранирования
-    (его делает build_vf_dynamic). Время t — КЛИП-относительное.
-    """
-    if not windows:
-        raise ValueError("нужен ≥1 план для x-выражения")
-    reduced: list[tuple[float, int]] = [windows[0]]
-    for t, x in windows[1:]:
-        if x != reduced[-1][1]:
-            reduced.append((t, x))
-    if len(reduced) == 1:
-        return str(reduced[0][1])
-    expr = str(reduced[-1][1])
-    for i in range(len(reduced) - 1, 0, -1):
-        boundary = reduced[i][0]
-        x_before = reduced[i - 1][1]
-        expr = f"if(lt(t,{boundary}),{x_before},{expr})"
-    return expr
-
-
-def build_vf_dynamic(
-    crops: list[CropWindow], ass_name: str, *, out_w: int = 1080, out_h: int = 1920
-) -> str:
-    """FILL cut-aware: окно держит план, скачок на склейке. setpts ПЕРВЫМ → crop видит
-    клип-время (0-based). x(t) — СТУПЕНЧАТОЕ выражение; запятые экранируем ``\\,`` для
-    filtergraph-парсера (vf уходит одним argv, без shell). w/h из первого окна (постоянны).
-    """
-    if not crops:
-        raise JobError(_STAGE, "динамический кроп требует ≥1 окна")
-    w, h = crops[0].w, crops[0].h
-    x_expr = build_crop_x_step_expr([(c.t, c.x) for c in crops])
-    x_esc = x_expr.replace(",", "\\,")
-    return (
-        f"setpts=PTS-STARTPTS,crop={w}:{h}:{x_esc}:0,"
-        f"scale={out_w}:{out_h}:flags=lanczos,subtitles={ass_name}"
-    )
-
-
 def build_ffmpeg_cmd(source: str, start: float, end: float, vf: str, out_name: str) -> list[str]:
     """Команда ffmpeg: -ss ДО -i (PTS→0 для синка субтитров), -t = длительность сегмента."""
     dur = round(end - start, 3)
@@ -141,37 +84,66 @@ def build_ffmpeg_cmd(source: str, start: float, end: float, vf: str, out_name: s
     ]  # fmt: skip
 
 
-def render_clip(
-    data_dir: Path,
-    source_name: str,
-    start: float,
-    end: float,
-    ass_name: str,
-    out_name: str,
-    *,
-    mode: str = "fill",
-    crop: list[CropWindow] | None = None,
-) -> float:
-    """Один клип: ffmpeg cut + (fill-кроп | fit-блюр) + burn + encode. cwd=data_dir.
-
-    crop — трек окон 9:16: 1 окно → статический кроп; >1 → динамический (x едет за лицом).
-    Возвращает латентность (с). JobError при сбое/отсутствии выхода.
-    """
-    (data_dir / out_name).parent.mkdir(parents=True, exist_ok=True)
-    if mode == "fit":
-        vf = build_vf_fit(ass_name)
-    else:
-        if not crop:
-            raise JobError(_STAGE, "fill-режим требует crop-окно(а)")
-        vf = build_vf_dynamic(crop, ass_name) if len(crop) > 1 else build_vf(crop[0], ass_name)
-    cmd = build_ffmpeg_cmd(source_name, start, end, vf, out_name)
-    t0 = time.perf_counter()
+def _run_ffmpeg(cmd: list[str], cwd: Path) -> None:
+    """Запуск ffmpeg с cwd; JobError при отсутствии бинарника или ненулевом коде (№8)."""
     try:
-        proc = subprocess.run(cmd, cwd=data_dir, capture_output=True, text=True)
+        proc = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
     except FileNotFoundError as e:
         raise JobError(_STAGE, f"не найден ffmpeg: {e}") from e
     if proc.returncode != 0:
-        raise JobError(_STAGE, f"ffmpeg render код {proc.returncode}: {(proc.stderr or '')[-400:]}")
-    if not (data_dir / out_name).exists():
-        raise JobError(_STAGE, f"рендер не создал {out_name}")
+        raise JobError(_STAGE, f"ffmpeg код {proc.returncode}: {(proc.stderr or '')[-400:]}")
+
+
+def render_clip(
+    data_dir: Path,
+    source_name: str,
+    seg_start: float,
+    ass_name: str,
+    out_name: str,
+    *,
+    shots: list[ShotPlan],
+    src_w: int,
+    src_h: int,
+) -> float:
+    """Per-shot рендер клипа (R1): каждый план — отдельный сегмент (свой static-crop ИЛИ
+    fit-блюр) → concat-демуксер → burn субтитров ВТОРЫМ проходом. Кроп меняется ровно на
+    склейке (встык concat) → флешей нет by-design; b-roll-планы показаны широко (fit).
+
+    seg_start — абсолютный старт клипа в источнике; план — клип-относительный (t0/t1).
+    cwd=data_dir (относительные пути → без ада escaping). Temp-файлы шотов/списка чистим.
+    Возвращает латентность (с). JobError при сбое/отсутствии выхода.
+    """
+    from app.pipeline.stage3_reframe import compute_crop_window  # noqa: PLC0415
+
+    if not shots:
+        raise JobError(_STAGE, "render: пустой план шотов")
+    (data_dir / out_name).parent.mkdir(parents=True, exist_ok=True)
+    clip_tag = Path(out_name).stem  # clip_01
+    list_name = f"_concat_{clip_tag}.txt"
+    shot_files: list[str] = []
+    t0 = time.perf_counter()
+    try:
+        for i, shot in enumerate(shots):
+            if shot.mode == "fit":
+                vf = build_vf_fit_shot()
+            else:
+                if shot.center is None:
+                    raise JobError(_STAGE, f"fill-шот без center: {clip_tag}#{i}")
+                vf = build_vf_fill(compute_crop_window(src_w, src_h, shot.center, t=shot.t0))
+            shot_name = f"_shot_{clip_tag}_{i:02d}.mp4"
+            _run_ffmpeg(
+                build_ffmpeg_cmd(
+                    source_name, seg_start + shot.t0, seg_start + shot.t1, vf, shot_name
+                ),
+                data_dir,
+            )
+            shot_files.append(shot_name)
+        (data_dir / list_name).write_text(build_concat_list(shot_files), encoding="utf-8")
+        _run_ffmpeg(build_concat_burn_cmd(list_name, ass_name, out_name), data_dir)
+        if not (data_dir / out_name).exists():
+            raise JobError(_STAGE, f"рендер не создал {out_name}")
+    finally:
+        for sf in shot_files:
+            (data_dir / sf).unlink(missing_ok=True)
+        (data_dir / list_name).unlink(missing_ok=True)
     return round(time.perf_counter() - t0, 2)

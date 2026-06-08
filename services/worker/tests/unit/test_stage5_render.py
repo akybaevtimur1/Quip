@@ -11,12 +11,8 @@ from app.models import CropWindow
 from app.pipeline.stage5_render import (
     build_concat_burn_cmd,
     build_concat_list,
-    build_crop_x_step_expr,
     build_ffmpeg_cmd,
-    build_vf,
-    build_vf_dynamic,
     build_vf_fill,
-    build_vf_fit,
     build_vf_fit_shot,
 )
 
@@ -74,80 +70,6 @@ class TestBuildConcatBurnCmd:
         assert "libx264" in s
         assert "-crf 20" in s
         assert cmd[-1] == "clips/clip_01.mp4"
-
-
-class TestBuildVf:
-    def test_filter_chain(self) -> None:
-        vf = build_vf(_crop(), "captions_clip_01.ass")
-        assert vf == (
-            "crop=608:1080:880:0,scale=1080:1920:flags=lanczos,"
-            "setpts=PTS-STARTPTS,subtitles=captions_clip_01.ass"
-        )
-
-
-class TestBuildVfFit:
-    def test_fit_preserves_whole_frame_with_blur(self) -> None:
-        vf = build_vf_fit("captions_clip_01.ass")
-        # split на bg/fg, размытый зум-фон, вписать целиком, overlay по центру, субтитры
-        assert "split=2[bg][fg]" in vf
-        assert "force_original_aspect_ratio=increase" in vf  # bg заполняет
-        assert "gblur" in vf  # фон размыт
-        assert "force_original_aspect_ratio=decrease" in vf  # fg целиком, ничего не режет
-        assert "overlay=(W-w)/2:(H-h)/2" in vf
-        assert "subtitles=captions_clip_01.ass" in vf
-
-
-class TestBuildCropXStepExpr:
-    """Ступенчатое x(t): константа внутри плана, мгновенный скачок на границе (hold & cut)."""
-
-    def test_single_is_constant(self) -> None:
-        assert build_crop_x_step_expr([(0.0, 656)]) == "656"
-
-    def test_two_shots_step(self) -> None:
-        # x держится 100 до t=2, затем мгновенно 300 (НЕ интерполяция)
-        assert build_crop_x_step_expr([(0.0, 100), (2.0, 300)]) == "if(lt(t,2.0),100,300)"
-
-    def test_three_shots_nested_step(self) -> None:
-        expr = build_crop_x_step_expr([(0.0, 100), (2.0, 300), (5.0, 200)])
-        assert expr == "if(lt(t,2.0),100,if(lt(t,5.0),300,200))"
-
-    def test_collapses_consecutive_equal_x(self) -> None:
-        # соседние планы с одинаковым x → без лишнего скачка (граница уезжает на смену x)
-        expr = build_crop_x_step_expr([(0.0, 100), (2.0, 100), (5.0, 300)])
-        assert expr == "if(lt(t,5.0),100,300)"
-
-    def test_empty_raises(self) -> None:
-        import pytest
-
-        with pytest.raises(ValueError):
-            build_crop_x_step_expr([])
-
-
-class TestBuildVfDynamic:
-    """FILL-динамика: setpts ПЕРВЫМ (crop.t = клип-время 0-based), запятые в expr экранированы."""
-
-    def _crops(self) -> list[CropWindow]:
-        return [
-            CropWindow(t=0.0, x=100, y=0, w=608, h=1080),
-            CropWindow(t=2.0, x=300, y=0, w=608, h=1080),
-        ]
-
-    def test_setpts_first_then_dynamic_crop(self) -> None:
-        vf = build_vf_dynamic(self._crops(), "captions_clip_01.ass")
-        # setpts ДО crop → crop видит 0-based t (синхрон с клип-таймингами)
-        assert vf.startswith("setpts=PTS-STARTPTS,crop=608:1080:")
-        assert vf.index("setpts") < vf.index("crop=")
-
-    def test_commas_in_expr_escaped_for_filtergraph(self) -> None:
-        vf = build_vf_dynamic(self._crops(), "c.ass")
-        # запятые в if(...) экранированы \, — иначе filtergraph съест их как разделители фильтров
-        assert "lt(t\\,2.0)" in vf
-        assert "lt(t,2.0)" not in vf  # неэкранированной запятой в выражении быть не должно
-
-    def test_chain_has_scale_and_subtitles(self) -> None:
-        vf = build_vf_dynamic(self._crops(), "captions_clip_01.ass")
-        assert "scale=1080:1920:flags=lanczos" in vf
-        assert "subtitles=captions_clip_01.ass" in vf
 
 
 class TestBuildCmd:

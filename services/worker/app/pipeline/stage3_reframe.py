@@ -1,15 +1,18 @@
-"""Stage 3 (Reframe): source.mp4 + сегмент → reframe_<clip_id>.json (трек окон 9:16, cut-aware).
+"""Stage 3 (Reframe): source.mp4 + сегмент → reframe_<clip_id>.json (план шотов 9:16, per-shot).
 
-Модель «держим план — режем на склейке» (как живой монтажёр / Opus / Vizard):
-1) ffmpeg scene-detect → тайминги склеек источника внутри сегмента;
-2) сэмплируем кадры (2 fps), детектим лицо MediaPipe, берём центр крупнейшего;
-3) для КАЖДОГО плана (между склейками) — один устойчивый центр (медиана лиц плана;
-   нет лица → держим центр предыдущего плана) → окно НЕПОДВИЖНО внутри плана;
-4) на склейке окно МГНОВЕННО скачет на новый план (ступенька в stage5, не панорама).
-Нет лиц вовсе → fit (весь кадр + блюр-рамки) выбирается в run/decide_reframe_mode.
+Модель R1 «per-shot» (как живой монтажёр / Opus): кроп постоянен внутри плана, меняется
+ровно на склейке (stage5 рендерит каждый план отдельным сегментом + concat → флешей нет
+by-design). Шаги:
+1) PySceneDetect ContentDetector → кадроточные склейки источника внутри сегмента;
+2) сэмплируем кадры (2 fps), детектим лицо MediaPipe, центр крупнейшего;
+3) build_shot_plan: КАЖДЫЙ план решает свой режим — лицо → fill (центр=медиана лиц);
+   нет лица → fit (весь кадр + блюр-рамки, b-roll показываем широко, не узким слайсом);
+4) speaker=True → центр fill-планов = ГОВОРЯЩИЙ (ASD); merge_shot_plan сливает смежные
+   равные планы (статичная камера → 1 кодировка).
 
-Границы: PURE-математика (compute_crop_window, aggregate_center, build_shots, shot_centers)
-изолирована и покрыта unit-тестами. I/O (ffmpeg/MediaPipe) — обёртки; JobError при сбое (№8).
+Границы: PURE-математика (compute_crop_window, aggregate_center, build_shots, scenes_to_clip_cuts,
+build_shot_plan, merge_shot_plan, windows_to_shot_plan) изолирована и покрыта unit-тестами.
+I/O (ffmpeg/PySceneDetect/MediaPipe) — обёртки; JobError при сбое (№8).
 """
 
 from __future__ import annotations
@@ -18,12 +21,11 @@ import json
 import re
 import subprocess
 import tempfile
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from app.errors import JobError
 from app.models import CropWindow
-from app.pipeline.stage3_speaker import apply_dead_zone
 
 _STAGE = "reframe"
 _ASPECT_W, _ASPECT_H = 9, 16
@@ -360,50 +362,45 @@ def reframe_segment(
     mode_setting: str = "auto",
     speaker: bool = False,
     speaker_crop_scale: float = 0.55,
+    scene_threshold: float = 27.0,
+    min_scene_sec: float = 0.4,
     cut_threshold: float = 0.4,
     dead_zone: float = 0.12,
-) -> tuple[str, list[CropWindow], bool]:
-    """Сегмент → (mode, crop, face_found). mode='fill' → ОДНО окно 9:16 на план источника
-    (держим внутри плана, скачок на склейке); mode='fit' → весь кадр + блюр-рамки (crop пустой).
-    speaker=True → центр плана = ГОВОРЯЩЕЕ лицо (ASD); иначе крупнейшее (D2, fallback).
-    Пишет reframe_<clip_id>.json (список окон с клип-относительными t = начало плана).
+) -> tuple[list[ShotPlan], bool]:
+    """Сегмент → (план шотов, face_found). Per-shot модель (R1): точные склейки PySceneDetect
+    → планы источника; КАЖДЫЙ план решает свой режим (лицо → fill+центр; нет лица → fit,
+    b-roll показываем широко). speaker=True → центр fill-планов = ГОВОРЯЩИЙ (ASD), иначе
+    крупнейшее лицо. Смежные равные планы сливаем (tolerance=dead_zone). Пишет
+    reframe_<clip_id>.json ({shots:[…]}); рендерит per-shot stage5 (флешей нет by-design).
     """
+    duration = end - start
     samples = sample_face_centers(video, start, end)
     face_found = bool(samples)
-    mode = decide_reframe_mode(mode_setting, face_found)
 
-    crop: list[CropWindow] = []
-    if mode == "fill":
-        if not face_found:
-            crop = [compute_crop_window(src_w, src_h, 0.5, t=0.0)]
-        else:
-            if speaker:
-                from app.pipeline.asd_reframe import speaker_windows  # noqa: PLC0415
+    cuts = detect_scene_cuts(
+        video, start, end, threshold=scene_threshold, min_scene_sec=min_scene_sec
+    )
+    shots = build_shots(cuts, duration)
+    plan = build_shot_plan(samples, shots, mode_setting=mode_setting)
 
-                crop = (
-                    speaker_windows(
-                        video,
-                        src_w,
-                        src_h,
-                        start,
-                        end,
-                        crop_scale=speaker_crop_scale,
-                        cut_threshold=cut_threshold,
-                        dead_zone=dead_zone,
-                    )
-                    or []
-                )
-            if not crop:  # speaker off или ASD не нашёл дорожек → cut-aware largest-face (D2)
-                cuts = detect_cuts(video, start, end, threshold=cut_threshold)
-                shots = build_shots(cuts, end - start)
-                centers = apply_dead_zone(shot_centers(samples, shots), dead_zone=dead_zone)
-                crop = [compute_crop_window(src_w, src_h, c, t=t0) for (t0, c) in centers]
+    if speaker and face_found and any(p.mode == "fill" for p in plan):
+        from app.pipeline.asd_reframe import speaker_windows  # noqa: PLC0415
+
+        windows = (
+            speaker_windows(
+                video, src_w, src_h, start, end,
+                crop_scale=speaker_crop_scale, cut_threshold=cut_threshold, dead_zone=dead_zone,
+            )
+            or []
+        )  # fmt: skip
+        if windows:  # ASD нашёл дорожки → план по говорящему (иначе остаёмся на largest-face)
+            plan = windows_to_shot_plan(windows, duration=duration, src_w=src_w)
+
+    plan = merge_shot_plan(plan, tolerance=dead_zone)
 
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / f"reframe_{clip_id}.json").write_text(
-        json.dumps(
-            {"mode": mode, "crop": [w.model_dump() for w in crop]}, ensure_ascii=False, indent=2
-        ),
+        json.dumps({"shots": [asdict(p) for p in plan]}, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
-    return mode, crop, face_found
+    return plan, face_found

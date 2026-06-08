@@ -126,18 +126,19 @@ def run_pipeline(
     for i, seg in enumerate(segments, start=1):
         clip_id = f"clip_{i:02d}"
         t0 = time.perf_counter()
-        mode, crop, face_found = reframe_segment(
+        plan, face_found = reframe_segment(
             out / "source.mp4", meta.width, meta.height, seg.start, seg.end,
             clip_id=clip_id, out_dir=out, mode_setting=s.reframe_mode,
             speaker=s.reframe_speaker, speaker_crop_scale=s.reframe_speaker_crop_scale,
+            scene_threshold=s.reframe_scene_threshold, min_scene_sec=s.reframe_min_scene_sec,
             cut_threshold=s.reframe_cut_threshold, dead_zone=s.reframe_dead_zone,
         )  # fmt: skip
         reframe_t += time.perf_counter() - t0
         write_captions_ass(transcript.words, seg.start, seg.end, out / f"captions_{clip_id}.ass")
         lat = render_clip(
-            out, "source.mp4", seg.start, seg.end,
+            out, "source.mp4", seg.start,
             f"captions_{clip_id}.ass", f"clips/{clip_id}.mp4",
-            mode=mode, crop=crop,
+            shots=plan, src_w=meta.width, src_h=meta.height,
         )  # fmt: skip
         render_t += lat
         if ttfc is None:
@@ -157,9 +158,10 @@ def run_pipeline(
                 words=words_in_segment(transcript.words, seg.start, seg.end),
             )
         )
+        n_fit = sum(1 for p in plan if p.mode == "fit")
         print(
-            f"  {clip_id}: {seg.start:.1f}-{seg.end:.1f} {mode} face={face_found} "
-            f"kf={len(crop)} render={lat}s"
+            f"  {clip_id}: {seg.start:.1f}-{seg.end:.1f} face={face_found} "
+            f"shots={len(plan)} fit={n_fit} render={lat}s"
         )
     stages["reframe"] = round(reframe_t, 2)
     stages["render"] = round(render_t, 2)
