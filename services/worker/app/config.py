@@ -59,6 +59,9 @@ class Settings(BaseSettings):
     # scene_threshold ~27 (выше → меньше ложных склеек); min_scene_sec — анти-дребезг (мин. план).
     reframe_scene_threshold: float = 27.0
     reframe_min_scene_sec: float = 0.4
+    # анти-флеш: короткий шот (< сек) НЕ переключает кадр, держим предыдущий (гасит рапидное
+    # чередование fill↔fit / скачки центра). Выше → стабильнее/спокойнее, но менее отзывчиво.
+    reframe_min_hold_sec: float = 1.5
     # умная статика: порог ffmpeg-склеек для SPEAKER-пути (ASD ещё на detect_cuts) + dead-zone
     # (= tolerance слияния планов: смежные планы с близким центром → 1 сегмент, без дёрганья).
     reframe_cut_threshold: float = 0.4

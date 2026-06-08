@@ -165,6 +165,23 @@ def build_shot_plan(
     return out
 
 
+def stabilize_plan(plan: list[ShotPlan], *, min_hold_sec: float) -> list[ShotPlan]:
+    """Анти-флеш: короткий шот (длительность < min_hold_sec) НЕ переключает кадр — поглощается
+    предыдущим сегментом (держим его mode+center). Гасит рапидное чередование fill↔fit и скачки
+    центра на 0.4-0.8с шотах = «флеши». Первый шот не глотаем (нет предыдущего).
+    """
+    if not plan:
+        return []
+    out = [plan[0]]
+    for seg in plan[1:]:
+        if seg.t1 - seg.t0 < min_hold_sec:
+            prev = out[-1]
+            out[-1] = ShotPlan(t0=prev.t0, t1=seg.t1, mode=prev.mode, center=prev.center)
+        else:
+            out.append(seg)
+    return out
+
+
 def merge_shot_plan(plan: list[ShotPlan], *, tolerance: float = 0.0) -> list[ShotPlan]:
     """Сливаю смежные шоты с одинаковым (режим, центр) в один сегмент рендера.
 
@@ -355,6 +372,7 @@ def reframe_segment(
     speaker_crop_scale: float = 0.55,
     scene_threshold: float = 27.0,
     min_scene_sec: float = 0.4,
+    min_hold_sec: float = 1.5,
     cut_threshold: float = 0.4,
     dead_zone: float = 0.12,
 ) -> tuple[list[ShotPlan], bool]:
@@ -389,6 +407,7 @@ def reframe_segment(
             plan = windows_to_shot_plan(windows, duration=duration, src_w=src_w)
 
     plan = merge_shot_plan(plan, tolerance=dead_zone)
+    plan = merge_shot_plan(stabilize_plan(plan, min_hold_sec=min_hold_sec), tolerance=dead_zone)
 
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / f"reframe_{clip_id}.json").write_text(

@@ -131,6 +131,7 @@ def run_pipeline(
             clip_id=clip_id, out_dir=out, mode_setting=s.reframe_mode,
             speaker=s.reframe_speaker, speaker_crop_scale=s.reframe_speaker_crop_scale,
             scene_threshold=s.reframe_scene_threshold, min_scene_sec=s.reframe_min_scene_sec,
+            min_hold_sec=s.reframe_min_hold_sec,
             cut_threshold=s.reframe_cut_threshold, dead_zone=s.reframe_dead_zone,
         )  # fmt: skip
         reframe_t += time.perf_counter() - t0

@@ -17,6 +17,7 @@ from app.pipeline.stage3_reframe import (
     merge_shot_plan,
     scenes_to_clip_cuts,
     shot_is_wide,
+    stabilize_plan,
     windows_to_shot_plan,
 )
 
@@ -221,6 +222,51 @@ class TestBuildShotPlan:
         frames = [(0.1, [(0.3, 0.1), (0.7, 0.1)])]
         plan = build_shot_plan(frames, [(0.0, 5.0)], mode_setting="fill", crop_w_frac=0.32)
         assert plan[0].mode == "fill"
+
+
+class TestStabilizePlan:
+    """Анти-флеш: короткий шот (< min_hold) НЕ переключает кадр — поглощается предыдущим.
+
+    Рапидное чередование fill↔fit / скачки центра на 0.4-0.8с шотах → держим прошлый кадр.
+    """
+
+    def test_empty(self) -> None:
+        assert stabilize_plan([], min_hold_sec=1.5) == []
+
+    def test_single_unchanged(self) -> None:
+        plan = [ShotPlan(0.0, 5.0, "fill", 0.5)]
+        assert stabilize_plan(plan, min_hold_sec=1.5) == plan
+
+    def test_short_middle_absorbed_into_previous(self) -> None:
+        # короткий fit (0.4с) между fill'ами → держим предыдущий fill (нет вспышки рамок)
+        plan = [
+            ShotPlan(0.0, 3.0, "fill", 0.3),
+            ShotPlan(3.0, 3.4, "fit", None),
+            ShotPlan(3.4, 6.0, "fill", 0.7),
+        ]
+        out = stabilize_plan(plan, min_hold_sec=1.0)
+        assert out == [
+            ShotPlan(0.0, 3.4, "fill", 0.3),  # fit поглощён, держим прошлый кадр
+            ShotPlan(3.4, 6.0, "fill", 0.7),
+        ]
+
+    def test_consecutive_shorts_absorbed(self) -> None:
+        plan = [
+            ShotPlan(0.0, 3.0, "fill", 0.3),
+            ShotPlan(3.0, 3.5, "fit", None),
+            ShotPlan(3.5, 4.0, "fill", 0.9),
+            ShotPlan(4.0, 7.0, "fill", 0.7),
+        ]
+        out = stabilize_plan(plan, min_hold_sec=1.0)
+        assert out == [
+            ShotPlan(0.0, 4.0, "fill", 0.3),  # оба коротких поглощены в первый
+            ShotPlan(4.0, 7.0, "fill", 0.7),
+        ]
+
+    def test_long_shots_kept(self) -> None:
+        # длинные шоты (≥ min_hold) остаются — реальные смены кадра не глотаем
+        plan = [ShotPlan(0.0, 3.0, "fill", 0.3), ShotPlan(3.0, 6.0, "fit", None)]
+        assert stabilize_plan(plan, min_hold_sec=1.5) == plan
 
 
 class TestMergeShotPlan:
