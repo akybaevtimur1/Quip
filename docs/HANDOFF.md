@@ -94,6 +94,8 @@ $env:PATH = [Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [Env
 - `REFRAME_SCENE_THRESHOLD` 27.0 — порог PySceneDetect ContentDetector (R1, default-путь;
   ВЫШЕ → меньше склеек/ложных; шкала ~0..255, НЕ ffmpeg 0..1).
 - `REFRAME_MIN_SCENE_SEC` 0.4 — мин. длина плана (анти-дребезг; выше → меньше коротких fit-перебивок).
+- `REFRAME_MIN_HOLD_SEC` 1.5 — АНТИ-ФЛЕШ (R1d): шот короче этого НЕ переключает кадр, держим
+  предыдущий (гасит мигание fill↔fit/скачки центра на коротких шотах). Выше → спокойнее/стабильнее.
 - `REFRAME_SPEAKER` true/false — наведение на говорящего (ASD) vs largest-face.
 - `REFRAME_CUT_THRESHOLD` 0.4 — порог ffmpeg-склеек, теперь ТОЛЬКО speaker-путь (ASD ещё на нём).
 - `REFRAME_DEAD_ZONE` 0.12 — теперь = tolerance слияния планов (merge_shot_plan): смежные
