@@ -81,6 +81,21 @@ def build_shots(cuts: list[float], duration: float) -> list[tuple[float, float]]
     return [(bounds[i], bounds[i + 1]) for i in range(len(bounds) - 1) if bounds[i + 1] > bounds[i]]
 
 
+def scenes_to_clip_cuts(
+    scenes_abs: list[tuple[float, float]], *, start: float, duration: float
+) -> list[float]:
+    """Сцены PySceneDetect (абсолютные сек) → КЛИП-относительные внутренние склейки.
+
+    Граница плана i = конец сцены i (== старт сцены i+1). seek/таймкоды PySceneDetect
+    АБСОЛЮТНЫЕ → офсет −start. Оставляем строго внутри (0, duration). <2 сцен → склеек нет.
+    Это «офсетная» зона, где рождались флеши: точный −start = склейка попадает в нужный кадр.
+    """
+    if len(scenes_abs) < 2:
+        return []
+    cuts = [round(end - start, 3) for (_s, end) in scenes_abs[:-1]]
+    return [c for c in cuts if 0.0 < c < duration]
+
+
 def shot_centers(
     samples: list[tuple[float, float]],
     shots: list[tuple[float, float]],
@@ -155,6 +170,35 @@ def detect_cuts(video: Path, start: float, end: float, *, threshold: float = 0.3
     for m in re.finditer(r"pts_time:([0-9.]+)", proc.stderr or ""):
         cuts.append(float(m.group(1)))
     return cuts
+
+
+def detect_scene_cuts(
+    video: Path, start: float, end: float, *, threshold: float = 27.0, min_scene_sec: float = 0.4
+) -> list[float]:
+    """КЛИП-относительные склейки источника через PySceneDetect ContentDetector (frame-accurate).
+
+    Точнее сырого ffmpeg-порога: контент-разница по HSV+edge + ``min_scene_len`` (анти-дребезг,
+    гасит ложные «вспышки»). ``seek``/``end_time`` абсолютные → конвертим клип-рел через
+    ``scenes_to_clip_cuts``. Пустой список = один план. JobError при сбое (№8, без тихого фолбэка).
+
+    threshold — шкала ContentDetector (~27 дефолт, НЕ ffmpeg-0..1). min_scene_sec → кадров по fps.
+    """
+    from scenedetect import SceneManager, open_video  # noqa: PLC0415
+    from scenedetect.detectors import ContentDetector  # noqa: PLC0415
+
+    try:
+        vid = open_video(str(video))
+        fps = vid.frame_rate
+        sm = SceneManager()
+        sm.add_detector(
+            ContentDetector(threshold=threshold, min_scene_len=max(1, round(min_scene_sec * fps)))
+        )
+        vid.seek(start)
+        sm.detect_scenes(vid, end_time=end)
+        scenes = [(s.seconds, e.seconds) for (s, e) in sm.get_scene_list()]
+    except Exception as e:  # PySceneDetect бросает разнородные I/O-ошибки → заворачиваем явно
+        raise JobError(_STAGE, f"PySceneDetect сбой: {e}") from e
+    return scenes_to_clip_cuts(scenes, start=start, duration=end - start)
 
 
 def _ensure_face_model() -> Path:

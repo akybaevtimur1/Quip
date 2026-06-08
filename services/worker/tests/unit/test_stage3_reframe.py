@@ -12,6 +12,7 @@ from app.pipeline.stage3_reframe import (
     build_shots,
     compute_crop_window,
     decide_reframe_mode,
+    scenes_to_clip_cuts,
     shot_centers,
 )
 
@@ -108,6 +109,38 @@ class TestBuildShots:
 
     def test_zero_duration_empty(self) -> None:
         assert build_shots([], 0.0) == []
+
+
+class TestScenesToClipCuts:
+    """PySceneDetect сцены (абс. сек) → КЛИП-относительные внутренние склейки.
+
+    Граница плана = конец сцены i (== старт i+1). Офсет −start (seek был абсолютным);
+    оставляем строго внутри (0, duration). Это «офсетная» зона, где рождались флеши.
+    """
+
+    def test_empty_no_cuts(self) -> None:
+        assert scenes_to_clip_cuts([], start=66.0, duration=20.0) == []
+
+    def test_single_scene_no_cuts(self) -> None:
+        assert scenes_to_clip_cuts([(66.0, 86.0)], start=66.0, duration=20.0) == []
+
+    def test_two_scenes_one_cut_offset(self) -> None:
+        # реальные числа из спайка: start=66.005, граница на 66.96 → клип-рел 0.955
+        assert scenes_to_clip_cuts(
+            [(66.005, 66.96), (66.96, 86.74)], start=66.005, duration=20.735
+        ) == [0.955]
+
+    def test_interior_only_drops_first_start_and_last_end(self) -> None:
+        # 3 сцены → 2 внутренние склейки (концы сцен 0 и 1); старт сцены 0 и конец сцены 2 не в счёт
+        out = scenes_to_clip_cuts(
+            [(66.0, 67.0), (67.0, 72.0), (72.0, 86.0)], start=66.0, duration=20.0
+        )
+        assert out == [1.0, 6.0]
+
+    def test_cut_at_or_beyond_duration_filtered(self) -> None:
+        # граница ровно на duration (или дальше) — не склейка внутри клипа
+        out = scenes_to_clip_cuts([(66.0, 86.0), (86.0, 90.0)], start=66.0, duration=20.0)
+        assert out == []
 
 
 class TestShotCenters:
