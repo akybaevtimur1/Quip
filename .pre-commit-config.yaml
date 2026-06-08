@@ -10,6 +10,7 @@ repos:
         language: system
         types_or: [python, pyi]
         files: ^services/worker/
+        exclude: ^services/worker/app/asd/_vendor/  # стороннее ядро LR-ASD, не линтим
         require_serial: true
       - id: ruff-format
         name: ruff format (worker)
@@ -17,6 +18,7 @@ repos:
         language: system
         types_or: [python, pyi]
         files: ^services/worker/
+        exclude: ^services/worker/app/asd/_vendor/  # стороннее ядро LR-ASD, не трогаем
         require_serial: true
       - id: just-check
         name: just check (lint + types + test-unit + anti-drift)

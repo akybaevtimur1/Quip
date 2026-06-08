@@ -19,6 +19,15 @@ dependencies = [
     "yt-dlp>=2026.3.17",
 ]
 
+# Active-speaker reframe (REFRAME_SPEAKER=on). Тяжёлые либы — опционально, базовый воркер
+# их не тянет. torch — CPU-колёса (на Linux: --index-url https://download.pytorch.org/whl/cpu).
+[project.optional-dependencies]
+asd = [
+    "torch>=2.2",
+    "python_speech_features>=0.6",
+    "scipy>=1.11",
+]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
@@ -29,6 +38,10 @@ packages = ["app"]
 
 [tool.ruff]
 line-length = 100
+# app/asd/_vendor — стороннее ядро LR-ASD (MIT), не наш стиль; не линтим/не трогаем.
+# force-exclude: чтобы pre-commit (передаёт пути явно) тоже уважал исключение.
+extend-exclude = ["app/asd/_vendor"]
+force-exclude = true
 
 [tool.ruff.lint]
 # Современный ruff: select под [tool.ruff.lint], не [tool.ruff].
@@ -38,10 +51,22 @@ select = ["E", "F", "I", "UP", "B", "ASYNC"]
 python_version = "3.12"
 strict = true
 files = ["app"]
+exclude = ["app/asd/_vendor/"]
 
 [[tool.mypy.overrides]]
 module = ["cv2", "cv2.*", "mediapipe", "mediapipe.*"]
 ignore_missing_imports = true
+
+# torch/python_speech_features — нет (строгих) стабов.
+[[tool.mypy.overrides]]
+module = ["torch", "torch.*", "python_speech_features"]
+ignore_missing_imports = true
+
+# Стороннее ядро ASD — не анализируем (treat as Any), импорты из него = Any.
+[[tool.mypy.overrides]]
+module = ["app.asd._vendor.*"]
+ignore_missing_imports = true
+follow_imports = "skip"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
