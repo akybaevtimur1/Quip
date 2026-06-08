@@ -34,6 +34,9 @@ FastAPI / uv, пакет `app`), `packages/shared` (TS-типы, codegen из `a
 ```powershell
 $env:PATH = [Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [Environment]::GetEnvironmentVariable("Path","User")
 ```
+- **⚠️⚠️ ПОСЛЕ ЛЮБОЙ ПРАВКИ КОДА ВОРКЕРА — ПЕРЕЗАПУСТИ ВОРКЕР** (uvicorn БЕЗ `--reload`!).
+  Иначе UI крутит СТАРЫЙ код в памяти и «изменений не видно» (реально потеряли сессию на этом
+  2026-06-08: фаундер тестил до-R1 код, воркер висел с утра). Убить по порту (см. ниже) + поднять заново.
 - **Поднять стек для теста (UI):**
   ```powershell
   # worker (active-speaker ВКЛ): из services/worker
@@ -105,9 +108,17 @@ $env:PATH = [Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [Env
 1. **R1 — вердикт фаундера по скринам** (отправлены: cic_sheet/cic_boundary/clip01_sheet):
    нет флешей? b-roll широко ок? Если ок — закрыть. Тюнинг при необходимости — кнобы §6b
    (scene_threshold/min_scene_sec против коротких ложных fit-перебивок).
-2. **R2** — stage2 (Gemini) расширить на не-подкасты (визуальные хуки/экшен) + мягкий empty-state
+2. **R1b СДЕЛАН (`e8437e6`)** — «широко vs тайт» по геометрии лиц: 2+ разнесённых лица → fit
+   (широко обоих, как OpusClip); одно/кластер → fill (full-bleed) на крупнейшем; нет лиц → fit.
+   `sample_faces` отдаёт ВСЕ лица (cx+ширина), pure `shot_is_wide`. Выбор фаундера: одиночка =
+   full-bleed (без блюр-рамок), 2 человека = широко. ⚠️ ОТКРЫТО: на close-up-источнике (16:9, 1
+   лицо) full-bleed = тайт by physics; «менее тесно» = только через блюр-рамки (фаундер отклонил).
+   MEDIUM-режим (кроп шире лица + лёгкие рамки) — прототип был, отклонён (хочет full-bleed).
+3. **⚠️ НАХОДКА: двойные субтитры** — видео с УЖЕ вшитыми субтитрами (как Kanye/Elon) → наши
+   прожигаются поверх чужих. Нужна опция «не жечь субтитры» / детект существующих. Не для R1.
+4. **R2** — stage2 (Gemini) расширить на не-подкасты (визуальные хуки/экшен) + мягкий empty-state
    с диагностикой. См. ROADMAP R2.
-3. **⚠️ НАХОДКА R1: Deepgram режет upload больших wav** (Comedians 19мин/37МБ wav → HTTP 408
+5. **⚠️ НАХОДКА R1: Deepgram режет upload больших wav** (Comedians 19мин/37МБ wav → HTTP 408
    SLOW_UPLOAD / Server disconnected). Сетевое окружения, но стоит: (а) сжать аудио перед upload
    (mp3/opus вместо pcm 16k — ~3× меньше) ИЛИ Deepgram URL-ingest; (б) ретраи на 408/disconnect в
    call_deepgram. Сейчас длинные видео через UI могут падать на транскрипции.
