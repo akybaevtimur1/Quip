@@ -4,9 +4,10 @@
 ровно на склейке (stage5 рендерит каждый план отдельным сегментом + concat → флешей нет
 by-design). Шаги:
 1) PySceneDetect ContentDetector → кадроточные склейки источника внутри сегмента;
-2) сэмплируем кадры (2 fps), детектим лицо MediaPipe, центр крупнейшего;
-3) build_shot_plan: КАЖДЫЙ план решает свой режим — лицо → fill (центр=медиана лиц);
-   нет лица → fit (весь кадр + блюр-рамки, b-roll показываем широко, не узким слайсом);
+2) сэмплируем кадры (2 fps), детектим ВСЕ лица MediaPipe (центр+ширина);
+3) build_shot_plan по ГЕОМЕТРИИ лиц: нет лиц → fit (b-roll широко); 2+ РАЗНЕСЁННЫХ
+   лица (не влезают в 9:16) → fit (оба видны, как OpusClip); одно/кластер → fill на
+   крупнейшем. Так «широкий вид» включается осмысленно, а не только когда лиц нет;
 4) speaker=True → центр fill-планов = ГОВОРЯЩИЙ (ASD); merge_shot_plan сливает смежные
    равные планы (статичная камера → 1 кодировка).
 
@@ -114,50 +115,53 @@ def scenes_to_clip_cuts(
     return [c for c in cuts if 0.0 < c < duration]
 
 
-def shot_centers(
-    samples: list[tuple[float, float]],
-    shots: list[tuple[float, float]],
-    *,
-    default: float = 0.5,
-) -> list[tuple[float, float]]:
-    """Один устойчивый центр на план → [(shot_start, center), …].
+def shot_is_wide(
+    frame_centers: list[list[float]], *, crop_w_frac: float, wide_ratio: float = 0.5
+) -> bool:
+    """Шот «широкий» (2+ человека, тайт-кропом не охватить) → fit обоих, как OpusClip.
 
-    center = медиана центров лиц внутри плана; план без лиц НЕ прыгает в центр, а держит
-    кадр предыдущего плана (первый план без лиц → ``default``).
+    frame_centers — x-центры лиц по сэмпл-кадрам шота (только кадры С лицами). Кадр широкий =
+    ≥2 лица И размах (max−min) > ширины 9:16-кропа (crop_w_frac). Шот широкий, если таких
+    кадров ≥ wide_ratio. Пусто → False.
     """
-    out: list[tuple[float, float]] = []
-    prev = default
-    for s0, s1 in shots:
-        cs = [c for (t, c) in samples if s0 <= t < s1]
-        center = aggregate_center(cs) if cs else prev
-        out.append((s0, center))
-        prev = center
-    return out
+    if not frame_centers:
+        return False
+    wide = sum(1 for cxs in frame_centers if len(cxs) >= 2 and (max(cxs) - min(cxs)) > crop_w_frac)
+    return wide >= wide_ratio * len(frame_centers)
 
 
 def build_shot_plan(
-    samples: list[tuple[float, float]],
+    face_frames: list[tuple[float, list[tuple[float, float]]]],
     shots: list[tuple[float, float]],
     *,
     mode_setting: str = "auto",
+    crop_w_frac: float = 0.32,
     default_center: float = 0.5,
 ) -> list[ShotPlan]:
-    """Каждый план источника → свой ShotPlan (режим РЕШАЕТСЯ НА ШОТ — фикс «b-roll слайсом»).
+    """Каждый план источника → ShotPlan по ГЕОМЕТРИИ лиц (режим РЕШАЕТСЯ НА ШОТ).
 
-    Лицо в плане → fill (center = медиана лиц плана); нет лица → fit (широко, блюр-рамки).
-    mode_setting forced 'fill'/'fit' перекрывает auto. fill без лица в плане → держим центр
-    предыдущего fill-плана (детект-промах ≠ прыжок в центр; первый → default_center).
+    face_frames: (t, [(cx, w_frac), …]) — ВСЕ лица по сэмпл-кадрам (2 fps). Логика auto:
+    нет лиц → fit (b-roll широко); 2+ РАЗНЕСЁННЫХ лица (не влезают в 9:16) → fit (оба видны,
+    говорящий всегда в кадре); одно/кластер → fill на КРУПНЕЙШЕМ (медиана крупнейших лиц/кадр).
+    mode_setting forced 'fill'/'fit' перекрывает; fill без лиц → держим центр прошлого fill.
     """
     out: list[ShotPlan] = []
     prev_center = default_center
     for s0, s1 in shots:
-        faces = [c for (t, c) in samples if s0 <= t < s1]
-        if decide_reframe_mode(mode_setting, bool(faces)) == "fill":
-            center = aggregate_center(faces) if faces else prev_center
-            prev_center = center
-            out.append(ShotPlan(t0=s0, t1=s1, mode="fill", center=center))
-        else:
+        frames = [faces for (t, faces) in face_frames if s0 <= t < s1 and faces]
+        has_face = bool(frames)
+        wide = mode_setting == "auto" and shot_is_wide(
+            [[cx for (cx, _w) in fr] for fr in frames], crop_w_frac=crop_w_frac
+        )
+        if mode_setting == "fit" or (mode_setting == "auto" and not has_face) or wide:
             out.append(ShotPlan(t0=s0, t1=s1, mode="fit", center=None))
+            continue
+        if has_face:  # fill на доминирующем (крупнейшем) лице каждого кадра
+            center = aggregate_center([max(fr, key=lambda f: f[1])[0] for fr in frames])
+        else:  # forced fill без лиц → держим прошлый центр
+            center = prev_center
+        prev_center = center
+        out.append(ShotPlan(t0=s0, t1=s1, mode="fill", center=center))
     return out
 
 
@@ -206,18 +210,6 @@ def windows_to_shot_plan(
         center = (w.x + w.w / 2) / src_w
         out.append(ShotPlan(t0=w.t, t1=t1, mode="fill", center=center))
     return out
-
-
-def decide_reframe_mode(setting: str, face_found: bool) -> str:
-    """Режим reframe: 'fill' (кроп по лицу) или 'fit' (весь кадр + блюр-рамки, ничего не режет).
-
-    auto → лицо есть: fill, нет: fit. Иначе принудительно setting ('fill'/'fit').
-    """
-    if setting == "fill":
-        return "fill"
-    if setting == "fit":
-        return "fit"
-    return "fill" if face_found else "fit"
 
 
 # ─────────────────────────── I/O: кадры (ffmpeg) + лица (MediaPipe) ───────────────────────────
@@ -308,14 +300,15 @@ def _ensure_face_model() -> Path:
     return _FACE_MODEL_PATH
 
 
-def sample_face_centers(
+def sample_faces(
     video: Path, start: float, end: float, *, fps: float = 2.0
-) -> list[tuple[float, float]]:
-    """(клип-время t, доля по X) центра крупнейшего лица по кадрам сегмента.
+) -> list[tuple[float, list[tuple[float, float]]]]:
+    """(клип-время t, [(cx, w_frac), …]) — ВСЕ лица кадра по сэмплам сегмента (2 fps).
 
-    t = idx/fps — КЛИП-относительное (кадры берём с input-seek -ss, PTS→0). Кадры без
-    лица пропускаем (трек разрежен — smooth_track это переносит). Пусто, если лиц нет.
-    MediaPipe Tasks API: bounding_box в ПИКСЕЛЯХ → делим на ширину кадра.
+    cx, w_frac — доли ширины кадра (центр X и ширина bbox). Кадр без лиц → пустой список
+    (t сохраняем). t = idx/fps клип-относительное (кадры с input-seek -ss, PTS→0).
+    Нужны ВСЕ лица (не только крупнейшее): по ним решаем «широко vs тайт» на шот (2 человека).
+    MediaPipe Tasks API: bbox в ПИКСЕЛЯХ → делим на ширину кадра.
     """
     import cv2  # noqa: PLC0415  (тяжёлые либы — ленивый импорт, pure-тесты их не тянут)
     import mediapipe as mp  # noqa: PLC0415
@@ -327,7 +320,7 @@ def sample_face_centers(
         base_options=mp_python.BaseOptions(model_asset_path=str(model_path)),
         min_detection_confidence=0.5,
     )
-    samples: list[tuple[float, float]] = []
+    samples: list[tuple[float, list[tuple[float, float]]]] = []
     with tempfile.TemporaryDirectory() as td:
         frames = _extract_frames(video, start, end, Path(td), fps=fps)
         with mp_vision.FaceDetector.create_from_options(options) as detector:
@@ -339,14 +332,12 @@ def sample_face_centers(
                 frame_w = rgb.shape[1]
                 mp_img = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
                 res = detector.detect(mp_img)
-                if not res.detections:
-                    continue
-                best = max(
-                    res.detections, key=lambda d: d.bounding_box.width * d.bounding_box.height
-                )
-                bb = best.bounding_box
-                cx = min(1.0, max(0.0, (bb.origin_x + bb.width / 2) / frame_w))
-                samples.append((idx / fps, cx))
+                faces: list[tuple[float, float]] = []
+                for d in res.detections:
+                    bb = d.bounding_box
+                    cx = min(1.0, max(0.0, (bb.origin_x + bb.width / 2) / frame_w))
+                    faces.append((cx, bb.width / frame_w))
+                samples.append((idx / fps, faces))
     return samples
 
 
@@ -374,14 +365,15 @@ def reframe_segment(
     reframe_<clip_id>.json ({shots:[…]}); рендерит per-shot stage5 (флешей нет by-design).
     """
     duration = end - start
-    samples = sample_face_centers(video, start, end)
-    face_found = bool(samples)
+    face_frames = sample_faces(video, start, end)
+    face_found = any(faces for (_t, faces) in face_frames)
+    crop_w_frac = round(src_h * _ASPECT_W / _ASPECT_H) / src_w
 
     cuts = detect_scene_cuts(
         video, start, end, threshold=scene_threshold, min_scene_sec=min_scene_sec
     )
     shots = build_shots(cuts, duration)
-    plan = build_shot_plan(samples, shots, mode_setting=mode_setting)
+    plan = build_shot_plan(face_frames, shots, mode_setting=mode_setting, crop_w_frac=crop_w_frac)
 
     if speaker and face_found and any(p.mode == "fill" for p in plan):
         from app.pipeline.asd_reframe import speaker_windows  # noqa: PLC0415

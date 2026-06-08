@@ -14,10 +14,9 @@ from app.pipeline.stage3_reframe import (
     build_shot_plan,
     build_shots,
     compute_crop_window,
-    decide_reframe_mode,
     merge_shot_plan,
     scenes_to_clip_cuts,
-    shot_centers,
+    shot_is_wide,
     windows_to_shot_plan,
 )
 
@@ -78,20 +77,6 @@ class TestAggregateCenter:
             aggregate_center([])
 
 
-class TestDecideReframeMode:
-    def test_auto_face_fills(self) -> None:
-        assert decide_reframe_mode("auto", True) == "fill"
-
-    def test_auto_no_face_fits(self) -> None:
-        assert decide_reframe_mode("auto", False) == "fit"
-
-    def test_forced_fill_ignores_face(self) -> None:
-        assert decide_reframe_mode("fill", False) == "fill"
-
-    def test_forced_fit_ignores_face(self) -> None:
-        assert decide_reframe_mode("fit", True) == "fit"
-
-
 class TestBuildShots:
     """Интервалы планов из таймингов склеек источника (cut-aware reframe)."""
 
@@ -148,50 +133,94 @@ class TestScenesToClipCuts:
         assert out == []
 
 
-class TestBuildShotPlan:
-    """Per-shot план: режим РЕШАЕТСЯ НА КАЖДЫЙ ШОТ (фикс боли «b-roll узким слайсом»).
+class TestShotIsWide:
+    """2+ разнесённых лица (размах > ширины 9:16-кропа) → шот широкий (fit обоих, как OpusClip)."""
 
-    Лицо в шоте → fill+центр(медиана); нет лица → fit (широко, блюр-рамки). forced fill/fit
-    перекрывает. fill без лица → держим центр предыдущего fill-плана (детект-промах ≠ прыжок).
+    def test_empty_not_wide(self) -> None:
+        assert shot_is_wide([], crop_w_frac=0.32) is False
+
+    def test_single_face_frames_not_wide(self) -> None:
+        assert shot_is_wide([[0.5], [0.52], [0.48]], crop_w_frac=0.32) is False
+
+    def test_two_spread_faces_wide(self) -> None:
+        # размах 0.7-0.3=0.4 > 0.32 → одним тайтом не охватить → широко
+        assert shot_is_wide([[0.3, 0.7], [0.3, 0.7]], crop_w_frac=0.32) is True
+
+    def test_two_close_faces_not_wide(self) -> None:
+        # размах 0.55-0.45=0.1 < 0.32 → влезают в один кроп → не широко
+        assert shot_is_wide([[0.45, 0.55], [0.45, 0.55]], crop_w_frac=0.32) is False
+
+    def test_majority_wide_triggers(self) -> None:
+        # половина кадров широкие (≥ wide_ratio 0.5) → широко
+        assert shot_is_wide([[0.3, 0.7], [0.5]], crop_w_frac=0.32) is True
+
+
+class TestBuildShotPlan:
+    """Per-shot план (R1b): режим НА ШОТ по ГЕОМЕТРИИ лиц. Вход — (t, [(cx,w),…]) все лица.
+
+    Нет лиц → fit; 2+ разнесённых лица → fit (широко, оба видны); одно/кластер → fill на
+    доминирующем (медиана крупнейших лиц/кадр). forced перекрывает; fill без лиц → держим прошлый.
     """
 
-    def test_all_shots_have_faces_all_fill(self) -> None:
-        samples = [(0.1, 0.3), (0.6, 0.4), (1.0, 0.5), (5.5, 0.8)]
-        plan = build_shot_plan(samples, [(0.0, 5.0), (5.0, 10.0)])
+    def test_single_face_shots_fill_on_dominant(self) -> None:
+        frames = [
+            (0.1, [(0.3, 0.1)]),
+            (0.6, [(0.4, 0.1)]),
+            (1.0, [(0.5, 0.1)]),
+            (5.5, [(0.8, 0.1)]),
+        ]
+        plan = build_shot_plan(frames, [(0.0, 5.0), (5.0, 10.0)], crop_w_frac=0.32)
         assert plan == [
-            ShotPlan(t0=0.0, t1=5.0, mode="fill", center=0.4),  # медиана(0.3,0.4,0.5)=0.4
+            ShotPlan(t0=0.0, t1=5.0, mode="fill", center=0.4),  # медиана(0.3,0.4,0.5)
             ShotPlan(t0=5.0, t1=10.0, mode="fill", center=0.8),
         ]
 
-    def test_faceless_shot_becomes_fit(self) -> None:
-        # средний план без лиц (b-roll) → fit широко, не узкий слайс старого центра
-        samples = [(0.1, 0.3), (11.0, 0.7)]
-        plan = build_shot_plan(samples, [(0.0, 5.0), (5.0, 10.0), (10.0, 15.0)])
-        assert plan[0] == ShotPlan(t0=0.0, t1=5.0, mode="fill", center=0.3)
-        assert plan[1] == ShotPlan(t0=5.0, t1=10.0, mode="fit", center=None)
-        assert plan[2] == ShotPlan(t0=10.0, t1=15.0, mode="fill", center=0.7)
+    def test_two_spread_faces_shot_is_fit(self) -> None:
+        # 2-shot (разнесённые лица) → широко (оба видны), а не тайт на одном
+        frames = [(0.1, [(0.3, 0.1), (0.7, 0.1)]), (0.6, [(0.3, 0.1), (0.7, 0.1)])]
+        plan = build_shot_plan(frames, [(0.0, 5.0)], crop_w_frac=0.32)
+        assert plan == [ShotPlan(t0=0.0, t1=5.0, mode="fit", center=None)]
 
-    def test_first_shot_faceless_is_fit(self) -> None:
-        samples = [(6.0, 0.7)]
-        plan = build_shot_plan(samples, [(0.0, 5.0), (5.0, 10.0)])
-        assert plan[0] == ShotPlan(t0=0.0, t1=5.0, mode="fit", center=None)
-        assert plan[1] == ShotPlan(t0=5.0, t1=10.0, mode="fill", center=0.7)
+    def test_dominant_face_wins_center(self) -> None:
+        # 2 лица в кадре, но кластер (узко) → fill на КРУПНЕЙШЕМ (w=0.2 > 0.1)
+        frames = [(0.1, [(0.45, 0.1), (0.55, 0.2)]), (0.6, [(0.45, 0.1), (0.55, 0.2)])]
+        plan = build_shot_plan(frames, [(0.0, 5.0)], crop_w_frac=0.32)
+        assert plan == [ShotPlan(t0=0.0, t1=5.0, mode="fill", center=0.55)]
+
+    def test_faceless_shot_becomes_fit(self) -> None:
+        frames = [(0.1, [(0.3, 0.1)]), (6.0, [])]  # второй шот без лиц
+        plan = build_shot_plan(frames, [(0.0, 5.0), (5.0, 10.0)], crop_w_frac=0.32)
+        assert plan == [
+            ShotPlan(t0=0.0, t1=5.0, mode="fill", center=0.3),
+            ShotPlan(t0=5.0, t1=10.0, mode="fit", center=None),
+        ]
+
+    def test_forced_fit_ignores_faces(self) -> None:
+        frames = [(0.1, [(0.3, 0.1)]), (6.0, [(0.7, 0.1)])]
+        plan = build_shot_plan(
+            frames, [(0.0, 5.0), (5.0, 10.0)], mode_setting="fit", crop_w_frac=0.32
+        )
+        assert all(s.mode == "fit" and s.center is None for s in plan)
 
     def test_forced_fill_faceless_carries_previous(self) -> None:
-        # forced fill: faceless-шот не уходит в fit, а держит центр предыдущего fill
-        samples = [(0.1, 0.3)]
+        frames = [(0.1, [(0.3, 0.1)])]
         plan = build_shot_plan(
-            samples, [(0.0, 5.0), (5.0, 10.0)], mode_setting="fill", default_center=0.5
+            frames,
+            [(0.0, 5.0), (5.0, 10.0)],
+            mode_setting="fill",
+            crop_w_frac=0.32,
+            default_center=0.5,
         )
         assert plan == [
             ShotPlan(t0=0.0, t1=5.0, mode="fill", center=0.3),
             ShotPlan(t0=5.0, t1=10.0, mode="fill", center=0.3),  # держим прошлый центр
         ]
 
-    def test_forced_fit_ignores_faces(self) -> None:
-        samples = [(0.1, 0.3), (6.0, 0.7)]
-        plan = build_shot_plan(samples, [(0.0, 5.0), (5.0, 10.0)], mode_setting="fit")
-        assert all(s.mode == "fit" and s.center is None for s in plan)
+    def test_forced_fill_spread_faces_stays_fill(self) -> None:
+        # forced fill перекрывает «широко»: даже разнесённые лица → fill на доминирующем
+        frames = [(0.1, [(0.3, 0.1), (0.7, 0.1)])]
+        plan = build_shot_plan(frames, [(0.0, 5.0)], mode_setting="fill", crop_w_frac=0.32)
+        assert plan[0].mode == "fill"
 
 
 class TestMergeShotPlan:
@@ -261,23 +290,3 @@ class TestWindowsToShotPlan:
             ShotPlan(0.0, 8.0, "fill", 0.6),  # t1 = старт следующего окна
             ShotPlan(8.0, 20.0, "fill", 0.25),  # (200+300)/2000 = 0.25; t1 = duration
         ]
-
-
-class TestShotCenters:
-    """Один устойчивый центр на план (медиана лиц); план без лица → держим предыдущий."""
-
-    def test_median_per_shot(self) -> None:
-        samples = [(0.1, 0.3), (0.6, 0.5), (1.0, 0.4), (5.5, 0.8)]
-        out = shot_centers(samples, [(0.0, 5.0), (5.0, 10.0)])
-        assert out == [(0.0, 0.4), (5.0, 0.8)]  # медиана(0.3,0.4,0.5)=0.4; один сэмпл=0.8
-
-    def test_empty_shot_carries_previous(self) -> None:
-        # план без лиц не прыгает в центр, а держит кадр прошлого плана
-        samples = [(1.0, 0.6)]
-        out = shot_centers(samples, [(0.0, 5.0), (5.0, 10.0), (10.0, 15.0)])
-        assert out == [(0.0, 0.6), (5.0, 0.6), (10.0, 0.6)]
-
-    def test_first_shot_empty_uses_default(self) -> None:
-        samples = [(6.0, 0.7)]
-        out = shot_centers(samples, [(0.0, 5.0), (5.0, 10.0)], default=0.5)
-        assert out == [(0.0, 0.5), (5.0, 0.7)]
