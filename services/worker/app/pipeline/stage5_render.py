@@ -1,10 +1,14 @@
-"""Stage 5 (Render): source + план шотов + captions → clips/<clip_id>.mp4 (1080×1920, per-shot).
+"""Stage 5 (Render): source + план шотов + captions → clips/<clip_id>.mp4 (1080×1920, ОДИН проход).
 
-Per-shot (R1): каждый план — отдельный сегмент (cut + свой static-crop ИЛИ fit-блюр) →
-concat-демуксер → burn субтитров ВТОРЫМ проходом. Кроп меняется ровно на склейке (встык
-concat) → флешей нет by-design. -ss ДО -i сбрасывает PTS к нулю → шоты встык 0-based →
-непрерывный клип-таймлайн → .ass (0-based) совпадает (R3). ffmpeg с cwd=data/<job_id> и
-ОТНОСИТЕЛЬНЫМИ путями (subtitles=<file>.ass, concat-список) — без ада escaping.
+Один проход декода (R1c, фикс подлагов аудио + чёрных кадров): аудио НЕ режем — отдаём
+непрерывным потоком (`-map 0:a`), поэтому ноль подлагов/рассинхрона на склейках. Видео: один
+`split` → каждый шот `trim` ПО НОМЕРАМ КАДРОВ (frame-exact) + свой crop (fill) или blur-fit (fit)
+→ `concat`-фильтр стыкует декодированные кадры встык → `subtitles`. Старт выровнен на границу
+кадра (`-ss` = round(seg_start*fps)/fps) → trim-границы совпадают с реальными склейками источника
+(кроп меняется ровно на кадре-склейке, без чёрных кадров от промаха на 1 кадр).
+
+Прежнее решение (нарезка на отдельные файлы + concat-демуксер) выпилено: оно давало подлаг
+аудио (priming AAC на каждом стыке копился) и чёрный кадр на стыке (старт на дробном кадре).
 
 Границы: сборка фильтра/команды — PURE (unit-тесты). Запуск ffmpeg — обёртка, JobError при сбое.
 """
@@ -17,7 +21,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from app.errors import JobError
-from app.models import CropWindow
+from app.pipeline.stage3_reframe import compute_crop_window
 
 if TYPE_CHECKING:
     from app.pipeline.stage3_reframe import ShotPlan
@@ -25,59 +29,64 @@ if TYPE_CHECKING:
 _STAGE = "render"
 
 
-def build_vf_fill(crop: CropWindow, *, out_w: int = 1080, out_h: int = 1920) -> str:
-    """Per-shot FILL (R1.3): crop → scale(lanczos) → setpts(PTS→0). БЕЗ субтитров.
+def build_reframe_filter(
+    shots: list[ShotPlan],
+    src_w: int,
+    src_h: int,
+    fps: float,
+    ass_name: str,
+    *,
+    out_w: int = 1080,
+    out_h: int = 1920,
+    blur: int = 20,
+) -> str:
+    """filter_complex одного прохода: split → per-shot trim + crop/fit → concat → субтитры.
 
-    Каждый шот рендерим отдельным сегментом со СВОИМ статическим кропом → смена кадра
-    ровно на склейке (встык concat), флешей нет by-design. Субтитры жжём после concat.
+    Каждый шот режется `trim` ПО КАДРАМ (frame-exact) своим фильтром: fill → crop 9:16 +
+    scale; fit → весь кадр + блюр-рамки. setsar=1 на каждом (иначе concat падает). concat
+    стыкует декодированные кадры (нет таймстамп-дыр → нет чёрных кадров). Субтитры — после
+    concat (0-based клип-таймлайн). Аудио НЕ трогаем (непрерывный поток в render_clip).
     """
-    return (
-        f"crop={crop.w}:{crop.h}:{crop.x}:{crop.y},"
-        f"scale={out_w}:{out_h}:flags=lanczos,setpts=PTS-STARTPTS"
-    )
+    if not shots:
+        raise JobError(_STAGE, "reframe-фильтр требует ≥1 шот")
+    n = len(shots)
+    heads = "".join(f"[a{i}]" for i in range(n))
+    parts = [f"[0:v]setpts=PTS-STARTPTS,split={n}{heads};"]
+    for i, s in enumerate(shots):
+        f0 = round(s.t0 * fps)
+        f1 = round(s.t1 * fps)
+        if s.mode == "fit":
+            # лейблы УНИКАЛЬНЫ по шоту (filtergraph-лейблы глобальны → иначе коллизия на 2+ fit)
+            seg = (
+                f"split=2[bg{i}][fg{i}];"
+                f"[bg{i}]scale={out_w}:{out_h}:force_original_aspect_ratio=increase,"
+                f"crop={out_w}:{out_h},gblur=sigma={blur}[bgb{i}];"
+                f"[fg{i}]scale={out_w}:{out_h}:force_original_aspect_ratio=decrease[fgb{i}];"
+                f"[bgb{i}][fgb{i}]overlay=(W-w)/2:(H-h)/2"
+            )
+        else:
+            if s.center is None:
+                raise JobError(_STAGE, f"fill-шот без center: #{i}")
+            c = compute_crop_window(src_w, src_h, s.center, t=0.0)
+            seg = f"crop={c.w}:{c.h}:{c.x}:0,scale={out_w}:{out_h}:flags=lanczos"
+        # setsar=1 нормализует SAR — иначе concat падает (fill и fit дают разный sample-aspect).
+        parts.append(
+            f"[a{i}]trim=start_frame={f0}:end_frame={f1},setpts=PTS-STARTPTS,{seg},setsar=1[s{i}];"
+        )
+    labels = "".join(f"[s{i}]" for i in range(n))
+    parts.append(f"{labels}concat=n={n}:v=1[cv];[cv]subtitles={ass_name}[outv]")
+    return "".join(parts)
 
 
-def build_vf_fit_shot(*, out_w: int = 1080, out_h: int = 1920, blur: int = 20) -> str:
-    """Per-shot FIT (R1.3): весь кадр + размытый зум-фон (b-roll широко). БЕЗ субтитров."""
-    return (
-        f"setpts=PTS-STARTPTS,split=2[bg][fg];"
-        f"[bg]scale={out_w}:{out_h}:force_original_aspect_ratio=increase,"
-        f"crop={out_w}:{out_h},gblur=sigma={blur}[bgb];"
-        f"[fg]scale={out_w}:{out_h}:force_original_aspect_ratio=decrease[fgb];"
-        f"[bgb][fgb]overlay=(W-w)/2:(H-h)/2"
-    )
-
-
-def build_concat_list(shot_files: list[str]) -> str:
-    """Контент файла-списка для ffmpeg concat-демуксера (по одному ``file '<имя>'`` на строку)."""
-    if not shot_files:
-        raise JobError(_STAGE, "concat: пустой список шотов")
-    return "".join(f"file '{f}'\n" for f in shot_files)
-
-
-def build_concat_burn_cmd(list_file: str, ass_name: str, out_name: str) -> list[str]:
-    """Финальный проход: concat-демуксер шотов + burn субтитров (один re-encode видео, аудио aac).
-
-    Шоты уже встык 0-based → concat даёт непрерывный клип-таймлайн → .ass (0-based) совпадает.
-    -safe 0 → относительные пути в списке (cwd=data_dir, как и burn) без ада escaping.
-    """
-    return [
-        "ffmpeg", "-y",
-        "-f", "concat", "-safe", "0", "-i", list_file,
-        "-vf", f"subtitles={ass_name}",
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
-        "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart",
-        out_name,
-    ]  # fmt: skip
-
-
-def build_ffmpeg_cmd(source: str, start: float, end: float, vf: str, out_name: str) -> list[str]:
-    """Команда ffmpeg: -ss ДО -i (PTS→0 для синка субтитров), -t = длительность сегмента."""
-    dur = round(end - start, 3)
+def build_single_pass_cmd(
+    source: str, start: float, dur: float, filter_complex: str, out_name: str
+) -> list[str]:
+    """ffmpeg: -ss ДО -i (выровненный старт), видео [outv], аудио непрерывным 0:a (не режем)."""
     return [
         "ffmpeg", "-y",
         "-ss", str(start), "-i", source, "-t", str(dur),
-        "-vf", vf,
+        "-filter_complex", filter_complex,
+        "-map", "[outv]", "-map", "0:a",
         "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
         "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart",
         out_name,
@@ -104,46 +113,24 @@ def render_clip(
     shots: list[ShotPlan],
     src_w: int,
     src_h: int,
+    fps: float,
 ) -> float:
-    """Per-shot рендер клипа (R1): каждый план — отдельный сегмент (свой static-crop ИЛИ
-    fit-блюр) → concat-демуксер → burn субтитров ВТОРЫМ проходом. Кроп меняется ровно на
-    склейке (встык concat) → флешей нет by-design; b-roll-планы показаны широко (fit).
+    """ОДИН проход рендера клипа (R1c): видео — per-shot crop/fit через trim+concat-фильтр;
+    аудио — непрерывным потоком (нет подлагов); кроп меняется ровно на склейке (нет чёрных кадров).
 
-    seg_start — абсолютный старт клипа в источнике; план — клип-относительный (t0/t1).
-    cwd=data_dir (относительные пути → без ада escaping). Temp-файлы шотов/списка чистим.
-    Возвращает латентность (с). JobError при сбое/отсутствии выхода.
+    seg_start — абсолютный старт клипа; выравниваем на границу кадра, чтобы trim-кадры совпали с
+    реальными склейками. cwd=data_dir (относит. пути). Латентность (с). JobError при сбое.
     """
-    from app.pipeline.stage3_reframe import compute_crop_window  # noqa: PLC0415
-
     if not shots:
         raise JobError(_STAGE, "render: пустой план шотов")
     (data_dir / out_name).parent.mkdir(parents=True, exist_ok=True)
-    clip_tag = Path(out_name).stem  # clip_01
-    list_name = f"_concat_{clip_tag}.txt"
-    shot_files: list[str] = []
+    aligned_start = round(seg_start * fps) / fps  # старт ровно на границе кадра
+    clip_dur = max(s.t1 for s in shots)
+    dur = round(seg_start + clip_dur - aligned_start, 3)
+    fc = build_reframe_filter(shots, src_w, src_h, fps, ass_name)
+    cmd = build_single_pass_cmd(source_name, aligned_start, dur, fc, out_name)
     t0 = time.perf_counter()
-    try:
-        for i, shot in enumerate(shots):
-            if shot.mode == "fit":
-                vf = build_vf_fit_shot()
-            else:
-                if shot.center is None:
-                    raise JobError(_STAGE, f"fill-шот без center: {clip_tag}#{i}")
-                vf = build_vf_fill(compute_crop_window(src_w, src_h, shot.center, t=shot.t0))
-            shot_name = f"_shot_{clip_tag}_{i:02d}.mp4"
-            _run_ffmpeg(
-                build_ffmpeg_cmd(
-                    source_name, seg_start + shot.t0, seg_start + shot.t1, vf, shot_name
-                ),
-                data_dir,
-            )
-            shot_files.append(shot_name)
-        (data_dir / list_name).write_text(build_concat_list(shot_files), encoding="utf-8")
-        _run_ffmpeg(build_concat_burn_cmd(list_name, ass_name, out_name), data_dir)
-        if not (data_dir / out_name).exists():
-            raise JobError(_STAGE, f"рендер не создал {out_name}")
-    finally:
-        for sf in shot_files:
-            (data_dir / sf).unlink(missing_ok=True)
-        (data_dir / list_name).unlink(missing_ok=True)
+    _run_ffmpeg(cmd, data_dir)
+    if not (data_dir / out_name).exists():
+        raise JobError(_STAGE, f"рендер не создал {out_name}")
     return round(time.perf_counter() - t0, 2)

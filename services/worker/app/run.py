@@ -138,7 +138,7 @@ def run_pipeline(
         lat = render_clip(
             out, "source.mp4", seg.start,
             f"captions_{clip_id}.ass", f"clips/{clip_id}.mp4",
-            shots=plan, src_w=meta.width, src_h=meta.height,
+            shots=plan, src_w=meta.width, src_h=meta.height, fps=meta.fps,
         )  # fmt: skip
         render_t += lat
         if ttfc is None:
