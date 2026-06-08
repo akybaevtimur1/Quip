@@ -52,18 +52,17 @@ class Settings(BaseSettings):
     #          fill = всегда кроп; fit = всегда весь кадр в рамках.
     reframe_mode: Literal["auto", "fill", "fit"] = "auto"
     # active-speaker наведение (на ГОВОРЯЩЕЕ лицо, не крупнейшее). Требует asd-экстру (torch).
-    # off → cut-aware largest-face (D2). reframe_speaker_crop_scale — тюнинг кадра под MediaPipe.
+    # off → largest-face continuous (V2). reframe_speaker_crop_scale — тюнинг кадра под MediaPipe.
     reframe_speaker: bool = False
     reframe_speaker_crop_scale: float = 0.55
-    # per-shot reframe (R1): склейки PySceneDetect ContentDetector (НЕ ffmpeg-шкала 0..1).
-    # scene_threshold ~27 (выше → меньше ложных склеек); min_scene_sec — анти-дребезг (мин. план).
-    reframe_scene_threshold: float = 27.0
-    reframe_min_scene_sec: float = 0.4
-    # анти-флеш: короткий шот (< сек) НЕ переключает кадр, держим предыдущий (гасит рапидное
-    # чередование fill↔fit / скачки центра). Выше → стабильнее/спокойнее, но менее отзывчиво.
+    # V2 continuous tracking: движок, сэмплирование, сглаживание.
+    # engine A = ffmpeg piecewise expression (быстрый); B = cv2 per-frame pipe (медленный, точный).
+    reframe_engine: str = "A"
+    reframe_face_fps: float = 5.0  # fps сэмплирования лиц (выше = точнее/медленнее)
+    reframe_smoothing: float = 0.15  # exponential smoothing коэф (0=без; 1=нет сглаж.)
+    # анти-флеш: регион < min_hold НЕ переключает режим, поглощается предыдущим.
     reframe_min_hold_sec: float = 1.5
-    # умная статика: порог ffmpeg-склеек для SPEAKER-пути (ASD ещё на detect_cuts) + dead-zone
-    # (= tolerance слияния планов: смежные планы с близким центром → 1 сегмент, без дёрганья).
+    # ASD speaker-путь: порог ffmpeg-склеек + dead-zone (tolerance слияния планов).
     reframe_cut_threshold: float = 0.4
     reframe_dead_zone: float = 0.12
 

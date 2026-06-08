@@ -126,11 +126,11 @@ def run_pipeline(
     for i, seg in enumerate(segments, start=1):
         clip_id = f"clip_{i:02d}"
         t0 = time.perf_counter()
-        plan, face_found = reframe_segment(
+        regions, face_found = reframe_segment(
             out / "source.mp4", meta.width, meta.height, seg.start, seg.end,
             clip_id=clip_id, out_dir=out, mode_setting=s.reframe_mode,
             speaker=s.reframe_speaker, speaker_crop_scale=s.reframe_speaker_crop_scale,
-            scene_threshold=s.reframe_scene_threshold, min_scene_sec=s.reframe_min_scene_sec,
+            face_fps=s.reframe_face_fps, smoothing=s.reframe_smoothing,
             min_hold_sec=s.reframe_min_hold_sec,
             cut_threshold=s.reframe_cut_threshold, dead_zone=s.reframe_dead_zone,
         )  # fmt: skip
@@ -139,7 +139,8 @@ def run_pipeline(
         lat = render_clip(
             out, "source.mp4", seg.start,
             f"captions_{clip_id}.ass", f"clips/{clip_id}.mp4",
-            shots=plan, src_w=meta.width, src_h=meta.height, fps=meta.fps,
+            regions=regions, src_w=meta.width, src_h=meta.height, fps=meta.fps,
+            engine=s.reframe_engine,
         )  # fmt: skip
         render_t += lat
         if ttfc is None:
@@ -159,10 +160,10 @@ def run_pipeline(
                 words=words_in_segment(transcript.words, seg.start, seg.end),
             )
         )
-        n_fit = sum(1 for p in plan if p.mode == "fit")
+        n_fit = sum(1 for r in regions if r.mode == "fit")
         print(
             f"  {clip_id}: {seg.start:.1f}-{seg.end:.1f} face={face_found} "
-            f"shots={len(plan)} fit={n_fit} render={lat}s"
+            f"regions={len(regions)} fit={n_fit} render={lat}s"
         )
     stages["reframe"] = round(reframe_t, 2)
     stages["render"] = round(render_t, 2)

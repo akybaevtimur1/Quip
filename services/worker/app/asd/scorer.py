@@ -27,7 +27,7 @@ def _load_net() -> Any:
     from app.asd._vendor.loss import lossAV, lossV  # noqa: PLC0415
     from app.asd._vendor.Model import ASD_Model  # noqa: PLC0415
 
-    class _Net(nn.Module):
+    class _Net(nn.Module):  # type: ignore[misc]
         def __init__(self) -> None:
             super().__init__()
             self.model = ASD_Model()

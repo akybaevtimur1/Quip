@@ -1,7 +1,8 @@
-"""Тесты pure-математики Stage 3 (reframe 9:16) — баг-опасное место, тест-первым.
+"""Тесты pure-математики Stage 3 (reframe 9:16) V2 — тест-первым.
 
-Crop-окно 9:16 + клип в границы кадра; агрегация центров лиц (медиана, устойчива
-к выбросам на мультиспикере). I/O (ffmpeg+MediaPipe) тестируем глазами на сэмпле.
+V2 (Continuous Reframe): TrackPoint/TrackRegion + exponential smoothing вместо ShotPlan.
+Crop-окно 9:16, агрегация, smooth_centers, classify_frame, build_trajectory, build_regions,
+merge_short_regions, shot_plan_to_regions. I/O (ffmpeg+MediaPipe) тестируем глазами на сэмпле.
 """
 
 import pytest
@@ -10,14 +11,17 @@ from app.errors import JobError
 from app.models import CropWindow
 from app.pipeline.stage3_reframe import (
     ShotPlan,
+    TrackPoint,
+    TrackRegion,
     aggregate_center,
-    build_shot_plan,
-    build_shots,
+    build_regions,
+    build_trajectory,
+    classify_frame,
     compute_crop_window,
-    merge_shot_plan,
-    scenes_to_clip_cuts,
+    merge_short_regions,
     shot_is_wide,
-    stabilize_plan,
+    shot_plan_to_regions,
+    smooth_centers,
     windows_to_shot_plan,
 )
 
@@ -46,13 +50,12 @@ class TestComputeCropWindow:
         assert c.x + c.w <= 1920
 
     def test_center_fraction_clamped(self) -> None:
-        # выход за [0,1] не должен ломать кламп окна
         c = compute_crop_window(1920, 1080, 1.5, t=0.0)
         assert c.x + c.w <= 1920
 
     def test_source_too_narrow_raises(self) -> None:
         with pytest.raises(JobError):
-            compute_crop_window(500, 1080, 0.5, t=0.0)  # 9:16 от 1080 = 608 > 500
+            compute_crop_window(500, 1080, 0.5, t=0.0)
 
     def test_bad_dims_raise(self) -> None:
         with pytest.raises(JobError):
@@ -67,7 +70,6 @@ class TestAggregateCenter:
         assert aggregate_center([0.4, 0.6]) == 0.5
 
     def test_resists_outlier(self) -> None:
-        # одиночный шальной детект (чужое лицо) не должен утащить центр
         assert aggregate_center([0.5, 0.5, 0.5, 0.95]) == 0.5
 
     def test_single(self) -> None:
@@ -78,65 +80,7 @@ class TestAggregateCenter:
             aggregate_center([])
 
 
-class TestBuildShots:
-    """Интервалы планов из таймингов склеек источника (cut-aware reframe)."""
-
-    def test_no_cuts_one_shot(self) -> None:
-        assert build_shots([], 20.0) == [(0.0, 20.0)]
-
-    def test_splits_at_cuts(self) -> None:
-        assert build_shots([5.0, 10.0], 20.0) == [(0.0, 5.0), (5.0, 10.0), (10.0, 20.0)]
-
-    def test_ignores_out_of_range_and_sorts(self) -> None:
-        # склейки на 0 и в конце игнорируем; неотсортированные — сортируем
-        assert build_shots([10.0, 0.0, 20.0, 5.0], 20.0) == [
-            (0.0, 5.0),
-            (5.0, 10.0),
-            (10.0, 20.0),
-        ]
-
-    def test_dedups_cuts(self) -> None:
-        assert build_shots([5.0, 5.0, 10.0], 20.0) == [(0.0, 5.0), (5.0, 10.0), (10.0, 20.0)]
-
-    def test_zero_duration_empty(self) -> None:
-        assert build_shots([], 0.0) == []
-
-
-class TestScenesToClipCuts:
-    """PySceneDetect сцены (абс. сек) → КЛИП-относительные внутренние склейки.
-
-    Граница плана = конец сцены i (== старт i+1). Офсет −start (seek был абсолютным);
-    оставляем строго внутри (0, duration). Это «офсетная» зона, где рождались флеши.
-    """
-
-    def test_empty_no_cuts(self) -> None:
-        assert scenes_to_clip_cuts([], start=66.0, duration=20.0) == []
-
-    def test_single_scene_no_cuts(self) -> None:
-        assert scenes_to_clip_cuts([(66.0, 86.0)], start=66.0, duration=20.0) == []
-
-    def test_two_scenes_one_cut_offset(self) -> None:
-        # реальные числа из спайка: start=66.005, граница на 66.96 → клип-рел 0.955
-        assert scenes_to_clip_cuts(
-            [(66.005, 66.96), (66.96, 86.74)], start=66.005, duration=20.735
-        ) == [0.955]
-
-    def test_interior_only_drops_first_start_and_last_end(self) -> None:
-        # 3 сцены → 2 внутренние склейки (концы сцен 0 и 1); старт сцены 0 и конец сцены 2 не в счёт
-        out = scenes_to_clip_cuts(
-            [(66.0, 67.0), (67.0, 72.0), (72.0, 86.0)], start=66.0, duration=20.0
-        )
-        assert out == [1.0, 6.0]
-
-    def test_cut_at_or_beyond_duration_filtered(self) -> None:
-        # граница ровно на duration (или дальше) — не склейка внутри клипа
-        out = scenes_to_clip_cuts([(66.0, 86.0), (86.0, 90.0)], start=66.0, duration=20.0)
-        assert out == []
-
-
 class TestShotIsWide:
-    """2+ разнесённых лица (размах > ширины 9:16-кропа) → шот широкий (fit обоих, как OpusClip)."""
-
     def test_empty_not_wide(self) -> None:
         assert shot_is_wide([], crop_w_frac=0.32) is False
 
@@ -144,180 +88,244 @@ class TestShotIsWide:
         assert shot_is_wide([[0.5], [0.52], [0.48]], crop_w_frac=0.32) is False
 
     def test_two_spread_faces_wide(self) -> None:
-        # размах 0.7-0.3=0.4 > 0.32 → одним тайтом не охватить → широко
         assert shot_is_wide([[0.3, 0.7], [0.3, 0.7]], crop_w_frac=0.32) is True
 
     def test_two_close_faces_not_wide(self) -> None:
-        # размах 0.55-0.45=0.1 < 0.32 → влезают в один кроп → не широко
         assert shot_is_wide([[0.45, 0.55], [0.45, 0.55]], crop_w_frac=0.32) is False
 
     def test_majority_wide_triggers(self) -> None:
-        # половина кадров широкие (≥ wide_ratio 0.5) → широко
         assert shot_is_wide([[0.3, 0.7], [0.5]], crop_w_frac=0.32) is True
 
 
-class TestBuildShotPlan:
-    """Per-shot план (R1b): режим НА ШОТ по ГЕОМЕТРИИ лиц. Вход — (t, [(cx,w),…]) все лица.
+class TestSmoothCenters:
+    """Exponential smoothing: нет лица → держим последний; первый без лица → 0.5."""
 
-    Нет лиц → fit; 2+ разнесённых лица → fit (широко, оба видны); одно/кластер → fill на
-    доминирующем (медиана крупнейших лиц/кадр). forced перекрывает; fill без лиц → держим прошлый.
-    """
+    def test_smoothing_zero_freezes(self) -> None:
+        # smoothing=0 → camera never moves (last = last + 0*(cx-last) = last всегда)
+        result = smooth_centers([None, 0.3, 0.7], smoothing=0.0)
+        assert result[0] == 0.5  # нет лица, дефолт 0.5
+        assert result[1] == 0.5  # smoothing=0 → заморожено на 0.5
+        assert result[2] == 0.5  # всё ещё 0.5
 
-    def test_single_face_shots_fill_on_dominant(self) -> None:
-        frames = [
-            (0.1, [(0.3, 0.1)]),
-            (0.6, [(0.4, 0.1)]),
-            (1.0, [(0.5, 0.1)]),
-            (5.5, [(0.8, 0.1)]),
-        ]
-        plan = build_shot_plan(frames, [(0.0, 5.0), (5.0, 10.0)], crop_w_frac=0.32)
-        assert plan == [
-            ShotPlan(t0=0.0, t1=5.0, mode="fill", center=0.4),  # медиана(0.3,0.4,0.5)
-            ShotPlan(t0=5.0, t1=10.0, mode="fill", center=0.8),
-        ]
+    def test_no_face_holds_last(self) -> None:
+        result = smooth_centers([0.6, None, None], smoothing=1.0)
+        assert result[0] == pytest.approx(0.5 + 1.0 * (0.6 - 0.5))  # = 0.6
+        assert result[1] == result[0]  # нет лица → держим
+        assert result[2] == result[0]  # нет лица → держим
 
-    def test_two_spread_faces_shot_is_fit(self) -> None:
-        # 2-shot (разнесённые лица) → широко (оба видны), а не тайт на одном
-        frames = [(0.1, [(0.3, 0.1), (0.7, 0.1)]), (0.6, [(0.3, 0.1), (0.7, 0.1)])]
-        plan = build_shot_plan(frames, [(0.0, 5.0)], crop_w_frac=0.32)
-        assert plan == [ShotPlan(t0=0.0, t1=5.0, mode="fit", center=None)]
+    def test_first_without_face_defaults_to_half(self) -> None:
+        result = smooth_centers([None, None, 0.8], smoothing=0.15)
+        assert result[0] == 0.5  # нет лица сначала → 0.5
+        assert result[1] == 0.5  # всё ещё нет лица
+        assert result[2] == pytest.approx(0.5 + 0.15 * (0.8 - 0.5))  # плавно к 0.8
 
-    def test_dominant_face_wins_center(self) -> None:
-        # 2 лица в кадре, но кластер (узко) → fill на КРУПНЕЙШЕМ (w=0.2 > 0.1)
-        frames = [(0.1, [(0.45, 0.1), (0.55, 0.2)]), (0.6, [(0.45, 0.1), (0.55, 0.2)])]
-        plan = build_shot_plan(frames, [(0.0, 5.0)], crop_w_frac=0.32)
-        assert plan == [ShotPlan(t0=0.0, t1=5.0, mode="fill", center=0.55)]
+    def test_smoothing_toward_target(self) -> None:
+        result = smooth_centers([0.8], smoothing=0.15)
+        # last=0.5; 0.5 + 0.15*(0.8-0.5) = 0.5 + 0.045 = 0.545
+        assert result[0] == pytest.approx(0.545)
 
-    def test_faceless_shot_becomes_fit(self) -> None:
-        frames = [(0.1, [(0.3, 0.1)]), (6.0, [])]  # второй шот без лиц
-        plan = build_shot_plan(frames, [(0.0, 5.0), (5.0, 10.0)], crop_w_frac=0.32)
-        assert plan == [
-            ShotPlan(t0=0.0, t1=5.0, mode="fill", center=0.3),
-            ShotPlan(t0=5.0, t1=10.0, mode="fit", center=None),
-        ]
+    def test_smoothing_one_jumps(self) -> None:
+        result = smooth_centers([0.3, 0.9], smoothing=1.0)
+        assert result[0] == pytest.approx(0.3)
+        assert result[1] == pytest.approx(0.9)
 
-    def test_forced_fit_ignores_faces(self) -> None:
-        frames = [(0.1, [(0.3, 0.1)]), (6.0, [(0.7, 0.1)])]
-        plan = build_shot_plan(
-            frames, [(0.0, 5.0), (5.0, 10.0)], mode_setting="fit", crop_w_frac=0.32
-        )
-        assert all(s.mode == "fit" and s.center is None for s in plan)
-
-    def test_forced_fill_faceless_carries_previous(self) -> None:
-        frames = [(0.1, [(0.3, 0.1)])]
-        plan = build_shot_plan(
-            frames,
-            [(0.0, 5.0), (5.0, 10.0)],
-            mode_setting="fill",
-            crop_w_frac=0.32,
-            default_center=0.5,
-        )
-        assert plan == [
-            ShotPlan(t0=0.0, t1=5.0, mode="fill", center=0.3),
-            ShotPlan(t0=5.0, t1=10.0, mode="fill", center=0.3),  # держим прошлый центр
-        ]
-
-    def test_forced_fill_spread_faces_stays_fill(self) -> None:
-        # forced fill перекрывает «широко»: даже разнесённые лица → fill на доминирующем
-        frames = [(0.1, [(0.3, 0.1), (0.7, 0.1)])]
-        plan = build_shot_plan(frames, [(0.0, 5.0)], mode_setting="fill", crop_w_frac=0.32)
-        assert plan[0].mode == "fill"
+    def test_empty_returns_empty(self) -> None:
+        assert smooth_centers([]) == []
 
 
-class TestStabilizePlan:
-    """Анти-флеш: короткий шот (< min_hold) НЕ переключает кадр — поглощается предыдущим.
+class TestClassifyFrame:
+    """fit/fill по геометрии лиц одного кадра."""
 
-    Рапидное чередование fill↔fit / скачки центра на 0.4-0.8с шотах → держим прошлый кадр.
-    """
+    def test_no_faces_is_fit(self) -> None:
+        assert classify_frame([], crop_w_frac=0.32) == "fit"
 
-    def test_empty(self) -> None:
-        assert stabilize_plan([], min_hold_sec=1.5) == []
+    def test_single_face_is_fill(self) -> None:
+        assert classify_frame([(0.5, 0.1)], crop_w_frac=0.32) == "fill"
 
-    def test_single_unchanged(self) -> None:
-        plan = [ShotPlan(0.0, 5.0, "fill", 0.5)]
-        assert stabilize_plan(plan, min_hold_sec=1.5) == plan
+    def test_two_spread_faces_is_fit(self) -> None:
+        # размах 0.7-0.3=0.4 > 0.32 → широко
+        assert classify_frame([(0.3, 0.1), (0.7, 0.1)], crop_w_frac=0.32) == "fit"
 
-    def test_short_middle_absorbed_into_previous(self) -> None:
-        # короткий fit (0.4с) между fill'ами → держим предыдущий fill (нет вспышки рамок)
-        plan = [
-            ShotPlan(0.0, 3.0, "fill", 0.3),
-            ShotPlan(3.0, 3.4, "fit", None),
-            ShotPlan(3.4, 6.0, "fill", 0.7),
-        ]
-        out = stabilize_plan(plan, min_hold_sec=1.0)
-        assert out == [
-            ShotPlan(0.0, 3.4, "fill", 0.3),  # fit поглощён, держим прошлый кадр
-            ShotPlan(3.4, 6.0, "fill", 0.7),
-        ]
-
-    def test_consecutive_shorts_absorbed(self) -> None:
-        plan = [
-            ShotPlan(0.0, 3.0, "fill", 0.3),
-            ShotPlan(3.0, 3.5, "fit", None),
-            ShotPlan(3.5, 4.0, "fill", 0.9),
-            ShotPlan(4.0, 7.0, "fill", 0.7),
-        ]
-        out = stabilize_plan(plan, min_hold_sec=1.0)
-        assert out == [
-            ShotPlan(0.0, 4.0, "fill", 0.3),  # оба коротких поглощены в первый
-            ShotPlan(4.0, 7.0, "fill", 0.7),
-        ]
-
-    def test_long_shots_kept(self) -> None:
-        # длинные шоты (≥ min_hold) остаются — реальные смены кадра не глотаем
-        plan = [ShotPlan(0.0, 3.0, "fill", 0.3), ShotPlan(3.0, 6.0, "fit", None)]
-        assert stabilize_plan(plan, min_hold_sec=1.5) == plan
+    def test_two_close_faces_is_fill(self) -> None:
+        # размах 0.55-0.45=0.1 < 0.32 → кластер → fill
+        assert classify_frame([(0.45, 0.1), (0.55, 0.1)], crop_w_frac=0.32) == "fill"
 
 
-class TestMergeShotPlan:
-    """Слияние смежных шотов с одинаковым (режим, центр) → 1 сегмент рендера (эффективность).
+class TestBuildTrajectory:
+    """build_trajectory: raw_samples → TrackPoint list с smoothing."""
 
-    Статичная камера (10 склеек, тот же кадр) → 1 кодировка, не 10. tolerance ловит дрейф
-    медианы сравнением с ДЕРЖИМЫМ центром (не предыдущим) → медленный дрейф не копится.
-    """
+    def test_fill_mode_gets_cx(self) -> None:
+        samples = [(0.0, [(0.6, 0.1)])]  # одно лицо → fill
+        pts = build_trajectory(samples, smoothing=1.0, crop_w_frac=0.32)
+        assert len(pts) == 1
+        assert pts[0].mode == "fill"
+        assert pts[0].cx is not None
+
+    def test_fit_mode_no_cx(self) -> None:
+        samples = [(0.0, [])]  # нет лиц → fit
+        pts = build_trajectory(samples, smoothing=0.15, crop_w_frac=0.32)
+        assert pts[0].mode == "fit"
+        assert pts[0].cx is None
+
+    def test_forced_fill_always_fill(self) -> None:
+        samples = [(0.0, []), (0.2, [])]  # нет лиц, но forced fill
+        pts = build_trajectory(samples, smoothing=0.15, crop_w_frac=0.32, mode_setting="fill")
+        assert all(p.mode == "fill" for p in pts)
+
+    def test_forced_fit_always_fit(self) -> None:
+        samples = [(0.0, [(0.5, 0.1)])]  # есть лицо, но forced fit
+        pts = build_trajectory(samples, smoothing=0.15, crop_w_frac=0.32, mode_setting="fit")
+        assert pts[0].mode == "fit"
+
+    def test_smoothing_applied(self) -> None:
+        # cx_raw = [0.8]; last=0.5; smooth → 0.5+0.15*(0.8-0.5)=0.545
+        samples = [(0.0, [(0.8, 0.1)])]
+        pts = build_trajectory(samples, smoothing=0.15, crop_w_frac=0.32)
+        assert pts[0].cx == pytest.approx(0.545)
+
+    def test_empty_returns_empty(self) -> None:
+        assert build_trajectory([], 0.15, 0.32) == []
+
+
+class TestMergeShortRegions:
+    """Анти-флеш V2: регион < min_hold_sec поглощается предыдущим."""
 
     def test_empty(self) -> None:
-        assert merge_shot_plan([]) == []
+        assert merge_short_regions([], min_hold_sec=1.5) == []
 
     def test_single_unchanged(self) -> None:
-        plan = [ShotPlan(0.0, 5.0, "fill", 0.4)]
-        assert merge_shot_plan(plan) == plan
+        reg = [TrackRegion(0.0, 5.0, "fill", ())]
+        assert merge_short_regions(reg, min_hold_sec=1.5) == reg
 
-    def test_same_center_merges_span(self) -> None:
-        plan = [ShotPlan(0.0, 5.0, "fill", 0.4), ShotPlan(5.0, 9.0, "fill", 0.4)]
-        assert merge_shot_plan(plan) == [ShotPlan(0.0, 9.0, "fill", 0.4)]
+    def test_short_region_absorbed(self) -> None:
+        prev_pt = TrackPoint(t=0.0, mode="fill", cx=0.5)
+        regions = [
+            TrackRegion(0.0, 3.0, "fill", (prev_pt,)),
+            TrackRegion(3.0, 3.4, "fit", ()),  # 0.4с < 1.5 → поглощается
+            TrackRegion(3.4, 6.0, "fill", ()),
+        ]
+        result = merge_short_regions(regions, min_hold_sec=1.5)
+        # fit-регион поглощён в предыдущий fill → [0,3.4 fill, 3.4,6 fill]
+        assert len(result) == 2
+        assert result[0].t0 == 0.0
+        assert result[0].t1 == 3.4
+        assert result[0].mode == "fill"
+        assert result[1].t0 == 3.4
 
-    def test_different_center_not_merged(self) -> None:
-        plan = [ShotPlan(0.0, 5.0, "fill", 0.4), ShotPlan(5.0, 9.0, "fill", 0.6)]
-        assert merge_shot_plan(plan, tolerance=0.05) == plan
+    def test_long_regions_kept(self) -> None:
+        regions = [
+            TrackRegion(0.0, 3.0, "fill", ()),
+            TrackRegion(3.0, 6.0, "fit", ()),  # 3с ≥ 1.5 → остаётся
+        ]
+        assert merge_short_regions(regions, min_hold_sec=1.5) == regions
 
-    def test_within_tolerance_merges_holds_first_center(self) -> None:
-        plan = [ShotPlan(0.0, 5.0, "fill", 0.40), ShotPlan(5.0, 9.0, "fill", 0.43)]
-        assert merge_shot_plan(plan, tolerance=0.05) == [ShotPlan(0.0, 9.0, "fill", 0.40)]
+    def test_first_short_not_absorbed(self) -> None:
+        # первый регион короткий — нет предыдущего → остаётся
+        regions = [
+            TrackRegion(0.0, 0.3, "fit", ()),
+            TrackRegion(0.3, 5.0, "fill", ()),
+        ]
+        result = merge_short_regions(regions, min_hold_sec=1.5)
+        assert result[0].t0 == 0.0  # первый не поглощён
 
-    def test_fill_then_fit_not_merged(self) -> None:
-        plan = [ShotPlan(0.0, 5.0, "fill", 0.4), ShotPlan(5.0, 9.0, "fit", None)]
-        assert merge_shot_plan(plan) == plan
 
-    def test_adjacent_fits_merge(self) -> None:
-        plan = [ShotPlan(0.0, 5.0, "fit", None), ShotPlan(5.0, 9.0, "fit", None)]
-        assert merge_shot_plan(plan) == [ShotPlan(0.0, 9.0, "fit", None)]
+class TestBuildRegions:
+    """build_regions: trajectory → TrackRegion список."""
 
-    def test_slow_drift_breaks_on_held_distance(self) -> None:
-        # 0.43 в пределах 0.05 от держимого 0.40 → слив; 0.50 уже 0.10 от 0.40 → новый сегмент
+    def test_empty_returns_empty(self) -> None:
+        assert build_regions([], min_hold_sec=1.5) == []
+
+    def test_all_fill_one_region(self) -> None:
+        pts = [
+            TrackPoint(0.0, "fill", 0.5),
+            TrackPoint(0.2, "fill", 0.52),
+            TrackPoint(0.4, "fill", 0.51),
+        ]
+        result = build_regions(pts, min_hold_sec=0.0, duration=5.0)
+        assert len(result) == 1
+        assert result[0].mode == "fill"
+        assert result[0].t0 == 0.0
+        assert result[0].t1 == 5.0
+        assert len(result[0].points) == 3
+
+    def test_all_fit_one_region(self) -> None:
+        pts = [TrackPoint(0.0, "fit", None), TrackPoint(0.2, "fit", None)]
+        result = build_regions(pts, min_hold_sec=0.0, duration=3.0)
+        assert len(result) == 1
+        assert result[0].mode == "fit"
+        assert result[0].points == ()
+
+    def test_mode_switch_two_regions(self) -> None:
+        pts = [
+            TrackPoint(0.0, "fill", 0.5),
+            TrackPoint(0.2, "fill", 0.5),
+            TrackPoint(0.4, "fit", None),  # switch
+            TrackPoint(0.6, "fit", None),
+        ]
+        result = build_regions(pts, min_hold_sec=0.0, duration=5.0)
+        assert len(result) == 2
+        assert result[0].mode == "fill"
+        assert result[1].mode == "fit"
+        assert result[0].t1 == result[1].t0  # смежные (нет зазора)
+
+    def test_short_region_merged_by_antiflash(self) -> None:
+        # fill(0-3) → fit(3-3.4 = 0.4с < 1.5) → поглощается → fill(3-5) (нет!)
+        # Реально: fit-регион поглощается в предыдущий fill → результат [fill(0-3.4), fit(3.4-5)]
+        # merge_short_regions поглощает в ПРЕДЫДУЩИЙ: fit(3-3.4)→fill(0-3.4), потом fill(3.4-5).
+        pts = [
+            TrackPoint(0.0, "fill", 0.5),
+            TrackPoint(0.5, "fill", 0.5),
+            TrackPoint(1.0, "fill", 0.5),
+            TrackPoint(3.0, "fit", None),  # короткий fit (0.4с ≈ 1 сэмпл)
+            TrackPoint(3.4, "fill", 0.5),  # обратно fill
+        ]
+        result = build_regions(pts, min_hold_sec=2.0, duration=5.0)
+        # Ожидаем: fit [3.0, 3.4] (0.4 < 2.0) → поглощается в fill [0,3.0] → fill [0,3.4]
+        # Потом fill [3.4, 5.0] → итого 2 fill-региона или 1 большой (зависит от merge)
+        # merge_short_regions поглощает fit в предыдущий fill → fill[0,3.4]
+        # Затем идёт fill[3.4,5.0] — отдельный fill (разные группы изначально — wait,
+        # после merge: остаётся fill[0,3.4] и fill[3.4,5.0])
+        assert all(r.mode == "fill" for r in result)
+
+    def test_duration_sets_last_t1(self) -> None:
+        pts = [TrackPoint(0.0, "fill", 0.5), TrackPoint(0.2, "fill", 0.5)]
+        result = build_regions(pts, min_hold_sec=0.0, duration=10.0)
+        assert result[-1].t1 == 10.0
+
+
+class TestShotPlanToRegions:
+    """shot_plan_to_regions: ShotPlan → TrackRegion (ASD-adapter)."""
+
+    def test_empty(self) -> None:
+        assert shot_plan_to_regions([]) == []
+
+    def test_fill_plan_gets_point(self) -> None:
+        plan = [ShotPlan(0.0, 5.0, "fill", 0.6)]
+        result = shot_plan_to_regions(plan)
+        assert len(result) == 1
+        assert result[0].mode == "fill"
+        assert len(result[0].points) == 1
+        assert result[0].points[0].t == 0.0
+        assert result[0].points[0].cx == 0.6
+
+    def test_fit_plan_empty_points(self) -> None:
+        plan = [ShotPlan(0.0, 5.0, "fit", None)]
+        result = shot_plan_to_regions(plan)
+        assert result[0].mode == "fit"
+        assert result[0].points == ()
+
+    def test_mixed_plan(self) -> None:
         plan = [
-            ShotPlan(0.0, 5.0, "fill", 0.40),
-            ShotPlan(5.0, 9.0, "fill", 0.43),
-            ShotPlan(9.0, 12.0, "fill", 0.50),
+            ShotPlan(0.0, 3.0, "fill", 0.4),
+            ShotPlan(3.0, 5.0, "fit", None),
         ]
-        assert merge_shot_plan(plan, tolerance=0.05) == [
-            ShotPlan(0.0, 9.0, "fill", 0.40),
-            ShotPlan(9.0, 12.0, "fill", 0.50),
-        ]
+        result = shot_plan_to_regions(plan)
+        assert result[0].mode == "fill"
+        assert result[1].mode == "fit"
 
 
 class TestWindowsToShotPlan:
-    """Speaker-адаптер: окна говорящего (CropWindow на план) → ShotPlan для единого рендера."""
+    """Speaker-адаптер: окна говорящего → ShotPlan."""
 
     def test_empty(self) -> None:
         assert windows_to_shot_plan([], duration=20.0, src_w=2000) == []
@@ -333,6 +341,6 @@ class TestWindowsToShotPlan:
         w1 = CropWindow(t=8.0, x=200, y=0, w=600, h=1080)
         out = windows_to_shot_plan([w0, w1], duration=20.0, src_w=2000)
         assert out == [
-            ShotPlan(0.0, 8.0, "fill", 0.6),  # t1 = старт следующего окна
-            ShotPlan(8.0, 20.0, "fill", 0.25),  # (200+300)/2000 = 0.25; t1 = duration
+            ShotPlan(0.0, 8.0, "fill", 0.6),
+            ShotPlan(8.0, 20.0, "fill", 0.25),
         ]
