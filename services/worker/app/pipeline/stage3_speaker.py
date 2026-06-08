@@ -87,3 +87,23 @@ def pick_speaker_centers(
         out.append((s0, center))
         prev = center
     return out
+
+
+def apply_dead_zone(
+    centers: list[tuple[float, float]], *, dead_zone: float = 0.12
+) -> list[tuple[float, float]]:
+    """Умная статика: держим центр, пока он не уехал от ДЕРЖИМОГО ≥ dead_zone — тогда прыжок.
+
+    Гасит «флеши»: серия быстрых склеек с близким кадром → один held-центр (окно не дёргается);
+    мелкий дрейф не накапливается (сравниваем с держимым, не с предыдущим). Сильный сдвиг
+    фокуса (камера ушла на другого) → новый держимый. На вход/выход — [(shot_start, center)].
+    """
+    if not centers:
+        return centers
+    out = [centers[0]]
+    held = centers[0][1]
+    for t, c in centers[1:]:
+        if abs(c - held) >= dead_zone:
+            held = c
+        out.append((t, held))
+    return out

@@ -21,7 +21,7 @@ import numpy as np
 from app.errors import JobError
 from app.models import CropWindow
 from app.pipeline.stage3_reframe import build_shots, compute_crop_window, detect_cuts
-from app.pipeline.stage3_speaker import build_tracks, pick_speaker_centers
+from app.pipeline.stage3_speaker import apply_dead_zone, build_tracks, pick_speaker_centers
 
 _STAGE = "reframe"
 _FPS = 25
@@ -65,6 +65,8 @@ def speaker_windows(
     end: float,
     *,
     crop_scale: float = 0.55,
+    cut_threshold: float = 0.4,
+    dead_zone: float = 0.12,
 ) -> list[CropWindow] | None:
     """Сегмент → окна 9:16 по ГОВОРЯЩЕМУ лицу на план (или None, если лиц нет → caller на fallback).
 
@@ -176,6 +178,6 @@ def speaker_windows(
             t1 = float(tr["frame"][-1] + 1) / _FPS
             scored.append((t0, t1, cx, speak))
 
-        shots = build_shots(detect_cuts(video, start, end), end - start)
-        centers = pick_speaker_centers(scored, shots)
+        shots = build_shots(detect_cuts(video, start, end, threshold=cut_threshold), end - start)
+        centers = apply_dead_zone(pick_speaker_centers(scored, shots), dead_zone=dead_zone)
         return [compute_crop_window(src_w, src_h, c, t=t0) for (t0, c) in centers]

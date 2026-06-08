@@ -55,6 +55,10 @@ class Settings(BaseSettings):
     # off → cut-aware largest-face (D2). reframe_speaker_crop_scale — тюнинг кадра под MediaPipe.
     reframe_speaker: bool = False
     reframe_speaker_crop_scale: float = 0.55
+    # умная статика (гасит «флеши»): порог детекта склеек (выше → меньше ложных) +
+    # dead-zone (окно НЕ двигаем, пока центр не уехал > доли ширины → держим кадр через склейки).
+    reframe_cut_threshold: float = 0.4
+    reframe_dead_zone: float = 0.12
 
     @model_validator(mode="after")
     def _require_selected_provider_key(self) -> Self:
