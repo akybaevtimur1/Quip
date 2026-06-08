@@ -8,7 +8,9 @@ import pytest
 
 from app.errors import JobError
 from app.pipeline.stage3_reframe import (
+    ShotPlan,
     aggregate_center,
+    build_shot_plan,
     build_shots,
     compute_crop_window,
     decide_reframe_mode,
@@ -141,6 +143,52 @@ class TestScenesToClipCuts:
         # граница ровно на duration (или дальше) — не склейка внутри клипа
         out = scenes_to_clip_cuts([(66.0, 86.0), (86.0, 90.0)], start=66.0, duration=20.0)
         assert out == []
+
+
+class TestBuildShotPlan:
+    """Per-shot план: режим РЕШАЕТСЯ НА КАЖДЫЙ ШОТ (фикс боли «b-roll узким слайсом»).
+
+    Лицо в шоте → fill+центр(медиана); нет лица → fit (широко, блюр-рамки). forced fill/fit
+    перекрывает. fill без лица → держим центр предыдущего fill-плана (детект-промах ≠ прыжок).
+    """
+
+    def test_all_shots_have_faces_all_fill(self) -> None:
+        samples = [(0.1, 0.3), (0.6, 0.4), (1.0, 0.5), (5.5, 0.8)]
+        plan = build_shot_plan(samples, [(0.0, 5.0), (5.0, 10.0)])
+        assert plan == [
+            ShotPlan(t0=0.0, t1=5.0, mode="fill", center=0.4),  # медиана(0.3,0.4,0.5)=0.4
+            ShotPlan(t0=5.0, t1=10.0, mode="fill", center=0.8),
+        ]
+
+    def test_faceless_shot_becomes_fit(self) -> None:
+        # средний план без лиц (b-roll) → fit широко, не узкий слайс старого центра
+        samples = [(0.1, 0.3), (11.0, 0.7)]
+        plan = build_shot_plan(samples, [(0.0, 5.0), (5.0, 10.0), (10.0, 15.0)])
+        assert plan[0] == ShotPlan(t0=0.0, t1=5.0, mode="fill", center=0.3)
+        assert plan[1] == ShotPlan(t0=5.0, t1=10.0, mode="fit", center=None)
+        assert plan[2] == ShotPlan(t0=10.0, t1=15.0, mode="fill", center=0.7)
+
+    def test_first_shot_faceless_is_fit(self) -> None:
+        samples = [(6.0, 0.7)]
+        plan = build_shot_plan(samples, [(0.0, 5.0), (5.0, 10.0)])
+        assert plan[0] == ShotPlan(t0=0.0, t1=5.0, mode="fit", center=None)
+        assert plan[1] == ShotPlan(t0=5.0, t1=10.0, mode="fill", center=0.7)
+
+    def test_forced_fill_faceless_carries_previous(self) -> None:
+        # forced fill: faceless-шот не уходит в fit, а держит центр предыдущего fill
+        samples = [(0.1, 0.3)]
+        plan = build_shot_plan(
+            samples, [(0.0, 5.0), (5.0, 10.0)], mode_setting="fill", default_center=0.5
+        )
+        assert plan == [
+            ShotPlan(t0=0.0, t1=5.0, mode="fill", center=0.3),
+            ShotPlan(t0=5.0, t1=10.0, mode="fill", center=0.3),  # держим прошлый центр
+        ]
+
+    def test_forced_fit_ignores_faces(self) -> None:
+        samples = [(0.1, 0.3), (6.0, 0.7)]
+        plan = build_shot_plan(samples, [(0.0, 5.0), (5.0, 10.0)], mode_setting="fit")
+        assert all(s.mode == "fit" and s.center is None for s in plan)
 
 
 class TestShotCenters:

@@ -18,6 +18,7 @@ import json
 import re
 import subprocess
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 
 from app.errors import JobError
@@ -26,6 +27,21 @@ from app.pipeline.stage3_speaker import apply_dead_zone
 
 _STAGE = "reframe"
 _ASPECT_W, _ASPECT_H = 9, 16
+
+
+@dataclass(frozen=True)
+class ShotPlan:
+    """План одного шота для per-shot рендера (R1): интервал + режим + центр.
+
+    mode='fill' → кроп 9:16 по center (доля X); mode='fit' → весь кадр + блюр-рамки
+    (b-roll/перебивка без лица — показываем широко, без узкого слайса), center=None.
+    """
+
+    t0: float
+    t1: float
+    mode: str
+    center: float | None
+
 
 # MediaPipe Tasks FaceDetector требует файл модели (.tflite). Качаем в кэш при первом
 # использовании (gitignored). URL стабилен (Google MediaPipe models).
@@ -114,6 +130,32 @@ def shot_centers(
         center = aggregate_center(cs) if cs else prev
         out.append((s0, center))
         prev = center
+    return out
+
+
+def build_shot_plan(
+    samples: list[tuple[float, float]],
+    shots: list[tuple[float, float]],
+    *,
+    mode_setting: str = "auto",
+    default_center: float = 0.5,
+) -> list[ShotPlan]:
+    """Каждый план источника → свой ShotPlan (режим РЕШАЕТСЯ НА ШОТ — фикс «b-roll слайсом»).
+
+    Лицо в плане → fill (center = медиана лиц плана); нет лица → fit (широко, блюр-рамки).
+    mode_setting forced 'fill'/'fit' перекрывает auto. fill без лица в плане → держим центр
+    предыдущего fill-плана (детект-промах ≠ прыжок в центр; первый → default_center).
+    """
+    out: list[ShotPlan] = []
+    prev_center = default_center
+    for s0, s1 in shots:
+        faces = [c for (t, c) in samples if s0 <= t < s1]
+        if decide_reframe_mode(mode_setting, bool(faces)) == "fill":
+            center = aggregate_center(faces) if faces else prev_center
+            prev_center = center
+            out.append(ShotPlan(t0=s0, t1=s1, mode="fill", center=center))
+        else:
+            out.append(ShotPlan(t0=s0, t1=s1, mode="fit", center=None))
     return out
 
 
