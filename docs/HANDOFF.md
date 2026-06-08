@@ -89,6 +89,8 @@ $env:PATH = [Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [Env
 - Проверка эффекта: `data/comedy01/reframe_clip_01.json` → считать ВИДИМЫЕ смены x (прыжки).
 
 ## 7. БЛИЖАЙШЕЕ (что делать в новой сессии)
+> 🎯 Продуктовый вектор «догнать Opus Clip» — в `docs/ROADMAP.md` (приоритеты R1→R6).
+> R1 (Reframe 2.0: PySceneDetect + по-шотный рендер + адаптивный масштаб) — активная боль, первым.
 1. **Дождаться вердикта фаундера по active-speaker** (clip_01/clip_03 отправлены): на того ли
    человека наводит? кадр? → крутить `REFRAME_SPEAKER_CROP_SCALE` (0.45–0.8) и перегнать comedy01
    (`uv run --extra asd python -m app.run comedy01` c `$env:REFRAME_SPEAKER="true"`), сравнить кадры.
