@@ -51,6 +51,10 @@ class Settings(BaseSettings):
     # reframe: auto = лицо→fill(кроп), нет лица→fit(блюр-рамки, ничего не режет);
     #          fill = всегда кроп; fit = всегда весь кадр в рамках.
     reframe_mode: Literal["auto", "fill", "fit"] = "auto"
+    # active-speaker наведение (на ГОВОРЯЩЕЕ лицо, не крупнейшее). Требует asd-экстру (torch).
+    # off → cut-aware largest-face (D2). reframe_speaker_crop_scale — тюнинг кадра под MediaPipe.
+    reframe_speaker: bool = False
+    reframe_speaker_crop_scale: float = 0.55
 
     @model_validator(mode="after")
     def _require_selected_provider_key(self) -> Self:

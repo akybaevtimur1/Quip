@@ -224,9 +224,12 @@ def reframe_segment(
     clip_id: str,
     out_dir: Path,
     mode_setting: str = "auto",
+    speaker: bool = False,
+    speaker_crop_scale: float = 0.55,
 ) -> tuple[str, list[CropWindow], bool]:
     """Сегмент → (mode, crop, face_found). mode='fill' → ОДНО окно 9:16 на план источника
     (держим внутри плана, скачок на склейке); mode='fit' → весь кадр + блюр-рамки (crop пустой).
+    speaker=True → центр плана = ГОВОРЯЩЕЕ лицо (ASD); иначе крупнейшее (D2, fallback).
     Пишет reframe_<clip_id>.json (список окон с клип-относительными t = начало плана).
     """
     samples = sample_face_centers(video, start, end)
@@ -238,12 +241,19 @@ def reframe_segment(
         if not face_found:
             crop = [compute_crop_window(src_w, src_h, 0.5, t=0.0)]
         else:
-            cuts = detect_cuts(video, start, end)
-            shots = build_shots(cuts, end - start)
-            crop = [
-                compute_crop_window(src_w, src_h, c, t=t0)
-                for (t0, c) in shot_centers(samples, shots)
-            ]
+            if speaker:
+                from app.pipeline.asd_reframe import speaker_windows  # noqa: PLC0415
+
+                crop = (
+                    speaker_windows(video, src_w, src_h, start, end, crop_scale=speaker_crop_scale)
+                    or []
+                )
+            if not crop:  # speaker off или ASD не нашёл дорожек → cut-aware largest-face (D2)
+                shots = build_shots(detect_cuts(video, start, end), end - start)
+                crop = [
+                    compute_crop_window(src_w, src_h, c, t=t0)
+                    for (t0, c) in shot_centers(samples, shots)
+                ]
 
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / f"reframe_{clip_id}.json").write_text(

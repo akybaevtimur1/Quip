@@ -129,6 +129,7 @@ def run_pipeline(
         mode, crop, face_found = reframe_segment(
             out / "source.mp4", meta.width, meta.height, seg.start, seg.end,
             clip_id=clip_id, out_dir=out, mode_setting=s.reframe_mode,
+            speaker=s.reframe_speaker, speaker_crop_scale=s.reframe_speaker_crop_scale,
         )  # fmt: skip
         reframe_t += time.perf_counter() - t0
         write_captions_ass(transcript.words, seg.start, seg.end, out / f"captions_{clip_id}.ass")
