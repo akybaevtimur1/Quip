@@ -80,6 +80,14 @@ $env:PATH = [Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [Env
 - **Спайк-окружение ASD** (torch CPU + LR-ASD клон) — в `services/worker/tmp/spike/` (gitignored, ~ГБ;
   можно удалить, если место надо). torch/scipy/psf поставлены в worker-venv (опц. группа `asd`).
 
+## 6b. Тюнинг reframe (кнобы в config / .env — крутить тут, перегонять comedy01)
+- `REFRAME_SPEAKER` true/false — наведение на говорящего (ASD) vs largest-face (D2).
+- `REFRAME_CUT_THRESHOLD` 0.4 — порог детекта склеек (выше → меньше ложных «флешей»).
+- `REFRAME_DEAD_ZONE` 0.12 — «умная статика»: окно не двигаем, пока центр не уехал > доли
+  ширины (выше → стабильнее/статичнее, меньше прыжков; ниже → отзывчивее).
+- `REFRAME_SPEAKER_CROP_SCALE` 0.55 — насколько широкий кадр вокруг лица (ASD-путь).
+- Проверка эффекта: `data/comedy01/reframe_clip_01.json` → считать ВИДИМЫЕ смены x (прыжки).
+
 ## 7. БЛИЖАЙШЕЕ (что делать в новой сессии)
 1. **Дождаться вердикта фаундера по active-speaker** (clip_01/clip_03 отправлены): на того ли
    человека наводит? кадр? → крутить `REFRAME_SPEAKER_CROP_SCALE` (0.45–0.8) и перегнать comedy01
