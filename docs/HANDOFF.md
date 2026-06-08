@@ -13,13 +13,19 @@ FastAPI / uv, пакет `app`), `packages/shared` (TS-типы, codegen из `a
 ## 2. Статус (что готово)
 - **Phase 0 (A→J) ЗАВЕРШЁН**: сквозной пайплайн + web UI + worker REST/SQLite, проверен e2e.
 - **Качество (фидбек фаундера), всё в коммитах:**
-  - **D2** — cut-aware reframe: окно держит план, скачок на склейке (не плавает). `abd7760`.
+  - **R1 Reframe 2.0 (per-shot)** — ✅ 2026-06-08, `352284c`→`d234b92` (5 коммитов). Флеши убраны
+    BY-DESIGN: PySceneDetect кадроточные склейки → каждый план рендерится отдельным ffmpeg-сегментом
+    со своим static-кропом → concat встык → субтитры 2-м проходом. Режим НА ШОТ (лицо→fill /
+    b-roll без лица→fit широко). Удалён time-expr (промах на кадр). Доказано на comedy01 +
+    Comedians-in-Cars (флеш-видео фаундера): скрины отправлены. См. ROADMAP R1.
+  - **D2** — cut-aware reframe: окно держит план, скачок на склейке (не плавает). `abd7760`. (заменён R1)
   - **C** — clean-start: клип не начинается с хвоста предложения. `100693c`.
   - **B** — курирование в UI: степпер «сколько клипов» + чекбоксы выбора + «скачать выбранные». `0829bea`.
   - **Active-speaker reframe** — наведение на ГОВОРЯЩЕГО (LR-ASD), ЗА ФЛАГОМ `REFRAME_SPEAKER`.
     `5f1011f`/`70f02b1`/`7e1690b`. ⚠️ **ОТКРЫТО: ждём визуальный вердикт фаундера** (тот ли человек?
     кадр не тесный?) + тюнинг `reframe_speaker_crop_scale` (сейчас 0.55). Стоимость ~2× длительности
-    видео на CPU → off по умолчанию (быстрый largest-face D2).
+    видео на CPU → off по умолчанию (быстрый largest-face). ⚠️ speaker-путь ещё на ffmpeg detect_cuts
+    (R1 перевёл только default-путь на PySceneDetect); speaker-окна адаптируются в ShotPlan.
 - **Отложено**: K1 (RQ+Redis очередь) — план в `docs/superpowers/plans/2026-06-07-phase1-k1-queue.md`,
   исполнение НЕ начато (выбрали «сначала качество»).
 
@@ -81,21 +87,31 @@ $env:PATH = [Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [Env
   можно удалить, если место надо). torch/scipy/psf поставлены в worker-venv (опц. группа `asd`).
 
 ## 6b. Тюнинг reframe (кнобы в config / .env — крутить тут, перегонять comedy01)
-- `REFRAME_SPEAKER` true/false — наведение на говорящего (ASD) vs largest-face (D2).
-- `REFRAME_CUT_THRESHOLD` 0.4 — порог детекта склеек (выше → меньше ложных «флешей»).
-- `REFRAME_DEAD_ZONE` 0.12 — «умная статика»: окно не двигаем, пока центр не уехал > доли
-  ширины (выше → стабильнее/статичнее, меньше прыжков; ниже → отзывчивее).
+- `REFRAME_SCENE_THRESHOLD` 27.0 — порог PySceneDetect ContentDetector (R1, default-путь;
+  ВЫШЕ → меньше склеек/ложных; шкала ~0..255, НЕ ffmpeg 0..1).
+- `REFRAME_MIN_SCENE_SEC` 0.4 — мин. длина плана (анти-дребезг; выше → меньше коротких fit-перебивок).
+- `REFRAME_SPEAKER` true/false — наведение на говорящего (ASD) vs largest-face.
+- `REFRAME_CUT_THRESHOLD` 0.4 — порог ffmpeg-склеек, теперь ТОЛЬКО speaker-путь (ASD ещё на нём).
+- `REFRAME_DEAD_ZONE` 0.12 — теперь = tolerance слияния планов (merge_shot_plan): смежные
+  fill-планы с близким центром → 1 сегмент (выше → меньше микро-reframe между похожими планами).
 - `REFRAME_SPEAKER_CROP_SCALE` 0.55 — насколько широкий кадр вокруг лица (ASD-путь).
-- Проверка эффекта: `data/comedy01/reframe_clip_01.json` → считать ВИДИМЫЕ смены x (прыжки).
+- Проверка эффекта: `data/comedy01/reframe_clip_01.json` → теперь {shots:[{t0,t1,mode,center}]};
+  считать fit-шоты (b-roll) и смены center (reframe). Прогон: `uv run python -m app.run comedy01` ($0, кэш).
+- Тест reframe БЕЗ Deepgram (когда транскрипт не нужен): `tmp/test_reframe_comedians.py <start> <end>`.
 
 ## 7. БЛИЖАЙШЕЕ (что делать в новой сессии)
 > 🎯 Продуктовый вектор «догнать Opus Clip» — в `docs/ROADMAP.md` (приоритеты R1→R6).
-> R1 (Reframe 2.0: PySceneDetect + по-шотный рендер + адаптивный масштаб) — активная боль, первым.
-1. **Дождаться вердикта фаундера по active-speaker** (clip_01/clip_03 отправлены): на того ли
-   человека наводит? кадр? → крутить `REFRAME_SPEAKER_CROP_SCALE` (0.45–0.8) и перегнать comedy01
-   (`uv run --extra asd python -m app.run comedy01` c `$env:REFRAME_SPEAKER="true"`), сравнить кадры.
-2. Если active-speaker принят → решить дефолт (флаг on/off) + деплой-нюанс (`--extra asd` ставит torch).
-3. Возможные улучшения: кэш транскрипции по hash(source) (UI-джоб сейчас каждый раз платит Deepgram);
-   тюнинг `detect_cuts(threshold)` (0.3 иногда пропускает склейку); K1-очередь (по плану, отложено).
+> R1 ✅ СДЕЛАН. **Следующий — R2 (не только подкасты + мягкий empty-state).**
+1. **R1 — вердикт фаундера по скринам** (отправлены: cic_sheet/cic_boundary/clip01_sheet):
+   нет флешей? b-roll широко ок? Если ок — закрыть. Тюнинг при необходимости — кнобы §6b
+   (scene_threshold/min_scene_sec против коротких ложных fit-перебивок).
+2. **R2** — stage2 (Gemini) расширить на не-подкасты (визуальные хуки/экшен) + мягкий empty-state
+   с диагностикой. См. ROADMAP R2.
+3. **⚠️ НАХОДКА R1: Deepgram режет upload больших wav** (Comedians 19мин/37МБ wav → HTTP 408
+   SLOW_UPLOAD / Server disconnected). Сетевое окружения, но стоит: (а) сжать аудио перед upload
+   (mp3/opus вместо pcm 16k — ~3× меньше) ИЛИ Deepgram URL-ingest; (б) ретраи на 408/disconnect в
+   call_deepgram. Сейчас длинные видео через UI могут падать на транскрипции.
+4. Возможные улучшения: кэш транскрипции по hash(source) (UI-джоб каждый раз платит Deepgram);
+   active-speaker дефолт (флаг on/off, `--extra asd` ставит torch); K1-очередь (по плану, отложено).
 - Ключи в `.env` (корень): DEEPGRAM_API_KEY, GEMINI_API_KEY, LLM_MODEL=gemini-flash-latest.
   Экономика: ~$0.16/видео (33 мин), доминанта — транскрипция (см. BENCHMARKS).

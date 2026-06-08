@@ -297,6 +297,35 @@
   судит фаундер визуально; `reframe_speaker_crop_scale=0.55` тюним под MediaPipe-кропы (модель
   обучена на S3FD; score сжат). Воркер на :8000 по умолчанию БЕЗ флага (UI-прогоны = largest-face).
 
+### R1 — Reframe 2.0 (per-shot), СДЕЛАН 2026-06-08 (флеши by-design убраны)
+Главная боль фаундера: «флеши» (смена кропа мимо склейки на кадр) + b-roll режется узким
+слайсом («трава вместо широко»). Корень в коде: (1) сырой ffmpeg scene-порог; (2) кроп
+ВЫРАЖЕНИЕМ ВО ВРЕМЕНИ `crop=…:if(lt(t,T),x0,x1)` — T-float не попадает на PTS кадра-склейки;
+(3) режим fill/fit решался ОДИН раз на сегмент. Переписано на **per-shot** (как Opus/Vizard):
+- **R1.1** `352284c` — PySceneDetect ContentDetector (frame-accurate) вместо ffmpeg-порога.
+  pure `scenes_to_clip_cuts` (офсет −start) + I/O `detect_scene_cuts`. ⚠️ scenedetect НЕ был в
+  депах (доки врали) → добавлен в БАЗОВЫЕ; шкала порога ~27 (НЕ ffmpeg 0..1). comedy01 clip_01:
+  14 склеек vs 8 у ffmpeg@0.4.
+- **R1.2** `29460ad` — pure `build_shot_plan` + `ShotPlan`: режим РЕШАЕТСЯ НА ШОТ (лицо→fill+центр;
+  нет лица→fit широко).
+- **R1.3a** `1019d40` — pure-билдеры: `build_vf_fill`/`build_vf_fit_shot` (без субтитров),
+  `build_concat_list`/`build_concat_burn_cmd`, `merge_shot_plan` (слить равные планы: статика→1
+  кодировка, tolerance=dead_zone сравн. с ДЕРЖИМЫМ центром), `windows_to_shot_plan` (speaker-адаптер).
+- **R1.3b** `d234b92` — `render_clip`/`reframe_segment`/`run.py` ПЕРЕПИСАНЫ на per-shot: каждый
+  план = отдельный ffmpeg-сегмент (cut + static-crop|fit-blur) → concat-демуксер → burn субтитров
+  2-м проходом (не рвутся на границе шота). Удалён time-expr (`build_vf_dynamic`/`build_crop_x_step_expr`).
+  config `reframe_scene_threshold`/`reframe_min_scene_sec`. reframe_<clip>.json → {shots:[…]}.
+- **DoD** ✅: comedy01 (5 валидных mp4 1080×1920, длительности сходятся, temp вычищены, clip_01
+  5 fit-шотов из 11 vs 0 раньше). Comedians-in-Cars 300–330с (13 склеек): fit-перебивки широко
+  (t=17 пейзаж целиком), reframe следит за говорящим (Обама 0.35 / Сайнфелд 0.74), граница
+  t=21.655 чистая (нет кадра-флеша). Скрины фаундеру. 150 unit-тестов, just check зелёный.
+- ⚠️ Грабли: `uv sync` (без `--extra asd`) УДАЛЯЕТ torch → mypy падает на `app/asd/scorer.py`
+  (subclass nn.Module=Any). Держать `uv sync --extra asd`. Comedians целиком через UI не прогнан —
+  Deepgram 408 SLOW_UPLOAD (upload 37МБ wav, сетевое); reframe тестился напрямую (`tmp/test_reframe_comedians.py`).
+- ⚠️ Тюнинг-кандидаты (фаундер судит по скринам): короткие fit-перебивки могут быть ложными
+  (детект-промах лица на быстром плане) → `reframe_min_scene_sec`/`reframe_scene_threshold`;
+  speaker-путь ещё на ffmpeg detect_cuts (R1 перевёл только largest-face путь).
+
 ### Решение по LLM (этап D): Gemini вместо Anthropic
 - У фаундера НЕТ Anthropic-ключа → этап D на **Gemini** (план это разрешает: LLM swappable).
 - SDK: **`google-genai` 2.8.0** (`from google import genai`). Авторитетно (интроспекция,
