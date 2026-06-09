@@ -15,38 +15,26 @@ FastAPI / uv, пакет `app`), `packages/shared` (TS-типы, codegen из `a
 ### Phase 0 (A→J) ЗАВЕРШЁН
 Сквозной пайплайн + web UI + worker REST/SQLite, проверен e2e.
 
-### V2 Continuous Reframe — ✅ СДЕЛАН (2026-06-09, коммиты `5b59f2e`)
+### Flash Fix — Cut-Aligned Reframe ✅ СДЕЛАН (2026-06-09)
 
-**Полная замена R1 (ShotPlan/PySceneDetect) на непрерывное слежение за лицом.**
+**Был баг:** режим fill↔fit переключался на сетке 5fps-сэмплирования (кратно 0.2с),
+не совпадая с реальными склейками → флеш (1 кадр «обычного» видео) на КАЖДОМ переходе.
 
-Суть: вместо per-shot «кроп держим на плане, прыгаем на склейке» → **exponential smoothing
-покадровой позиции лица** (0.15 коэф.). Режим fill/fit решается независимо на каждый сэмпл
-по геометрии ВСЕХ лиц кадра (широко vs тайт). Два движка рендера за одним интерфейсом
-для A/B бенчмарка.
+**Доказано диагностикой:** граница `fill→fit` в `comedy01/clip_01` стояла на t=11.6с,
+ближайшая реальная склейка — t=10.44с, рассинхрон **29 кадров**. В окне ±1с склеек нет.
 
-**Что убрано:** PySceneDetect, `detect_scene_cuts`, `build_shot_plan`, `stabilize_plan`,
-`merge_shot_plan` (как основной путь). ShotPlan + `build_shots` + `detect_cuts` СОХРАНЕНЫ
-в stage3_reframe.py — ASD speaker-путь их ещё использует.
+**Фикс (как у Google AutoFlip / OpusClip):**
+1. `detect_cuts` (ffmpeg scene-detect, уже был) → frame-accurate склейки
+2. `build_shots` (уже был) → интервалы планов
+3. **`decide_shot_mode`** (NEW, PURE) — режим `fill`/`fit` решается **ОДИН РАЗ на план** (большинство кадров по `classify_frame`)
+4. **`build_shot_trajectory`** (NEW, PURE) — EMA-пан ВНУТРИ плана; сбрасывается на каждом плане (инициализируется первым реальным cx лица, не 0.5)
+5. **`build_regions_from_shots`** (NEW, PURE) — собирает `TrackRegion` по планам + `merge_short_regions` (анти-флеш рапид-монтажа)
+6. `samples_in_shot` (NEW, PURE) — вспомогательная фильтрация сэмплов в окно плана
 
-**Что добавлено:**
-- `TrackPoint(t, mode, cx)` + `TrackRegion(t0, t1, mode, points)` — новый контракт данных
-- `smooth_centers(samples, smoothing=0.15)` — EMA сглаживание cx (PURE, тестировано)
-- `classify_frame(all_faces, crop_w_frac)` — per-frame fit/fill по геометрии (PURE)
-- `build_trajectory(raw_samples, ...)` — траектория TrackPoint-ов (PURE)
-- `merge_short_regions(regions, min_hold_sec)` — анти-флеш V2: короткий регион поглощается предыдущим (PURE)
-- `build_regions(trajectory, ...)` — группировка в TrackRegion (PURE)
-- `shot_plan_to_regions(plan)` — адаптер ASD → TrackRegion (PURE)
-- **Engine A** (`build_smooth_filter`): ffmpeg filter_complex с piecewise `if(lt(t\,T)\,x0\,x1)`
-  для fill-кропа + split→trim→concat. Быстрый (~4–8с/клип).
-- **Engine B** (`render_frame_by_frame`): cv2 VideoCapture покадрово → raw BGR pipe → ffmpeg stdin.
-  Медленный (~20–27с/клип), но frame-exact.
+**Результат:** все 3 границы режима `comedy01/clip_01` — Δ **0 кадров** от реальных склеек.
 
-**Первый успешный прогон (test01, 2026-06-09):**
-- Видео 193с 1280×720, 504 слова, $0.006
-- 2 клипа: clip_01 (5 регионов, 2 fit, A=7.7с / B=27.1с), clip_02 (4 региона, 1 fit, A=6.8с / B=21.4с)
-
-**⚠️ Качество V2 на оценке фаундера** — Engine A запущен, визуально «ломано двигалась камера».
-Engine B переключён для сравнения. Вердикт ожидается.
+Коммиты: `10d1900` (samples_in_shot) → `35e7f4d` → `bbf08bd` → `406e61d` → `a57d1a7`
+(wire-in + config) → `e40fa2d` (docs) → `e044f2b` (EMA init fix) → `5659e5b`.
 
 ### Другие улучшения (ранее):
 - **K3 авто-язык** — Deepgram `detect_language` (lang=None), RU работает.
@@ -55,8 +43,12 @@ Engine B переключён для сравнения. Вердикт ожид
 - **C** — clean-start: клип не начинается с хвоста предложения.
 - **B** — курирование в UI: степпер клипов + чекбоксы + «скачать выбранные».
 - **Active-speaker (ASD)** — за флагом `REFRAME_SPEAKER`. Default = off.
+- **R1b** — широко/тайт по геометрии лиц (1 человек → fill; 2+ разнесённых → fit).
 
 **Отложено:** K1 (RQ+Redis очередь) — план в `docs/superpowers/plans/...k1-queue.md`, не начат.
+
+**GATED (Task 6):** плавный zoom-переход (~0.3с ease-in-out) для intra-shot wide-reveal.
+Делать ТОЛЬКО после того, как фаундер подтвердит, что основные флеши ушли.
 
 ## 3. КАК ЗАПУСТИТЬ (Windows, PowerShell-инструмент)
 
@@ -66,7 +58,10 @@ $env:PATH = [Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [Env
 ```
 
 **⚠️ ПОСЛЕ ЛЮБОЙ ПРАВКИ КОДА ВОРКЕРА — ПЕРЕЗАПУСТИ ВОРКЕР.**
-uvicorn запущен БЕЗ `--reload` → старый код остаётся в памяти.
+uvicorn запущен БЕЗ `--reload` → старый код остаётся в памяти. Гасить по порту:
+```powershell
+foreach ($p in 3000,8000){ Get-NetTCPConnection -LocalPort $p -State Listen -EA SilentlyContinue | Select -Expand OwningProcess -Unique | %{ Stop-Process -Id $_ -Force } }
+```
 
 **Поднять стек для теста (UI):**
 ```powershell
@@ -84,11 +79,6 @@ Set-Location "C:\Users\user\Desktop\ClipClow"
 pnpm --filter web dev
 ```
 Тестировать: **http://localhost:3000**
-
-**Убить зомби-серверы по порту:**
-```powershell
-foreach ($p in 3000,8000){ Get-NetTCPConnection -LocalPort $p -State Listen -EA SilentlyContinue | Select -Expand OwningProcess -Unique | %{ Stop-Process -Id $_ -Force } }
-```
 
 **CLI e2e (дёшево, кэш):** из `services/worker`:
 ```powershell
@@ -110,9 +100,10 @@ just check
 |---------|----------|-----|
 | `comedy01` | RU интервью «Звёзды против мошенников» (~33 мин, Щербаков) | source + transcript + segments + clips |
 | `sample01` | EN «Mafia show» (мультиспикер, ~33 мин) | source + transcript + segments + clips |
-| `test01` | EN короткое видео (193с, 504 слова) | source + transcript + segments + clips (V2) |
+| `test01` | EN короткое видео (193с, 504 слова) | source + transcript + segments + clips |
 
 `comedy01` — основной для теста reframe без оплаты. `test01` — лёгкий для быстрой итерации.
+Для перегенерации клипов (без повторной оплаты): **удали `data/<job>/clips/`** и запусти `app.run <job>`.
 
 ## 5. Архитектура (где что)
 
@@ -142,9 +133,9 @@ services/worker/
                                yt-dlp куки: YTDLP_COOKIES_FILE (приоритет) или YTDLP_COOKIES_BROWSER
       stage1_transcribe.py   — Deepgram REST /v1/listen через httpx (НЕ SDK!)
       stage2_select.py       — Gemini structured output → сегменты. Промпт в prompts/
-      stage3_reframe.py      — V2 Continuous Reframe (см. §6). TrackPoint/TrackRegion.
+      stage3_reframe.py      — Cut-Aligned Reframe (см. §6). TrackPoint/TrackRegion.
       stage4_captions.py     — ASS субтитры (Montserrat 90, upper, group_words)
-      stage5_render.py       — V2 Engine A (ffmpeg expr) / Engine B (cv2 pipe)
+      stage5_render.py       — Engine A (ffmpeg filter_complex) / Engine B (cv2 pipe)
 
     asd/                     — Active-speaker detection (LR-ASD вендоринг, MIT)
       _vendor/               — вендоренное ядро (torch-зависимости, gitignored)
@@ -154,12 +145,12 @@ services/worker/
   prompts/
     select_moments.v1.txt    — промпт Gemini (крутить без перекодировки)
 
-  tests/unit/                — 167 тестов (pytest), все зелёные
+  tests/unit/                — 180 тестов (pytest), все зелёные
 ```
 
-## 6. V2 Reframe в деталях
+## 6. Cut-Aligned Reframe в деталях
 
-### Поток данных `reframe_segment` (V2)
+### Поток данных `reframe_segment` (основной путь, speaker=False)
 
 ```
 source.mp4 + (start, end)
@@ -168,33 +159,46 @@ source.mp4 + (start, end)
   │    └─ ffmpeg: кадры каждые 1/fps сек → PNG в temp-dir
   │    └─ MediaPipe Tasks API FaceDetector → (t, [(cx, w_frac), …])
   │         bbox в ПИКСЕЛЯХ / ширина кадра = доли [0..1]
-  │         t — клип-relative (0-based от -ss seek)
-  │         возвращает ВСЕ лица кадра (нужны для classify_frame)
+  │         t — клип-relative (0-based), ВСЕ лица кадра
   │
-  ├─ build_trajectory(raw_samples, smoothing=0.15, crop_w_frac, mode_setting="auto")
-  │    └─ PURE. На каждый сэмпл:
-  │         classify_frame(faces, crop_w_frac) → "fill" | "fit"
-  │           нет лиц → fit
-  │           2+ лица с span > ширины 9:16 → fit (оба видны)
-  │           одно/кластер → fill (наводим на крупнейшее)
-  │         smooth_centers(cx_raws, alpha=0.15) → сглаженный cx (EMA)
-  │           last = last + alpha*(cx - last)  ← exponential smoothing
-  │           None (нет лица) → держим last
-  │    └→ list[TrackPoint(t, mode, cx)]
+  ├─ detect_cuts(video, start, end, threshold=0.3)
+  │    └─ ffmpeg select='gt(scene,thr)',showinfo → pts_time список
+  │    └→ list[float]  клип-relative времена склеек
   │
-  ├─ build_regions(trajectory, min_hold_sec=1.5)
-  │    └─ PURE. Группирует consecutive-mode точки → TrackRegion
-  │    └─ merge_short_regions: регион < min_hold_sec поглощается ПРЕДЫДУЩИМ
-  │         → анти-флеш: нет мигания fill↔fit на коротких шотах
-  │    └→ list[TrackRegion(t0, t1, mode, points)]
-  │         fill: points = tuple[TrackPoint] с cx-траекторией
-  │         fit:  points = () (пустой кортеж)
+  ├─ build_shots(cuts, duration)
+  │    └─ PURE. [0.0] + cuts + [duration] → [(t0,t1), …] интервалы планов
   │
-  ├─ [speaker=True] windows_to_shot_plan() → shot_plan_to_regions()
-  │         ASD-путь: поверх V2, конвертирует ShotPlan → TrackRegion
+  ├─ build_regions_from_shots(shots, raw_samples, crop_w_frac, smoothing, min_hold_sec, …)
+  │    └─ PURE. Для каждого плана (t0, t1):
+  │         samples_in_shot(raw_samples, t0, t1)   → сэмплы плана [t0,t1)
+  │         decide_shot_mode(seg, crop_w_frac, wide_ratio=0.5)
+  │           └─ majority-vote classify_frame → "fill" | "fit"
+  │                нет сэмплов → fit
+  │                mode_setting override ("fill"/"fit") уважается
+  │         if fill:
+  │           build_shot_trajectory(seg, smoothing)
+  │             └─ cx крупнейшего лица, EMA (alpha=smoothing)
+  │                  INIT = первый реальный cx (НЕ 0.5)  ← ключевой фикс бага пана
+  │                  None (нет лица) → держим last
+  │             └→ tuple[TrackPoint(t, "fill", cx)]
+  │           fallback: (TrackPoint(t0, "fill", 0.5),) если нет ни одного лица
+  │           → TrackRegion(t0, t1, "fill", points)
+  │         else (fit):
+  │           → TrackRegion(t0, t1, "fit", ())
+  │    └─ merge_short_regions(regions, min_hold_sec=1.5)
+  │         план < min_hold → поглощается предыдущим (анти-флеш на рапид-монтаже)
+  │    └→ list[TrackRegion]
+  │         ГРАНИЦА РЕЖИМА = ГРАНИЦА ПЛАНА = РЕАЛЬНАЯ СКЛЕЙКА → флеша нет
+  │
+  ├─ [speaker=True + face_found]:
+  │    windows_to_shot_plan() → shot_plan_to_regions()
+  │    ASD-путь: НЕ использует build_regions_from_shots; строит свои TrackRegion.
   │
   └─ _write_reframe_json: {regions:[{t0,t1,mode,points:[{t,mode,cx},...]},...]}
 ```
+
+**Легаси-функции** `build_trajectory` / `build_regions` сохранены в коде для обратной совместимости
+(в production не вызываются; ASD-адаптер использует `shot_plan_to_regions`).
 
 ### Поток данных `render_clip` (Engine A / B)
 
@@ -205,21 +209,20 @@ regions + source.mp4
   ├─ build_smooth_filter(regions, src_w, src_h, fps, ass_name)
   │    └─ PURE. filter_complex строка:
   │         [0:v]setpts=PTS-STARTPTS,split=N[a0][a1]…
-  │         fill-регион → [ai]trim=start_frame=F0:end_frame=F1,setpts=…
-  │                         crop=W:H:{build_fill_crop_expr(...)}:0,scale=…,setsar=1[si]
+  │         fill-регион → trim(start_frame, end_frame), crop={piecewise x-expr}, scale, setsar=1
   │         fit-регион  → blur-bg + letterbox overlay (уникальные лейблы [bg{i}][fg{i}])
-  │         …concat=n=N:v=1[cv];[cv]subtitles={ass}[outv]
+  │         concat=N → subtitles={ass} → [outv]
   │
   ├─ build_fill_crop_expr(points, t0_offset, src_w, src_h)
-  │    └─ PURE. piecewise-constant if() для crop X:
-  │         if(lt(t\,0.200)\,312\,if(lt(t\,0.400)\,315\,...\,320))
-  │         запятые экранированы \, (filtergraph-синтаксис)
-  │         t = клип-время (0-based), t0_offset = регион-старт
+  │    └─ PURE. piecewise-constant if():
+  │         if(lt(t\,0.200)\,312\,...) ← запятые \, для filtergraph
+  │         t = клип-время, t0_offset = старт региона
   │
   └─ build_single_pass_cmd + _run_ffmpeg → clips/<id>.mp4
-       -ss {aligned_start} -i source -t {dur}   ← aligned_start = round(t*fps)/fps
-       -filter_complex {fc} -map [outv] -map 0:a  ← аудио НЕПРЕРЫВНЫМ
+       -ss {aligned_start} -i source -t {dur}
+       -filter_complex {fc} -map [outv] -map 0:a   ← аудио НЕПРЕРЫВНЫМ (нет подлага)
        -c:v libx264 -crf 20 -c:a aac -b:a 128k -movflags +faststart
+       aligned_start = round(seg_start * fps) / fps  ← frame-boundary align
 ```
 
 **Engine B** (`REFRAME_ENGINE=B`, ~20–27с/клип):
@@ -228,18 +231,19 @@ source.mp4
   │
   ├─ cv2.VideoCapture → покадрово:
   │    _get_region_at(t) → текущий TrackRegion
-  │    fill: compute_crop_window(cx, src_w, src_h) → crop numpy array
+  │    _interp_cx(region, t) → cx (линейная интерполяция между TrackPoint-ами)
+  │    fill: compute_crop_window(cx) → crop numpy array
   │    fit:  resize + blur-bg + letterbox
   │    └→ raw BGR frame → ffmpeg stdin (pipe)
   │
   └─ ffmpeg: -f rawvideo stdin → libx264 + aac (из source) → mp4
 ```
 
-**Ключевые инварианты:**
-- `aligned_start = round(seg_start * fps) / fps` → trim-кадры = реальные склейки
+**Ключевые инварианты рендера:**
+- `aligned_start = round(seg_start * fps) / fps` → trim-кадры точно на границе кадра
 - fit-лейблы уникальны `[bg{i}]`, `[fg{i}]` (глобальные имена → коллизия на 2+ fit)
-- `setsar=1` на КАЖДОМ сегменте (fill и fit дают разный SAR → concat без него падает)
-- `smooth_centers(alpha=0)` = camera frozen; `alpha=1` = instantaneous jump (нет сглаживания)
+- `setsar=1` на каждом сегменте (fill/fit дают разный SAR → без него concat падает)
+- Аудио из `0:a` непрерывным — не режется по сегментам (нет priming-подлага)
 
 ### TrackPoint / TrackRegion (frozen dataclasses)
 
@@ -248,14 +252,14 @@ source.mp4
 class TrackPoint:
     t: float           # клип-relative время (секунды)
     mode: str          # "fill" | "fit"
-    cx: float | None   # центр лица [0..1]; None = нет лица / fit
+    cx: float | None   # центр лица [0..1]; None = нет лица / fit-точка
 
 @dataclass(frozen=True)
 class TrackRegion:
     t0: float
     t1: float
     mode: str          # "fill" | "fit"
-    points: tuple[TrackPoint, ...]  # fill: траектория; fit: ()
+    points: tuple[TrackPoint, ...]  # fill: траектория cx; fit: ()
 ```
 
 `reframe_<clip_id>.json` → `{regions:[{t0,t1,mode,points:[{t,mode,cx},...]},...] }`
@@ -266,10 +270,11 @@ class TrackRegion:
 |------------|--------|----------|
 | `REFRAME_ENGINE` | `A` | `A` = ffmpeg expr (быстро); `B` = cv2 pipe (медленно, frame-exact) |
 | `REFRAME_FACE_FPS` | `5.0` | Кол-во сэмплов лиц в сек (выше = точнее / медленнее) |
-| `REFRAME_SMOOTHING` | `0.15` | EMA коэф. (0=frozen; 1=нет сглаживания; 0.15=прототип) |
-| `REFRAME_MIN_HOLD_SEC` | `1.5` | Анти-флеш: регион короче → поглощается предыдущим |
+| `REFRAME_SMOOTHING` | `0.15` | EMA коэф. (0=frozen; 1=без сглаживания; 0.15=дефолт) |
+| `REFRAME_MIN_HOLD_SEC` | `1.5` | Анти-флеш: план короче → поглощается предыдущим |
+| `REFRAME_WIDE_RATIO` | `0.5` | Доля кадров с широкой геометрией для решения "fit" на план |
 | `REFRAME_DEAD_ZONE` | `0.12` | Tolerance слияния (ASD speaker-путь) |
-| `REFRAME_CUT_THRESHOLD` | `0.4` | ffmpeg-порог для ASD speaker-пути |
+| `REFRAME_CUT_THRESHOLD` | `0.4` | Порог scene-detect (выше = чувствительнее к мягким склейкам) |
 | `REFRAME_MODE` | `auto` | `auto` / `fill` / `fit` глобально |
 | `REFRAME_SPEAKER` | `false` | Наведение на говорящего (ASD, нужен `--extra asd`) |
 | `REFRAME_SPEAKER_CROP_SCALE` | `0.55` | Ширина кропа вокруг лица (ASD-путь) |
@@ -280,11 +285,14 @@ class TrackRegion:
 
 **Тюнинг без оплаты:**
 ```powershell
-# comedy01 или test01 — кэш, $0
+# comedy01 или test01 — кэш, $0; удали clips/ для перерендера
+$env:PATH = [Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [Environment]::GetEnvironmentVariable("Path","User")
+Set-Location "C:\Users\user\Desktop\ClipClow\services\worker"
+Remove-Item -Recurse -Force data\comedy01\clips -EA SilentlyContinue
 uv run python -m app.run comedy01
 # Посмотреть регионы clip_01:
-cat data\comedy01\reframe_clip_01.json
-# Ожидаемо: {regions:[{t0,t1,mode,points:[...]},...]}
+Get-Content data\comedy01\reframe_clip_01.json
+# Ожидаемо: boundaries совпадают с реальными склейками (не кратны 0.2)
 ```
 
 ## 8. YouTube куки (ВАЖНО для скачивания)
@@ -298,7 +306,6 @@ Chrome 127+ и Edge сломали DPAPI-расшифровку кук (`--cooki
 4. В `.env`: `YTDLP_COOKIES_FILE=C:\Users\user\Desktop\ClipClow\www.youtube.com_cookies.txt`
 
 Файл `.txt` начинается с `# Netscape HTTP Cookie File` — это правильный формат.
-JSON-экспорт (`.json`) yt-dlp не принимает.
 
 ## 9. Известные проблемы и грабли
 
@@ -308,45 +315,45 @@ JSON-экспорт (`.json`) yt-dlp не принимает.
 |--------|---------|
 | PowerShell держит cwd между вызовами | Всегда абсолютные пути или `Set-Location` в начале |
 | Bash-инструмент не видит ffmpeg/just (winget PATH) | Прогоны пайплайна — через PowerShell с PATH-refresh |
-| Коммит из Bash → кириллица `?????` + BOM | Коммитить ТОЛЬКО из PowerShell; сообщение через файл + `-F` |
+| Коммит из Bash → кириллица `?????` + BOM | Коммитить ТОЛЬКО из PowerShell; сообщение через `-m "ascii"` или файл + `-F` |
 | pre-commit ruff-format переформатирует → хук падает | После `reformatted N files` → `git add` + повторный коммит |
-| `!` bash-команда: URL с `&` или перенос строки | URL в PowerShell в кавычках; `&` в URL → `%26` или обрезать `&t=...` |
+| `Out-File -Encoding utf8NoBOM` не работает в PS 5.1 | Использовать `-Encoding utf8` (PS 5.1 добавит BOM, но `git commit -F` его переживает) |
 | opencv-python-headless + opencv-contrib-python → битый cv2 | Держать ОДИН opencv-пакет. Сейчас: contrib (mediapipe его тянет) |
 | uv sync без `--extra asd` удаляет torch → mypy падает | В dev: `uv sync --extra asd` |
 
-### Известные баги
+### Известные ограничения
 
-| Баг | Описание | Приоритет |
-|-----|----------|-----------|
-| Камера «ломано» двигается (Engine A) | EMA 0.15 даёт плавный пан — на быстром монтаже выглядит неестественно. Engine B та же логика, но точнее. Возможно нужен иной подход к smoothing | ⚠️ АКТИВНЫЙ |
+| Баг / ограничение | Описание | Приоритет |
+|-------------------|----------|-----------|
+| ASD-путь на старых cuts | speaker-путь (`asd_reframe.py`) не использует cut-aligned `build_regions_from_shots`; строит регионы через `shot_plan_to_regions` (своя логика) | Phase 1 |
 | Двойные субтитры | Видео с вшитыми субтитрами → наши прожигаются поверх | R2 |
-| Deepgram 408 SLOW_UPLOAD | >19 мин (37 МБ wav) → таймаут | R2 |
-| shot_is_wide не срабатывает | Второй человек в профиль/затылком → MediaPipe видит 1 лицо | physics |
-| Speaker-путь на ffmpeg cuts | ASD speaker-путь не перешёл на V2 траектории | Phase 1 |
+| Deepgram 408 SLOW_UPLOAD | >19 мин (37 МБ wav) → таймаут загрузки | R2 |
+| shot_is_wide не срабатывает | Второй человек в профиль/затылком → MediaPipe видит 1 лицо → fit не включается | physics |
+| `REFRAME_CUT_THRESHOLD=0.4` может пропустить мягкие склейки | Понизить до 0.25–0.3 на видео с незаметными монтажными переходами | тюнинг |
+
+### ✅ УСТРАНЁННЫЕ баги (для справки)
+- **Флеш fill↔fit** — ключевой баг сессии 2026-06-09. Граница режима теперь = реальная склейка. Δ=0 кадров.
+- **EMA drift от центра** — при reset EMA на каждом плане инициализировалась в 0.5, давая пан к реальному лицу. Исправлено: init = первый реальный cx.
+- **AAC priming подлаг** (R1c) — per-shot рендер резал аудио. Исправлено: аудио непрерывным `-map 0:a`.
+- **Чёрный кадр на переходе** (R1c) — дробный старт сегмента → 1 кадр с мимо. Исправлено: `aligned_start`.
 
 ## 10. БЛИЖАЙШЕЕ (что делать в новой сессии)
 
-> 🎯 **V2 вердикт** — фаундер тестирует Engine A vs Engine B на своих видео.
-> Ключевой вопрос: Engine B (frame-exact) убирает «ломаность» или проблема в EMA-модели?
+> 🎯 **Приоритет #1:** Фаундер тестирует клипы с новым cut-aligned reframe.
+> Ключевой вопрос: основные флеши ушли? Если да → можно двигаться дальше.
 
-**Возможные направления после вердикта:**
+**Task 6 (GATED):** плавный zoom-переход (~0.3с ease-in-out) для intra-shot wide-reveal.
+- Разблокировать ТОЛЬКО после вердикта фаундера «флеши ушли».
+- Plan in: `docs/superpowers/plans/2026-06-09-reframe-cut-snap-flash-fix.md` Task 6.
+- Реализация: `transition_in: str = "hard"/"zoom"` поле в `TrackRegion`; Engine B анимирует.
 
-**Если проблема в EMA-модели («ломаность» = неправильный smoothing):**
-- Попробовать `REFRAME_SMOOTHING=0.05` (медленнее реагирует) или `0.3` (быстрее)
-- Или сменить модель: median вместо EMA (нечувствителен к выбросам)
-- Или держать center НЕПОДВИЖНЫМ внутри короткого окна (dead-zone на изменение)
-
-**Если проблема в fit/fill переключениях:**
-- Поднять `REFRAME_MIN_HOLD_SEC=2.5–3.0` (дольше держать режим)
-- Или добавить гистерезис: fit→fill только если лицо устойчиво N сэмплов подряд
-
-**Следующие функции (после стабильного reframe):**
-1. **Кэш транскрипции по hash(source)** — UI-джоб каждый раз платит Deepgram
-2. **R2** — Gemini для не-подкастов (визуальные хуки, экшен) + мягкий empty-state
-3. **«Тот человек»** — детект тела (не только лица), фронтальный = главный
-4. **K1** — RQ+Redis очередь (план в `docs/superpowers/plans/...k1-queue.md`)
+**После стабильного reframe:**
+1. **Кэш транскрипции по hash(source)** — UI-джоб каждый раз платит Deepgram заново.
+2. **R2 — LLM на визуал** — Gemini для видео с экшеном (не только подкасты).
+3. **«Тот человек»** — детект тела (не только лица), фронтальный = главный.
+4. **K1** — RQ+Redis очередь (план в `docs/superpowers/plans/...k1-queue.md`).
 
 ---
 - Ключи в `.env` (корень): `DEEPGRAM_API_KEY`, `GEMINI_API_KEY`, `LLM_MODEL=gemini-flash-latest`
 - Экономика: ~$0.16/видео (33 мин), доминанта — транскрипция ($0.14). Бенчмарки → `docs/BENCHMARKS.md`
-- 167 unit-тестов, `just check` зелёный (2026-06-09)
+- **180 unit-тестов**, `just check` зелёный (2026-06-09)
