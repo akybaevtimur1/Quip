@@ -388,3 +388,31 @@ class TestDecideShotMode:
         wide = [(0.1, 0.1), (0.7, 0.1)]
         assert decide_shot_mode([(0.0, wide)], crop_w_frac=0.3, mode_setting="fill") == "fill"
         assert decide_shot_mode([(0.0, [(0.5, 0.1)])], crop_w_frac=0.3, mode_setting="fit") == "fit"
+
+
+class TestBuildShotTrajectory:
+    def test_returns_trackpoints_with_smoothed_cx(self) -> None:
+        from app.pipeline.stage3_reframe import build_shot_trajectory
+
+        samples = [(1.0, [(0.2, 0.1)]), (1.2, [(0.8, 0.1)])]
+        pts = build_shot_trajectory(samples, smoothing=0.5)
+        assert len(pts) == 2
+        assert pts[0].t == 1.0 and pts[0].mode == "fill"
+        # первый сэмпл: last(0.5) + 0.5*(0.2-0.5) = 0.35
+        assert abs(pts[0].cx - 0.35) < 1e-9
+        # второй: 0.35 + 0.5*(0.8-0.35) = 0.575
+        assert abs(pts[1].cx - 0.575) < 1e-9
+
+    def test_largest_face_chosen(self) -> None:
+        from app.pipeline.stage3_reframe import build_shot_trajectory
+
+        # два лица: крупнейшее (w=0.3) на cx=0.9 → к нему ведём
+        pts = build_shot_trajectory([(0.0, [(0.1, 0.1), (0.9, 0.3)])], smoothing=1.0)
+        assert abs(pts[0].cx - 0.9) < 1e-9
+
+    def test_no_face_holds_last(self) -> None:
+        from app.pipeline.stage3_reframe import build_shot_trajectory
+
+        pts = build_shot_trajectory([(0.0, [(0.2, 0.1)]), (0.2, [])], smoothing=1.0)
+        # второй сэмпл без лица → держим последний (0.2)
+        assert abs(pts[1].cx - 0.2) < 1e-9

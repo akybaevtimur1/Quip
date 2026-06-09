@@ -294,6 +294,24 @@ def decide_shot_mode(
     return "fit" if fit_frames >= wide_ratio * len(shot_samples) else "fill"
 
 
+def build_shot_trajectory(
+    shot_samples: list[tuple[float, list[tuple[float, float]]]], smoothing: float
+) -> tuple[TrackPoint, ...]:
+    """Сглаженная cx-траектория ВНУТРИ одного fill-плана. PURE.
+
+    smooth_centers сбрасывается на каждый план (стартует с 0.5) -- пан не "протекает"
+    сквозь склейку. cx берётся у КРУПНЕЙШЕГО лица; нет лица -- держим последний.
+    """
+    cx_raws: list[float | None] = [
+        max(faces, key=lambda f: f[1])[0] if faces else None for _t, faces in shot_samples
+    ]
+    cx_sm = smooth_centers(cx_raws, smoothing)
+    return tuple(
+        TrackPoint(t=t, mode="fill", cx=cx)
+        for (t, _faces), cx in zip(shot_samples, cx_sm, strict=False)
+    )
+
+
 def detect_cuts(video: Path, start: float, end: float, *, threshold: float = 0.3) -> list[float]:
     """Тайминги склеек источника (ffmpeg scene-detect), КЛИП-относительные.
 
