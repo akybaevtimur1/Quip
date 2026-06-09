@@ -140,7 +140,7 @@ def download_youtube(
     cmd = [
         "yt-dlp",
         "-f",
-        "bv*[height<=1080][ext=mp4]+ba[ext=m4a]/b[ext=mp4]/b",
+        "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best[height<=1080]/best",
         "--merge-output-format",
         "mp4",
         "--no-playlist",
