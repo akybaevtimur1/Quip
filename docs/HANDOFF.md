@@ -50,6 +50,44 @@ FastAPI / uv, пакет `app`), `packages/shared` (TS-типы, codegen из `a
 **GATED (Task 6):** плавный zoom-переход (~0.3с ease-in-out) для intra-shot wide-reveal.
 Делать ТОЛЬКО после того, как фаундер подтвердит, что основные флеши ушли.
 
+### Editor Core (MVP) ✅ СДЕЛАН (2026-06-09)
+
+Пайплайн теперь не-деструктивный редактор: каждый клип — редактируемый «рецепт» (`ClipEdit`).
+
+**Новый пакет `app/editor/`:**
+- `timemap.py` — `ClipTimeMap` (clip↔source тайминги, PURE)
+- `replies.py` — `rebuild_replies` / `default_caption_track` (группировка слов, PURE)
+- `defaults.py` — `default_clip_edit` из сегмента (PURE)
+- `reframe_cache.py` — `analyze_source_range` (кэш лиц+склеек по диапазону) + `resolve_regions` (PURE)
+- `ops.py` — `apply_trim` / `add_section` / `apply_extend` / `set_crop_override` (PURE)
+- `store.py` — `ensure_edit` (ленивый дефолт) / `save_edit` (optimistic-lock) / `load_edit`
+- `captions_v2.py` — `compile_ass` (CaptionTrack → ASS с `\k` кароаке, PURE)
+- `presets.py` — `apply_preset` (PURE) + list/save/get presets
+
+**Что изменилось в существующих файлах:**
+- `stage5_render.py` — `flatten_timeline` + `build_timeline_filter` + `render_timeline` (мульти-интервал)
+- `db.py` — таблица `clip_edits` + get/put/set_render_status
+- `main.py` — editor REST: GET/PATCH `/edit`, ops, render, analysis, presets, apply-preset
+- `tasks.py` — `render_clip_edit_job` (фон-рендер из edit-state)
+
+**REST-эндпоинты:**
+- `GET /jobs/{id}/clips/{clip_id}/edit` — лениво создаёт дефолт из segments.json
+- `POST /jobs/{id}/clips/{clip_id}/edit/trim|add-section|extend|crop` — PURE-операции
+- `POST /jobs/{id}/clips/{clip_id}/render` → 202 async; `GET .../render` → статус
+- `GET /jobs/{id}/clips/{clip_id}/analysis` — интервалы + слова
+- `GET/POST /presets`, `POST .../apply-preset`
+
+**Ключевые решения:**
+- `ClipEdit` создаётся ЛЕНИВО на первый `GET …/edit` — нет связности `run.py ↔ БД`
+- Каждый интервал анализируется независимо → forced-склейка на границе (нет mode-перехода)
+- Мульти-интервальный рендер: `asplit→atrim→aconcat` ВНУТРИ filtergraph → нет AAC priming
+- Optimistic-lock: version в запросе ≠ текущей → HTTP 409
+
+**E6 e2e доказано:** `comedy01/clip_01`, trim середины → 2 интервала,
+expected=19.77s, video=19.76s, audio=19.78s, render=9.88s. **Правки = $0** (Deepgram/Gemini не вызываются).
+
+218 unit-тестов, `just check` зелёный.
+
 ## 3. КАК ЗАПУСТИТЬ (Windows, PowerShell-инструмент)
 
 **⚠️ ОБЯЗАТЕЛЬНО: обновлять PATH в каждом PowerShell-вызове:**
