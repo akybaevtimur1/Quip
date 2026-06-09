@@ -1,20 +1,17 @@
-"""Stage 3 (Reframe): source.mp4 + сегмент → reframe_<clip_id>.json (V2, continuous tracking).
+"""Stage 3 (Reframe): source.mp4 + сегмент → reframe_<clip_id>.json (per-shot, cut-aligned).
 
-V2 «Continuous Reframe»: непрерывное покадровое слежение за лицом (exponential smoothing 0.15)
-вместо per-shot модели R1. Нет PySceneDetect. Режим (fill/fit) решается на каждый сэмпл
-(5 fps) по геометрии ВСЕХ лиц кадра. Данные → TrackRegion со сглаженной траекторией → Engine A
-(ffmpeg piecewise expression) или Engine B (cv2 pipe) в stage5.
+Главный путь (largest-face): sample_faces_continuous → detect_cuts → build_shots →
+build_regions_from_shots → [TrackRegion] (frame-accurate cut alignment, no flashes).
 
-Шаги:
-1) sample_faces_continuous (5 fps): кадры через ffmpeg + MediaPipe Tasks API → (t, [(cx,w), ...]);
-2) build_trajectory: classify_frame (fit/fill по геометрии) + smooth_centers (exp smoothing cx)
-   → [TrackPoint];
-3) build_regions: consecutive-mode группировка + merge_short_regions (анти-флеш) → [TrackRegion];
-4) speaker=True → ASD windows → shot_plan_to_regions (адаптер, совместимость).
+ASD-путь (speaker tracking): speaker_windows (asd_reframe.py) → windows_to_shot_plan →
+build_regions_from_shots (совместимость).
 
-Legacy ASD-путь: ShotPlan + build_shots + detect_cuts (ffmpeg) остаются для asd_reframe.py.
-Выпилено: detect_scene_cuts (PySceneDetect), scenes_to_clip_cuts, build_shot_plan, stabilize_plan,
-merge_shot_plan.
+Лучше конкретнее: каждый шот = стабильный mode (fill/fit) и center (медиана лиц в шоте).
+Короткие шоты (<1.5с) поглощаются соседним (stabilize_plan). Per-shot режим исключает флеши
+и мигание на быстро-монтажном контенте (многосклеек в 0.5с).
+
+Legacy: build_trajectory/build_regions (экспоненциальное сглаживание) сохранены для обратной
+совместимости, но не используются на главном пути.
 
 Границы: PURE-математика изолирована (unit-тесты); I/O (ffmpeg/MediaPipe) — обёртки, JobError.
 """
