@@ -416,3 +416,60 @@ class TestBuildShotTrajectory:
         pts = build_shot_trajectory([(0.0, [(0.2, 0.1)]), (0.2, [])], smoothing=1.0)
         # второй сэмпл без лица → держим последний (0.2)
         assert abs(pts[1].cx - 0.2) < 1e-9
+
+
+class TestBuildRegionsFromShots:
+    def test_one_mode_per_shot_cut_aligned(self) -> None:
+        from app.pipeline.stage3_reframe import build_regions_from_shots
+
+        # 3 плана по реальным склейкам; средний -- широкий (2 разнесённых лица)
+        shots = [(0.0, 2.0), (2.0, 4.0), (4.0, 6.0)]
+        single = [(0.5, 0.1)]
+        wide = [(0.1, 0.1), (0.8, 0.1)]
+        raw = [
+            (0.0, single),
+            (1.0, single),  # план 1 -> fill
+            (2.0, wide),
+            (3.0, wide),  # план 2 -> fit
+            (4.0, single),
+            (5.0, single),  # план 3 -> fill
+        ]
+        regions = build_regions_from_shots(
+            shots, raw, crop_w_frac=0.3, smoothing=0.15, min_hold_sec=0.0
+        )
+        assert [(r.t0, r.t1, r.mode) for r in regions] == [
+            (0.0, 2.0, "fill"),
+            (2.0, 4.0, "fit"),
+            (4.0, 6.0, "fill"),
+        ]
+        # границы режима = границы планов (= реальные склейки), НЕ сетка сэмплов
+        assert regions[0].points and regions[2].points  # fill-планы имеют траекторию
+        assert regions[1].points == ()  # fit-план без траектории
+
+    def test_short_shot_absorbed_by_min_hold(self) -> None:
+        from app.pipeline.stage3_reframe import build_regions_from_shots
+
+        # короткий средний план (0.3с < min_hold 1.5) поглощается предыдущим -> нет дрожи
+        shots = [(0.0, 2.0), (2.0, 2.3), (2.3, 4.0)]
+        single = [(0.5, 0.1)]
+        wide = [(0.1, 0.1), (0.8, 0.1)]
+        raw = [(0.0, single), (2.0, wide), (2.3, single)]
+        regions = build_regions_from_shots(
+            shots, raw, crop_w_frac=0.3, smoothing=0.15, min_hold_sec=1.5
+        )
+        assert all(r.mode == "fill" for r in regions)  # короткий fit съеден
+
+    def test_fill_without_faces_has_fallback_point(self) -> None:
+        from app.pipeline.stage3_reframe import build_regions_from_shots
+
+        # mode_setting=fill форсит fill даже без лиц -> должна быть точка-фолбэк (cx=0.5)
+        regions = build_regions_from_shots(
+            [(0.0, 2.0)],
+            [(0.0, [])],
+            crop_w_frac=0.3,
+            smoothing=0.15,
+            min_hold_sec=0.0,
+            mode_setting="fill",
+        )
+        assert regions[0].mode == "fill"
+        assert regions[0].points and abs(regions[0].points[0].cx - 0.5) < 1e-9

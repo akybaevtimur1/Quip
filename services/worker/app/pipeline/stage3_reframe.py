@@ -312,6 +312,38 @@ def build_shot_trajectory(
     )
 
 
+def build_regions_from_shots(
+    shots: list[tuple[float, float]],
+    raw_samples: list[tuple[float, list[tuple[float, float]]]],
+    crop_w_frac: float,
+    smoothing: float,
+    min_hold_sec: float,
+    *,
+    mode_setting: str = "auto",
+    wide_ratio: float = 0.5,
+) -> list[TrackRegion]:
+    """Cut-aligned регионы: ОДИН режим на план, пан внутри fill-плана. PURE.
+
+    Заменяет grid-based build_trajectory+build_regions. Границы режима = границы планов
+    (= реальные склейки) -> смена режима только на склейке -> нет флеша. merge_short_regions
+    в конце гасит планы короче min_hold (рапид-монтаж).
+    """
+    regions: list[TrackRegion] = []
+    for t0, t1 in shots:
+        seg = samples_in_shot(raw_samples, t0, t1)
+        mode = decide_shot_mode(
+            seg, crop_w_frac=crop_w_frac, mode_setting=mode_setting, wide_ratio=wide_ratio
+        )
+        if mode == "fill":
+            pts = build_shot_trajectory(seg, smoothing)
+            if not pts:
+                pts = (TrackPoint(t=t0, mode="fill", cx=0.5),)
+            regions.append(TrackRegion(t0=t0, t1=t1, mode="fill", points=pts))
+        else:
+            regions.append(TrackRegion(t0=t0, t1=t1, mode="fit", points=()))
+    return merge_short_regions(regions, min_hold_sec)
+
+
 def detect_cuts(video: Path, start: float, end: float, *, threshold: float = 0.3) -> list[float]:
     """Тайминги склеек источника (ffmpeg scene-detect), КЛИП-относительные.
 
