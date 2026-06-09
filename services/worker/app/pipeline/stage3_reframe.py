@@ -494,6 +494,7 @@ def reframe_segment(
     face_fps: float = 5.0,
     smoothing: float = 0.15,
     min_hold_sec: float = 1.5,
+    wide_ratio: float = 0.5,
     cut_threshold: float = 0.4,
     dead_zone: float = 0.12,
 ) -> tuple[list[TrackRegion], bool]:
@@ -530,8 +531,17 @@ def reframe_segment(
             _write_reframe_json(out_dir, clip_id, regions)
             return regions, face_found
 
-    trajectory = build_trajectory(face_frames, smoothing, crop_w_frac, mode_setting=mode_setting)
-    regions = build_regions(trajectory, min_hold_sec, duration=duration)
+    cuts = detect_cuts(video, start, end, threshold=cut_threshold)
+    shots = build_shots(cuts, duration)
+    regions = build_regions_from_shots(
+        shots,
+        face_frames,
+        crop_w_frac,
+        smoothing,
+        min_hold_sec,
+        mode_setting=mode_setting,
+        wide_ratio=wide_ratio,
+    )
 
     if not regions:
         regions = [TrackRegion(t0=0.0, t1=duration, mode="fit", points=())]

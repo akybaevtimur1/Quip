@@ -69,6 +69,7 @@ class Settings(BaseSettings):
     reframe_smoothing: float = 0.15  # exponential smoothing коэф (0=без; 1=нет сглаж.)
     # анти-флеш: регион < min_hold НЕ переключает режим, поглощается предыдущим.
     reframe_min_hold_sec: float = 1.5
+    reframe_wide_ratio: float = 0.5
     # ASD speaker-путь: порог ffmpeg-склеек + dead-zone (tolerance слияния планов).
     reframe_cut_threshold: float = 0.4
     reframe_dead_zone: float = 0.12

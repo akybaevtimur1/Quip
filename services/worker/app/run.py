@@ -136,6 +136,7 @@ def run_pipeline(
             speaker=s.reframe_speaker, speaker_crop_scale=s.reframe_speaker_crop_scale,
             face_fps=s.reframe_face_fps, smoothing=s.reframe_smoothing,
             min_hold_sec=s.reframe_min_hold_sec,
+            wide_ratio=s.reframe_wide_ratio,
             cut_threshold=s.reframe_cut_threshold, dead_zone=s.reframe_dead_zone,
         )  # fmt: skip
         reframe_t += time.perf_counter() - t0
