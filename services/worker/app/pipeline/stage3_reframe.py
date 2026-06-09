@@ -274,6 +274,26 @@ def samples_in_shot(
     return [(t, faces) for (t, faces) in raw_samples if t0 <= t < t1]
 
 
+def decide_shot_mode(
+    shot_samples: list[tuple[float, list[tuple[float, float]]]],
+    *,
+    crop_w_frac: float,
+    mode_setting: str = "auto",
+    wide_ratio: float = 0.5,
+) -> str:
+    """Один режим ("fill"|"fit") на весь план по геометрии лиц. PURE.
+
+    План = "fit", если доля кадров с широкой геометрией (classify_frame) >= wide_ratio.
+    Нет сэмплов -> "fit". mode_setting "fit"/"fill" -- глобальный оверрайд.
+    """
+    if mode_setting in ("fill", "fit"):
+        return mode_setting
+    if not shot_samples:
+        return "fit"
+    fit_frames = sum(1 for _t, faces in shot_samples if classify_frame(faces, crop_w_frac) == "fit")
+    return "fit" if fit_frames >= wide_ratio * len(shot_samples) else "fill"
+
+
 def detect_cuts(video: Path, start: float, end: float, *, threshold: float = 0.3) -> list[float]:
     """Тайминги склеек источника (ffmpeg scene-detect), КЛИП-относительные.
 

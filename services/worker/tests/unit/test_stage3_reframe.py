@@ -359,3 +359,32 @@ class TestSamplesInShot:
         from app.pipeline.stage3_reframe import samples_in_shot
 
         assert samples_in_shot([(0.0, []), (5.0, [])], 1.0, 2.0) == []
+
+
+class TestDecideShotMode:
+    def test_no_samples_is_fit(self) -> None:
+        from app.pipeline.stage3_reframe import decide_shot_mode
+
+        assert decide_shot_mode([], crop_w_frac=0.3) == "fit"
+
+    def test_single_face_cluster_is_fill(self) -> None:
+        from app.pipeline.stage3_reframe import decide_shot_mode
+
+        # одно лицо в каждом кадре → fill
+        samples = [(0.0, [(0.5, 0.1)]), (0.2, [(0.52, 0.1)]), (0.4, [(0.48, 0.1)])]
+        assert decide_shot_mode(samples, crop_w_frac=0.3) == "fill"
+
+    def test_two_spread_faces_majority_is_fit(self) -> None:
+        from app.pipeline.stage3_reframe import decide_shot_mode
+
+        # 2 разнесённых лица (размах 0.6 > crop_w_frac 0.3) в большинстве кадров → fit
+        wide = [(0.1, 0.1), (0.7, 0.1)]
+        samples = [(0.0, wide), (0.2, wide), (0.4, [(0.5, 0.1)])]
+        assert decide_shot_mode(samples, crop_w_frac=0.3) == "fit"
+
+    def test_mode_setting_overrides(self) -> None:
+        from app.pipeline.stage3_reframe import decide_shot_mode
+
+        wide = [(0.1, 0.1), (0.7, 0.1)]
+        assert decide_shot_mode([(0.0, wide)], crop_w_frac=0.3, mode_setting="fill") == "fill"
+        assert decide_shot_mode([(0.0, [(0.5, 0.1)])], crop_w_frac=0.3, mode_setting="fit") == "fit"
