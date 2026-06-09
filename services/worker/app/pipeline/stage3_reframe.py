@@ -126,14 +126,17 @@ def shot_is_wide(
     return wide >= wide_ratio * len(frame_centers)
 
 
-def smooth_centers(samples: list[float | None], smoothing: float = 0.15) -> list[float]:
+def smooth_centers(
+    samples: list[float | None], smoothing: float = 0.15, *, init: float = 0.5
+) -> list[float]:
     """Exponential smoothing по X-центрам лиц (как в прототипе). None=нет лица → держим.
 
     cx_smooth[i] = cx_smooth[i-1] + smoothing * (cx_raw[i] - cx_smooth[i-1]).
-    Нет лица → держим последний сглаженный (или 0.5 если ни одного ещё не было).
+    Нет лица → держим последний сглаженный (или init если ни одного ещё не было).
+    init=0.5 по умолчанию; передай первый cx лица, чтобы избежать пана от центра.
     """
     result: list[float] = []
-    last = 0.5
+    last = init
     for cx in samples:
         if cx is not None:
             last = last + smoothing * (cx - last)
@@ -302,7 +305,8 @@ def build_shot_trajectory(
     cx_raws: list[float | None] = [
         max(faces, key=lambda f: f[1])[0] if faces else None for _t, faces in shot_samples
     ]
-    cx_sm = smooth_centers(cx_raws, smoothing)
+    init_cx = next((cx for cx in cx_raws if cx is not None), 0.5)
+    cx_sm = smooth_centers(cx_raws, smoothing, init=init_cx)
     return tuple(
         TrackPoint(t=t, mode="fill", cx=cx)
         for (t, _faces), cx in zip(shot_samples, cx_sm, strict=False)

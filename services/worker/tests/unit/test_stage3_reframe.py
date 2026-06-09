@@ -398,10 +398,10 @@ class TestBuildShotTrajectory:
         pts = build_shot_trajectory(samples, smoothing=0.5)
         assert len(pts) == 2
         assert pts[0].t == 1.0 and pts[0].mode == "fill"
-        # первый сэмпл: last(0.5) + 0.5*(0.2-0.5) = 0.35
-        assert abs(pts[0].cx - 0.35) < 1e-9
-        # второй: 0.35 + 0.5*(0.8-0.35) = 0.575
-        assert abs(pts[1].cx - 0.575) < 1e-9
+        # init=first face cx=0.2; первый сэмпл: 0.2 + 0.5*(0.2-0.2) = 0.2 (снэп)
+        assert abs(pts[0].cx - 0.2) < 1e-9
+        # второй: 0.2 + 0.5*(0.8-0.2) = 0.5
+        assert abs(pts[1].cx - 0.5) < 1e-9
 
     def test_largest_face_chosen(self) -> None:
         from app.pipeline.stage3_reframe import build_shot_trajectory
@@ -416,6 +416,15 @@ class TestBuildShotTrajectory:
         pts = build_shot_trajectory([(0.0, [(0.2, 0.1)]), (0.2, [])], smoothing=1.0)
         # второй сэмпл без лица → держим последний (0.2)
         assert abs(pts[1].cx - 0.2) < 1e-9
+
+    def test_first_point_snaps_to_face_not_center(self) -> None:
+        from app.pipeline.stage3_reframe import build_shot_trajectory
+
+        # Face at cx=0.9 (far from center 0.5). With smoothing=0.15, old code:
+        # first = 0.5 + 0.15*(0.9 - 0.5) = 0.56 (drift from center).
+        # New code: init=0.9, first = 0.9 + 0.15*(0.9 - 0.9) = 0.9 (snap to face).
+        pts = build_shot_trajectory([(0.0, [(0.9, 0.1)])], smoothing=0.15)
+        assert abs(pts[0].cx - 0.9) < 1e-6  # must snap, not drift
 
 
 class TestBuildRegionsFromShots:
