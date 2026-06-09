@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import subprocess
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -28,6 +29,7 @@ from app.errors import JobError
 from app.pipeline.stage3_reframe import TrackPoint, compute_crop_window
 
 if TYPE_CHECKING:
+    from app.models import SourceInterval
     from app.pipeline.stage3_reframe import TrackRegion
 
 _STAGE = "render"
@@ -295,4 +297,153 @@ def render_clip(
 
     if not (data_dir / out_name).exists():
         raise JobError(_STAGE, f"рендер не создал {out_name}")
+    return round(time.perf_counter() - t0, 2)
+
+
+# ─────────────────────────── Timeline render (multi-interval, спека §6) ───────────────────────────
+
+
+@dataclass(frozen=True)
+class TimelineSegment:
+    """Плоский сегмент рендера: source-кадры/времена + reframe-режим (спека §6)."""
+
+    src_f0: int
+    src_f1: int
+    src_t0: float
+    src_t1: float
+    mode: str
+    points: tuple[TrackPoint, ...]
+    region_t0: float  # interval-relative старт региона (offset для crop-expr)
+
+
+def flatten_timeline(
+    intervals: list[SourceInterval],
+    regions_per_interval: list[list[TrackRegion]],
+    fps: float,
+) -> list[TimelineSegment]:
+    """Интервалы + регионы (interval-relative) → плоский список сегментов в SOURCE-кадрах. PURE."""
+    segs: list[TimelineSegment] = []
+    for iv, regions in zip(intervals, regions_per_interval, strict=True):
+        for r in regions:
+            st0 = round(iv.source_start + r.t0, 3)
+            st1 = round(iv.source_start + r.t1, 3)
+            segs.append(
+                TimelineSegment(
+                    src_f0=round(st0 * fps),
+                    src_f1=round(st1 * fps),
+                    src_t0=st0,
+                    src_t1=st1,
+                    mode=r.mode,
+                    points=r.points,
+                    region_t0=r.t0,
+                )
+            )
+    return segs
+
+
+def build_timeline_filter(
+    segments: list[TimelineSegment],
+    src_w: int,
+    src_h: int,
+    fps: float,
+    ass_name: str,
+    *,
+    out_w: int = 1080,
+    out_h: int = 1920,
+    blur: int = 20,
+) -> str:
+    """filter_complex для мульти-интервального рендера (спека §6). PURE.
+
+    Видео: split→per-seg trim(source-кадры)+reframe→concat→subtitles.
+    Аудио: asplit→per-seg atrim(source-времена)→concat (бесшовно, до энкода).
+    """
+    if not segments:
+        raise JobError(_STAGE, "build_timeline_filter: пустой таймлайн")
+    n = len(segments)
+    crop_w = round(src_h * 9 / 16)
+    vheads = "".join(f"[v{i}]" for i in range(n))
+    aheads = "".join(f"[a{i}]" for i in range(n))
+    parts = [f"[0:v]split={n}{vheads};[0:a]asplit={n}{aheads};"]
+    for i, s in enumerate(segments):
+        if s.mode == "fit":
+            seg = (
+                f"split=2[bg{i}][fg{i}];"
+                f"[bg{i}]scale={out_w}:{out_h}:force_original_aspect_ratio=increase,"
+                f"crop={out_w}:{out_h},gblur=sigma={blur}[bgb{i}];"
+                f"[fg{i}]scale={out_w}:{out_h}:force_original_aspect_ratio=decrease[fgb{i}];"
+                f"[bgb{i}][fgb{i}]overlay=(W-w)/2:(H-h)/2"
+            )
+        else:
+            if not s.points:
+                raise JobError(_STAGE, f"fill-сегмент #{i} без траектории")
+            x_expr = build_fill_crop_expr(s.points, s.region_t0, src_w, src_h)
+            seg = f"crop={crop_w}:{src_h}:{x_expr}:0,scale={out_w}:{out_h}:flags=lanczos"
+        parts.append(
+            f"[v{i}]trim=start_frame={s.src_f0}:end_frame={s.src_f1},"
+            f"setpts=PTS-STARTPTS,{seg},setsar=1[sv{i}];"
+        )
+        parts.append(
+            f"[a{i}]atrim=start={s.src_t0:.3f}:end={s.src_t1:.3f},asetpts=PTS-STARTPTS[sa{i}];"
+        )
+    sv = "".join(f"[sv{i}]" for i in range(n))
+    sa = "".join(f"[sa{i}]" for i in range(n))
+    parts.append(f"{sv}concat=n={n}:v=1:a=0[cv];[cv]subtitles={ass_name}[outv];")
+    parts.append(f"{sa}concat=n={n}:v=0:a=1[outa]")
+    return "".join(parts)
+
+
+def build_timeline_cmd(source: str, filter_complex: str, out_name: str) -> list[str]:
+    """ffmpeg для таймлайна: ПОЛНЫЙ вход (-i), маппим [outv]/[outa] из фильтра."""
+    return [
+        "ffmpeg", "-y", "-i", source,
+        "-filter_complex", filter_complex,
+        "-map", "[outv]", "-map", "[outa]",
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
+        "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart",
+        out_name,
+    ]  # fmt: skip
+
+
+def render_timeline(
+    data_dir: Path,
+    source_name: str,
+    intervals: list[SourceInterval],
+    regions_per_interval: list[list[TrackRegion]],
+    ass_name: str,
+    out_name: str,
+    *,
+    src_w: int,
+    src_h: int,
+    fps: float,
+    engine: str = "A",
+) -> float:
+    """Рендер mp4 из edit-state (спека §6). Возвращает латентность (с). JobError при сбое.
+
+    1 интервал → делегирует в render_clip (проверенный путь, непрерывное аудио).
+    >1 интервал → мульти-интервальный concat (Engine A; бесшовное аудио внутри filtergraph).
+    """
+    if not intervals:
+        raise JobError(_STAGE, "render_timeline: нет интервалов")
+    (data_dir / out_name).parent.mkdir(parents=True, exist_ok=True)
+
+    if len(intervals) == 1:
+        return render_clip(
+            data_dir,
+            source_name,
+            intervals[0].source_start,
+            ass_name,
+            out_name,
+            regions=regions_per_interval[0],
+            src_w=src_w,
+            src_h=src_h,
+            fps=fps,
+            engine=engine,
+        )
+
+    segments = flatten_timeline(intervals, regions_per_interval, fps)
+    fc = build_timeline_filter(segments, src_w, src_h, fps, ass_name)
+    t0 = time.perf_counter()
+    _run_ffmpeg(build_timeline_cmd(source_name, fc, out_name), data_dir)
+    if not (data_dir / out_name).exists():
+        raise JobError(_STAGE, f"render_timeline не создал {out_name}")
     return round(time.perf_counter() - t0, 2)
