@@ -35,6 +35,13 @@ def init_db() -> None:
                 created_at REAL, updated_at REAL
             )"""
         )
+        c.execute(
+            """CREATE TABLE IF NOT EXISTS clip_edits (
+                job_id TEXT, clip_id TEXT, version INTEGER, edit_json TEXT,
+                render_status TEXT, render_url TEXT, render_error TEXT, updated_at REAL,
+                PRIMARY KEY (job_id, clip_id)
+            )"""
+        )
 
 
 def insert_job(job_id: str, source_type: str, source_ref: str) -> None:
@@ -110,3 +117,42 @@ def get_job(job_id: str) -> dict[str, Any] | None:
     with _conn() as c:
         row = c.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
     return row_to_wire(dict(row)) if row is not None else None
+
+
+def get_clip_edit_row(job_id: str, clip_id: str) -> dict[str, Any] | None:
+    with _conn() as c:
+        row = c.execute(
+            "SELECT * FROM clip_edits WHERE job_id=? AND clip_id=?", (job_id, clip_id)
+        ).fetchone()
+    return dict(row) if row is not None else None
+
+
+def put_clip_edit(job_id: str, clip_id: str, edit_json: str, version: int) -> None:
+    now = time.time()
+    with _conn() as c:
+        exists = c.execute(
+            "SELECT 1 FROM clip_edits WHERE job_id=? AND clip_id=?", (job_id, clip_id)
+        ).fetchone()
+        if exists:
+            c.execute(
+                "UPDATE clip_edits SET edit_json=?, version=?, updated_at=?"
+                " WHERE job_id=? AND clip_id=?",
+                (edit_json, version, now, job_id, clip_id),
+            )
+        else:
+            c.execute(
+                "INSERT INTO clip_edits (job_id,clip_id,version,edit_json,updated_at)"
+                " VALUES (?,?,?,?,?)",
+                (job_id, clip_id, version, edit_json, now),
+            )
+
+
+def set_render_status(
+    job_id: str, clip_id: str, status: str, url: str | None, error: str | None
+) -> None:
+    with _conn() as c:
+        c.execute(
+            "UPDATE clip_edits SET render_status=?, render_url=?, render_error=?, updated_at=?"
+            " WHERE job_id=? AND clip_id=?",
+            (status, url, error, time.time(), job_id, clip_id),
+        )
