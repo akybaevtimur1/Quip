@@ -178,10 +178,10 @@ class TestBuildTrajectory:
         assert pts[0].mode == "fit"
 
     def test_smoothing_applied(self) -> None:
-        # cx_raw = [0.8]; last=0.5; smooth → 0.5+0.15*(0.8-0.5)=0.545
+        # cx_raw = [0.8]; init=first face cx=0.8; smooth → 0.8+0.15*(0.8-0.8)=0.8
         samples = [(0.0, [(0.8, 0.1)])]
         pts = build_trajectory(samples, smoothing=0.15, crop_w_frac=0.32)
-        assert pts[0].cx == pytest.approx(0.545)
+        assert pts[0].cx == pytest.approx(0.8)
 
     def test_empty_returns_empty(self) -> None:
         assert build_trajectory([], 0.15, 0.32) == []

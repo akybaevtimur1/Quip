@@ -171,7 +171,8 @@ def build_trajectory(
     cx_raws: list[float | None] = [
         max(faces, key=lambda f: f[1])[0] if faces else None for _, faces in raw_samples
     ]
-    cx_smoothed = smooth_centers(cx_raws, smoothing)
+    init_cx = next((cx for cx in cx_raws if cx is not None), 0.5)
+    cx_smoothed = smooth_centers(cx_raws, smoothing, init=init_cx)
     points: list[TrackPoint] = []
     for (t, faces), cx_sm in zip(raw_samples, cx_smoothed, strict=False):
         if mode_setting == "fit":
