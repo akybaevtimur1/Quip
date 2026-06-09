@@ -78,8 +78,10 @@ def run_pipeline(
         print(f"[0] import: cached ({meta.duration:.0f}s {meta.width}x{meta.height})")
     elif source_url:
         meta = import_youtube(
-            source_url, out, job_id=job_id, cookies_browser=s.ytdlp_cookies_browser
-        )
+            source_url, out, job_id=job_id,
+            cookies_browser=s.ytdlp_cookies_browser,
+            cookies_file=s.ytdlp_cookies_file,
+        )  # fmt: skip
         print(f"[0] import: {meta.duration:.0f}s {meta.width}x{meta.height}")
     else:
         raise JobError("import", f"нет data/{job_id}/source.mp4 и не передан URL")

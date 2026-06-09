@@ -42,9 +42,12 @@ class Settings(BaseSettings):
     llm_model: str = "gemini-flash-latest"
     llm_max_output_tokens: int = 16000
 
-    # download: куки браузера для обхода YouTube bot-защиты.
-    # "chrome" | "firefox" | "edge" | "" (пусто = без кук, работает только на открытых видео).
-    ytdlp_cookies_browser: str = "chrome"
+    # download: куки для обхода YouTube bot-защиты.
+    # browser: "chrome" | "firefox" | "edge" | "" (пусто = не использовать).
+    # Chrome 127+ ломает DPAPI → используй firefox/edge или экспортируй cookies.txt.
+    # file: абсолютный путь к cookies.txt (Netscape-формат). Приоритет над browser.
+    ytdlp_cookies_browser: str = "edge"
+    ytdlp_cookies_file: str = ""
 
     # pipeline tuning
     max_source_minutes: int = 90

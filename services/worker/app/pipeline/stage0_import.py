@@ -132,7 +132,9 @@ def _run(cmd: list[str], *, cwd: Path | None = None) -> subprocess.CompletedProc
     return proc
 
 
-def download_youtube(url: str, out_dir: Path, *, cookies_browser: str = "") -> Path:
+def download_youtube(
+    url: str, out_dir: Path, *, cookies_browser: str = "", cookies_file: str = ""
+) -> Path:
     """yt-dlp → ``out_dir/source.mp4`` (+ source.info.json). Возвращает путь к mp4."""
     out_dir.mkdir(parents=True, exist_ok=True)
     cmd = [
@@ -149,7 +151,9 @@ def download_youtube(url: str, out_dir: Path, *, cookies_browser: str = "") -> P
         "-o",
         str(out_dir / "source.%(ext)s"),
     ]
-    if cookies_browser:
+    if cookies_file:
+        cmd += ["--cookies", cookies_file]
+    elif cookies_browser:
         cmd += ["--cookies-from-browser", cookies_browser]
     cmd.append(url)
     _run(cmd)
@@ -220,10 +224,15 @@ def _check_limits(meta: SourceMeta) -> None:
 
 
 def import_youtube(
-    url: str, out_dir: Path, *, job_id: str, cookies_browser: str = ""
+    url: str,
+    out_dir: Path,
+    *,
+    job_id: str,
+    cookies_browser: str = "",
+    cookies_file: str = "",
 ) -> SourceMeta:
     """Полный Stage 0 для YouTube: download → audio → probe → meta.json. Возвращает SourceMeta."""
-    mp4 = download_youtube(url, out_dir, cookies_browser=cookies_browser)
+    mp4 = download_youtube(url, out_dir, cookies_browser=cookies_browser, cookies_file=cookies_file)
     extract_audio(mp4, out_dir / "source.wav")
     probe = probe_video(mp4)
     title = _read_title(out_dir, fallback=url)
