@@ -132,26 +132,27 @@ def _run(cmd: list[str], *, cwd: Path | None = None) -> subprocess.CompletedProc
     return proc
 
 
-def download_youtube(url: str, out_dir: Path) -> Path:
+def download_youtube(url: str, out_dir: Path, *, cookies_browser: str = "") -> Path:
     """yt-dlp → ``out_dir/source.mp4`` (+ source.info.json). Возвращает путь к mp4."""
     out_dir.mkdir(parents=True, exist_ok=True)
-    _run(
-        [
-            "yt-dlp",
-            "-f",
-            "bv*[height<=1080][ext=mp4]+ba[ext=m4a]/b[ext=mp4]/b",
-            "--merge-output-format",
-            "mp4",
-            "--no-playlist",
-            "--max-filesize",
-            "2G",
-            "--write-info-json",
-            "--restrict-filenames",
-            "-o",
-            str(out_dir / "source.%(ext)s"),
-            url,
-        ]
-    )
+    cmd = [
+        "yt-dlp",
+        "-f",
+        "bv*[height<=1080][ext=mp4]+ba[ext=m4a]/b[ext=mp4]/b",
+        "--merge-output-format",
+        "mp4",
+        "--no-playlist",
+        "--max-filesize",
+        "2G",
+        "--write-info-json",
+        "--restrict-filenames",
+        "-o",
+        str(out_dir / "source.%(ext)s"),
+    ]
+    if cookies_browser:
+        cmd += ["--cookies-from-browser", cookies_browser]
+    cmd.append(url)
+    _run(cmd)
     mp4 = out_dir / "source.mp4"
     if not mp4.exists():
         raise JobError(_STAGE, f"yt-dlp не создал {mp4}")
@@ -218,9 +219,11 @@ def _check_limits(meta: SourceMeta) -> None:
         )
 
 
-def import_youtube(url: str, out_dir: Path, *, job_id: str) -> SourceMeta:
+def import_youtube(
+    url: str, out_dir: Path, *, job_id: str, cookies_browser: str = ""
+) -> SourceMeta:
     """Полный Stage 0 для YouTube: download → audio → probe → meta.json. Возвращает SourceMeta."""
-    mp4 = download_youtube(url, out_dir)
+    mp4 = download_youtube(url, out_dir, cookies_browser=cookies_browser)
     extract_audio(mp4, out_dir / "source.wav")
     probe = probe_video(mp4)
     title = _read_title(out_dir, fallback=url)

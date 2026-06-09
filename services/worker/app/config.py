@@ -42,6 +42,10 @@ class Settings(BaseSettings):
     llm_model: str = "gemini-flash-latest"
     llm_max_output_tokens: int = 16000
 
+    # download: куки браузера для обхода YouTube bot-защиты.
+    # "chrome" | "firefox" | "edge" | "" (пусто = без кук, работает только на открытых видео).
+    ytdlp_cookies_browser: str = "chrome"
+
     # pipeline tuning
     max_source_minutes: int = 90
     clip_min_sec: int = 15

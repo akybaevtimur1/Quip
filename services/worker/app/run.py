@@ -77,7 +77,9 @@ def run_pipeline(
         meta = SourceMeta.model_validate_json(meta_path.read_text(encoding="utf-8"))
         print(f"[0] import: cached ({meta.duration:.0f}s {meta.width}x{meta.height})")
     elif source_url:
-        meta = import_youtube(source_url, out, job_id=job_id)
+        meta = import_youtube(
+            source_url, out, job_id=job_id, cookies_browser=s.ytdlp_cookies_browser
+        )
         print(f"[0] import: {meta.duration:.0f}s {meta.width}x{meta.height}")
     else:
         raise JobError("import", f"нет data/{job_id}/source.mp4 и не передан URL")
