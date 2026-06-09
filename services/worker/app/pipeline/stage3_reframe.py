@@ -267,6 +267,13 @@ def build_shots(cuts: list[float], duration: float) -> list[tuple[float, float]]
     return [(bounds[i], bounds[i + 1]) for i in range(len(bounds) - 1) if bounds[i + 1] > bounds[i]]
 
 
+def samples_in_shot(
+    raw_samples: list[tuple[float, list[tuple[float, float]]]], t0: float, t1: float
+) -> list[tuple[float, list[tuple[float, float]]]]:
+    """Сэмплы лиц (t, faces), попадающие в полуинтервал плана [t0, t1). PURE."""
+    return [(t, faces) for (t, faces) in raw_samples if t0 <= t < t1]
+
+
 def detect_cuts(video: Path, start: float, end: float, *, threshold: float = 0.3) -> list[float]:
     """Тайминги склеек источника (ffmpeg scene-detect), КЛИП-относительные.
 

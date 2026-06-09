@@ -344,3 +344,18 @@ class TestWindowsToShotPlan:
             ShotPlan(0.0, 8.0, "fill", 0.6),
             ShotPlan(8.0, 20.0, "fill", 0.25),
         ]
+
+
+class TestSamplesInShot:
+    def test_filters_to_interval_half_open(self) -> None:
+        from app.pipeline.stage3_reframe import samples_in_shot
+
+        raw = [(0.0, [(0.5, 0.1)]), (0.2, [(0.4, 0.1)]), (0.4, []), (0.6, [(0.7, 0.1)])]
+        # интервал [0.2, 0.6): берём t=0.2 и t=0.4, НЕ берём 0.0 и 0.6
+        got = samples_in_shot(raw, 0.2, 0.6)
+        assert [t for t, _ in got] == [0.2, 0.4]
+
+    def test_empty_when_no_samples_in_range(self) -> None:
+        from app.pipeline.stage3_reframe import samples_in_shot
+
+        assert samples_in_shot([(0.0, []), (5.0, [])], 1.0, 2.0) == []
