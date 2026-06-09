@@ -18,10 +18,11 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from app import __version__, db
+from app.editor import presets as presets_mod
 from app.editor import store
 from app.editor.ops import add_section, apply_extend, apply_trim, set_crop_override
 from app.editor.store import EditConflict
-from app.models import CaptionTrack, CropOverride
+from app.models import CaptionPreset, CaptionStyle, CaptionTrack, CropOverride, HighlightStyle
 from app.run import DATA_ROOT
 from app.tasks import render_clip_edit_job, run_pipeline_job
 
@@ -210,3 +211,42 @@ def get_analysis(job_id: str, clip_id: str) -> dict[str, Any]:
         if any(iv.source_start <= w.start < iv.source_end for iv in edit.source_intervals)
     ]
     return {"intervals": [iv.model_dump() for iv in edit.source_intervals], "words": in_clip}
+
+
+# ──────────────────────────── Preset endpoints ────────────────────────────
+
+
+class SavePresetBody(BaseModel):
+    name: str
+    style: CaptionStyle
+    highlight: HighlightStyle | None = None
+
+
+class ApplyPresetBody(BaseModel):
+    version: int
+    preset_id: str
+
+
+@app.get("/presets")
+def get_presets() -> list[dict[str, Any]]:
+    return [p.model_dump() for p in presets_mod.list_presets()]
+
+
+@app.post("/presets")
+def create_preset(body: SavePresetBody) -> dict[str, Any]:
+    preset = CaptionPreset(
+        id=f"preset_{uuid.uuid4().hex[:8]}",
+        name=body.name,
+        style=body.style,
+        highlight=body.highlight,
+    )
+    return presets_mod.save_preset(preset).model_dump()
+
+
+@app.post("/jobs/{job_id}/clips/{clip_id}/apply-preset")
+def apply_preset_to_clip(job_id: str, clip_id: str, body: ApplyPresetBody) -> dict[str, Any]:
+    preset = presets_mod.get_preset(body.preset_id)
+    if preset is None:
+        raise HTTPException(status_code=404, detail="preset not found")
+    edit = _load_or_404(job_id, clip_id)
+    return _save_or_409(job_id, clip_id, presets_mod.apply_preset(edit, preset), body.version)

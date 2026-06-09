@@ -58,3 +58,22 @@ def test_get_edit_404_for_missing_clip(monkeypatch, tmp_path):
     client, job = _client(monkeypatch, tmp_path)
     r = client.get(f"/jobs/{job}/clips/clip_09/edit")
     assert r.status_code == 404
+
+
+def test_preset_save_and_apply(monkeypatch, tmp_path):
+    from app.editor import presets
+
+    monkeypatch.setattr(presets, "DATA_ROOT", tmp_path / "data")
+    client, job = _client(monkeypatch, tmp_path)
+    saved = client.post(
+        "/presets",
+        json={"name": "Bold", "style": {"color": "#00FF00"}, "highlight": None},
+    )
+    assert saved.status_code == 200
+    pid = saved.json()["id"]
+    v = client.get(f"/jobs/{job}/clips/clip_01/edit").json()["version"]
+    r = client.post(
+        f"/jobs/{job}/clips/clip_01/apply-preset", json={"version": v, "preset_id": pid}
+    )
+    assert r.status_code == 200
+    assert r.json()["captions"]["style"]["color"] == "#00FF00"
