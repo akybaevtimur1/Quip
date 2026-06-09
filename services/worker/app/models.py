@@ -142,3 +142,82 @@ class Job(BaseModel):
     error: str | None = None
     clips: list[ClipOut] = Field(default_factory=list)
     metrics: Metrics | None = None
+
+
+# ─────────────────────────── EDITOR-модели (слой композиции, спека §3) ───────────────────────────
+
+
+class SourceInterval(BaseModel):
+    """Один оставленный кусок исходника. Интервалы упорядочены по CLIP-порядку."""
+
+    source_start: float  # сек в координатах source
+    source_end: float  # сек; source_end > source_start
+
+
+class CropOverride(BaseModel):
+    """Ручной кроп на диапазон source — поверх авто-reframe (MVP: применяется per-интервал)."""
+
+    source_start: float
+    source_end: float
+    mode: str  # "fill" | "fit"
+    center: float | None = None  # центр кропа [0..1] для fill; None = центр кадра
+
+
+class CaptionStyle(BaseModel):
+    """Стиль субтитров. Компилируется в ASS (рендер) и в CSS (превью) из одной модели."""
+
+    font: str = "Montserrat"
+    size: int = 90
+    color: str = "#FFFFFF"  # основной цвет текста (#RRGGBB)
+    outline_color: str = "#000000"
+    outline_w: int = 6
+    shadow: int = 2
+    box_color: str | None = None  # фон-плашка; None = без плашки
+    box_opacity: float = Field(default=0.0, ge=0.0, le=1.0)
+    box_radius: int = 0
+    margin_v: int = 260  # позиция от низа (ASS MarginV)
+    alignment: int = 2  # ASS alignment (2 = низ-центр)
+    uppercase: bool = True
+
+
+class HighlightStyle(BaseModel):
+    """Караоке-подсветка активного слова. None в треке = караоке выключено."""
+
+    color: str = "#FFE000"
+    scale: float = 1.0  # 1.0 = без увеличения активного слова
+
+
+class CaptionReply(BaseModel):
+    """Одна реплика субтитра (чанк 3–5 слов)."""
+
+    word_refs: list[int]  # индексы в transcript.words (тайминги для караоке/trim)
+    text_override: str | None = None  # если юзер правил текст реплики
+    hidden: bool = False  # скрыть субтитр, видео не трогая
+
+
+class CaptionTrack(BaseModel):
+    """Трек субтитров клипа: стиль + караоке + реплики."""
+
+    style: CaptionStyle
+    highlight: HighlightStyle | None = None
+    replies: list[CaptionReply] = Field(default_factory=list)
+
+
+class ClipEdit(BaseModel):
+    """РЕЦЕПТ клипа — не-деструктивный edit-state. Версионируется (optimistic-lock)."""
+
+    id: str  # = clip_id (clip_01…)
+    version: int = 1
+    source_intervals: list[SourceInterval]
+    captions: CaptionTrack
+    reframe_overrides: list[CropOverride] = Field(default_factory=list)
+    aspect: str = "9:16"
+
+
+class CaptionPreset(BaseModel):
+    """Именованный пресет стиля субтитров (мини brand kit, спека §9)."""
+
+    id: str
+    name: str
+    style: CaptionStyle
+    highlight: HighlightStyle | None = None
