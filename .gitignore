@@ -22,6 +22,12 @@ __pycache__/
 .env.local
 .env.*.local
 
+# ── Cookies (YouTube / auth — НИКОГДА не коммитим, только по env-var) ──
+cookies.json
+cookies*.txt
+*_cookies.txt
+*_cookies.json
+
 # ── DB / состояние ──
 *.db
 *.db-journal
