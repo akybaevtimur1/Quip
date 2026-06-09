@@ -19,17 +19,74 @@ export type SourceKind = "youtube" | "upload";
 export type JobStatus = "queued" | "downloading" | "transcribing" | "selecting" | "rendering" | "done" | "failed";
 
 export interface ClipFlowContract {
+  CaptionPreset?: CaptionPreset;
+  CaptionReply?: CaptionReply;
+  CaptionStyle?: CaptionStyle;
+  CaptionTrack?: CaptionTrack;
   Clip?: Clip;
+  ClipEdit?: ClipEdit;
   ClipOut?: ClipOut;
   ClipType?: ClipType;
+  CropOverride?: CropOverride;
   CropWindow?: CropWindow;
+  HighlightStyle?: HighlightStyle;
   Job?: Job;
   JobStatus?: JobStatus;
   Metrics?: Metrics;
   Segment?: Segment;
+  SourceInterval?: SourceInterval;
   SourceKind?: SourceKind;
   Transcript?: Transcript;
   Word?: Word;
+}
+/**
+ * Именованный пресет стиля субтитров (мини brand kit, спека §9).
+ */
+export interface CaptionPreset {
+  highlight?: HighlightStyle | null;
+  id: string;
+  name: string;
+  style: CaptionStyle;
+}
+/**
+ * Караоке-подсветка активного слова. None в треке = караоке выключено.
+ */
+export interface HighlightStyle {
+  color?: string;
+  scale?: number;
+}
+/**
+ * Стиль субтитров. Компилируется в ASS (рендер) и в CSS (превью) из одной модели.
+ */
+export interface CaptionStyle {
+  alignment?: number;
+  box_color?: string | null;
+  box_opacity?: number;
+  box_radius?: number;
+  color?: string;
+  font?: string;
+  margin_v?: number;
+  outline_color?: string;
+  outline_w?: number;
+  shadow?: number;
+  size?: number;
+  uppercase?: boolean;
+}
+/**
+ * Одна реплика субтитра (чанк 3–5 слов).
+ */
+export interface CaptionReply {
+  hidden?: boolean;
+  text_override?: string | null;
+  word_refs: number[];
+}
+/**
+ * Трек субтитров клипа: стиль + караоке + реплики.
+ */
+export interface CaptionTrack {
+  highlight?: HighlightStyle | null;
+  replies?: CaptionReply[];
+  style: CaptionStyle;
 }
 /**
  * Внутреннее представление готового клипа (пути к артефактам + экономика).
@@ -62,6 +119,33 @@ export interface Segment {
   score: number;
   start: number;
   type: ClipType;
+}
+/**
+ * РЕЦЕПТ клипа — не-деструктивный edit-state. Версионируется (optimistic-lock).
+ */
+export interface ClipEdit {
+  aspect?: string;
+  captions: CaptionTrack;
+  id: string;
+  reframe_overrides?: CropOverride[];
+  source_intervals: SourceInterval[];
+  version?: number;
+}
+/**
+ * Ручной кроп на диапазон source — поверх авто-reframe (MVP: применяется per-интервал).
+ */
+export interface CropOverride {
+  center?: number | null;
+  mode: string;
+  source_end: number;
+  source_start: number;
+}
+/**
+ * Один оставленный кусок исходника. Интервалы упорядочены по CLIP-порядку.
+ */
+export interface SourceInterval {
+  source_end: number;
+  source_start: number;
 }
 /**
  * Клип в ответе API. `start/end` — в координатах source (фундамент clip↔source).

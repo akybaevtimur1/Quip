@@ -1,6 +1,10 @@
-import { Check, Download } from "lucide-react";
+"use client";
+
+import { Check, Download, Pencil, X } from "lucide-react";
+import { useState } from "react";
 import { clipRange } from "@/lib/format";
 import type { ClipOut } from "@/lib/types";
+import ClipEditor from "./ClipEditor";
 import { ReasonChip } from "./ReasonChip";
 
 const WORKER_BASE = process.env.NEXT_PUBLIC_WORKER_URL ?? "";
@@ -11,15 +15,19 @@ export function resolveUrl(videoUrl: string): string {
 }
 
 export function ClipCard({
+  jobId,
   clip,
   selected,
   onToggle,
 }: {
+  jobId: string;
   clip: ClipOut;
   selected: boolean;
   onToggle: () => void;
 }) {
-  const src = resolveUrl(clip.video_url);
+  const [videoSrc, setVideoSrc] = useState(() => resolveUrl(clip.video_url));
+  const [showEditor, setShowEditor] = useState(false);
+
   return (
     <article
       className={`flex flex-col gap-3 rounded-2xl border bg-surface p-3 transition ${
@@ -28,7 +36,8 @@ export function ClipCard({
     >
       <div className="relative overflow-hidden rounded-xl bg-surface-2">
         <video
-          src={src}
+          key={videoSrc}
+          src={videoSrc}
           controls
           preload="metadata"
           playsInline
@@ -63,14 +72,39 @@ export function ClipCard({
         <p className="line-clamp-2 text-xs leading-snug text-muted">«{clip.transcript}»</p>
       ) : null}
 
-      <a
-        href={src}
-        download
-        className="mt-1 inline-flex items-center justify-center gap-2 rounded-xl border border-line bg-surface-2 px-3 py-2 text-sm font-semibold text-ink transition hover:border-accent/50 hover:text-accent focus:outline-none focus:ring-2 focus:ring-accent/40"
-      >
-        <Download className="size-4" />
-        Скачать
-      </a>
+      <div className="mt-1 flex gap-2">
+        <a
+          href={videoSrc}
+          download
+          className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl border border-line bg-surface-2 px-3 py-2 text-sm font-semibold text-ink transition hover:border-accent/50 hover:text-accent focus:outline-none focus:ring-2 focus:ring-accent/40"
+        >
+          <Download className="size-4" />
+          Скачать
+        </a>
+        <button
+          type="button"
+          onClick={() => setShowEditor((v) => !v)}
+          className={`inline-flex items-center justify-center gap-1 rounded-xl border px-3 py-2 text-sm font-semibold transition focus:outline-none focus:ring-2 focus:ring-accent/40 ${
+            showEditor
+              ? "border-accent/60 bg-accent/10 text-accent"
+              : "border-line bg-surface-2 text-ink hover:border-accent/50 hover:text-accent"
+          }`}
+        >
+          {showEditor ? <X className="size-4" /> : <Pencil className="size-4" />}
+          {showEditor ? "Close" : "Edit"}
+        </button>
+      </div>
+
+      {showEditor && (
+        <ClipEditor
+          jobId={jobId}
+          clipId={clip.id}
+          onRenderDone={(url) => {
+            setVideoSrc(url);
+            // keep editor open so user can see the result and make more edits
+          }}
+        />
+      )}
     </article>
   );
 }

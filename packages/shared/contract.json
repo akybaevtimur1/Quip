@@ -1,5 +1,158 @@
 {
   "$defs": {
+    "CaptionPreset": {
+      "description": "Именованный пресет стиля субтитров (мини brand kit, спека §9).",
+      "properties": {
+        "highlight": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HighlightStyle"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "style": {
+          "$ref": "#/$defs/CaptionStyle"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "style"
+      ],
+      "type": "object"
+    },
+    "CaptionReply": {
+      "description": "Одна реплика субтитра (чанк 3–5 слов).",
+      "properties": {
+        "hidden": {
+          "default": false,
+          "type": "boolean"
+        },
+        "text_override": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "word_refs": {
+          "items": {
+            "type": "integer"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "word_refs"
+      ],
+      "type": "object"
+    },
+    "CaptionStyle": {
+      "description": "Стиль субтитров. Компилируется в ASS (рендер) и в CSS (превью) из одной модели.",
+      "properties": {
+        "alignment": {
+          "default": 2,
+          "type": "integer"
+        },
+        "box_color": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "box_opacity": {
+          "default": 0.0,
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "type": "number"
+        },
+        "box_radius": {
+          "default": 0,
+          "type": "integer"
+        },
+        "color": {
+          "default": "#FFFFFF",
+          "type": "string"
+        },
+        "font": {
+          "default": "Montserrat",
+          "type": "string"
+        },
+        "margin_v": {
+          "default": 260,
+          "type": "integer"
+        },
+        "outline_color": {
+          "default": "#000000",
+          "type": "string"
+        },
+        "outline_w": {
+          "default": 6,
+          "type": "integer"
+        },
+        "shadow": {
+          "default": 2,
+          "type": "integer"
+        },
+        "size": {
+          "default": 90,
+          "type": "integer"
+        },
+        "uppercase": {
+          "default": true,
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "CaptionTrack": {
+      "description": "Трек субтитров клипа: стиль + караоке + реплики.",
+      "properties": {
+        "highlight": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HighlightStyle"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "replies": {
+          "items": {
+            "$ref": "#/$defs/CaptionReply"
+          },
+          "type": "array"
+        },
+        "style": {
+          "$ref": "#/$defs/CaptionStyle"
+        }
+      },
+      "required": [
+        "style"
+      ],
+      "type": "object"
+    },
     "Clip": {
       "description": "Внутреннее представление готового клипа (пути к артефактам + экономика).",
       "properties": {
@@ -36,6 +189,43 @@
         "output_path",
         "cost_usd",
         "latency_s"
+      ],
+      "type": "object"
+    },
+    "ClipEdit": {
+      "description": "РЕЦЕПТ клипа — не-деструктивный edit-state. Версионируется (optimistic-lock).",
+      "properties": {
+        "aspect": {
+          "default": "9:16",
+          "type": "string"
+        },
+        "captions": {
+          "$ref": "#/$defs/CaptionTrack"
+        },
+        "id": {
+          "type": "string"
+        },
+        "reframe_overrides": {
+          "items": {
+            "$ref": "#/$defs/CropOverride"
+          },
+          "type": "array"
+        },
+        "source_intervals": {
+          "items": {
+            "$ref": "#/$defs/SourceInterval"
+          },
+          "type": "array"
+        },
+        "version": {
+          "default": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "source_intervals",
+        "captions"
       ],
       "type": "object"
     },
@@ -113,6 +303,37 @@
       ],
       "type": "string"
     },
+    "CropOverride": {
+      "description": "Ручной кроп на диапазон source — поверх авто-reframe (MVP: применяется per-интервал).",
+      "properties": {
+        "center": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "mode": {
+          "type": "string"
+        },
+        "source_end": {
+          "type": "number"
+        },
+        "source_start": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "source_start",
+        "source_end",
+        "mode"
+      ],
+      "type": "object"
+    },
     "CropWindow": {
       "description": "Окно кропа 9:16 в пиксельных координатах source. Phase 0: одно static-окно на клип.",
       "properties": {
@@ -139,6 +360,20 @@
         "w",
         "h"
       ],
+      "type": "object"
+    },
+    "HighlightStyle": {
+      "description": "Караоке-подсветка активного слова. None в треке = караоке выключено.",
+      "properties": {
+        "color": {
+          "default": "#FFE000",
+          "type": "string"
+        },
+        "scale": {
+          "default": 1.0,
+          "type": "number"
+        }
+      },
       "type": "object"
     },
     "Job": {
@@ -262,6 +497,22 @@
       ],
       "type": "object"
     },
+    "SourceInterval": {
+      "description": "Один оставленный кусок исходника. Интервалы упорядочены по CLIP-порядку.",
+      "properties": {
+        "source_end": {
+          "type": "number"
+        },
+        "source_start": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "source_start",
+        "source_end"
+      ],
+      "type": "object"
+    },
     "SourceKind": {
       "description": "Откуда исходник: ссылка YouTube или загруженный файл.",
       "enum": [
@@ -327,8 +578,23 @@
   },
   "additionalProperties": false,
   "properties": {
+    "CaptionPreset": {
+      "$ref": "#/$defs/CaptionPreset"
+    },
+    "CaptionReply": {
+      "$ref": "#/$defs/CaptionReply"
+    },
+    "CaptionStyle": {
+      "$ref": "#/$defs/CaptionStyle"
+    },
+    "CaptionTrack": {
+      "$ref": "#/$defs/CaptionTrack"
+    },
     "Clip": {
       "$ref": "#/$defs/Clip"
+    },
+    "ClipEdit": {
+      "$ref": "#/$defs/ClipEdit"
     },
     "ClipOut": {
       "$ref": "#/$defs/ClipOut"
@@ -336,8 +602,14 @@
     "ClipType": {
       "$ref": "#/$defs/ClipType"
     },
+    "CropOverride": {
+      "$ref": "#/$defs/CropOverride"
+    },
     "CropWindow": {
       "$ref": "#/$defs/CropWindow"
+    },
+    "HighlightStyle": {
+      "$ref": "#/$defs/HighlightStyle"
     },
     "Job": {
       "$ref": "#/$defs/Job"
@@ -350,6 +622,9 @@
     },
     "Segment": {
       "$ref": "#/$defs/Segment"
+    },
+    "SourceInterval": {
+      "$ref": "#/$defs/SourceInterval"
     },
     "SourceKind": {
       "$ref": "#/$defs/SourceKind"

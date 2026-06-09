@@ -36,6 +36,7 @@ function downloadClips(urls: { href: string; name: string }[]) {
 // NB: родитель монтирует <ClipGrid key={job.id}> → новый прогон = свежий маунт =
 // выбор сбрасывается на «все выбраны» без эффектов (см. page.tsx).
 export function ClipGrid({ job }: { job: Job }) {
+  const jobId = job.id;
   const clips = useMemo(
     () => [...(job.clips ?? [])].sort((a, b) => b.score - a.score),
     [job.clips],
@@ -101,6 +102,7 @@ export function ClipGrid({ job }: { job: Job }) {
         {clips.map((c) => (
           <ClipCard
             key={c.id}
+            jobId={jobId}
             clip={c}
             selected={selected.has(c.id)}
             onToggle={() => toggle(c.id)}
