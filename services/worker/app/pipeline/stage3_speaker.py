@@ -1,11 +1,9 @@
-"""Pure-логика active-speaker reframe: IOU-трекинг лиц + выбор ГОВОРЯЩЕЙ дорожки на план.
+"""Pure-логика active-speaker reframe: IOU-трекинг лиц.
 
-Детект лиц (MediaPipe) и speaking-score (app.asd.scorer) — это I/O-обёртки в stage3_reframe.
+Детект лиц (MediaPipe) и speaking-score (app.asd.scorer) — это I/O-обёртки в asd_reframe.py.
 Здесь только детерминированная математика (только numpy) → гоняется в базовом гейте без asd-экстры.
 
-Граница с D2: shots приходят из detect_cuts/build_shots; здесь на каждый план выбираем
-дорожку с макс. speaking-score → её центр (вместо «самого крупного лица»). Опора на argmax,
-а не на абсолютный порог — нам нужен лишь «кто из лиц говорит громче» в плане.
+build_tracks: per-frame face detections → IOU-треки с интерполяцией дыр (жадный).
 """
 
 from __future__ import annotations
@@ -65,45 +63,3 @@ def build_tracks(
         if max((bbi[:, 2] - bbi[:, 0]).mean(), (bbi[:, 3] - bbi[:, 1]).mean()) > min_face:
             tracks.append({"frame": fi, "bbox": bbi})
     return tracks
-
-
-def pick_speaker_centers(
-    tracks: list[tuple[float, float, float, float]],
-    shots: list[tuple[float, float]],
-    *,
-    default: float = 0.5,
-) -> list[tuple[float, float]]:
-    """Дорожки (t_start, t_end, center_x_frac, speak) + планы (s0,s1) → [(shot_start, center)].
-
-    На каждый план берём дорожку с МАКС. speak среди пересекающих план → её центр (кадрируем
-    на говорящего, а не на крупнейшего). Нет дорожек в плане → держим центр предыдущего плана
-    (первый без дорожек → default). Совместимо с D2: даём по одному центру на план.
-    """
-    out: list[tuple[float, float]] = []
-    prev = default
-    for s0, s1 in shots:
-        cands = [(c, sp) for (t0, t1, c, sp) in tracks if t0 < s1 and t1 > s0]
-        center = max(cands, key=lambda cs: cs[1])[0] if cands else prev
-        out.append((s0, center))
-        prev = center
-    return out
-
-
-def apply_dead_zone(
-    centers: list[tuple[float, float]], *, dead_zone: float = 0.12
-) -> list[tuple[float, float]]:
-    """Умная статика: держим центр, пока он не уехал от ДЕРЖИМОГО ≥ dead_zone — тогда прыжок.
-
-    Гасит «флеши»: серия быстрых склеек с близким кадром → один held-центр (окно не дёргается);
-    мелкий дрейф не накапливается (сравниваем с держимым, не с предыдущим). Сильный сдвиг
-    фокуса (камера ушла на другого) → новый держимый. На вход/выход — [(shot_start, center)].
-    """
-    if not centers:
-        return centers
-    out = [centers[0]]
-    held = centers[0][1]
-    for t, c in centers[1:]:
-        if abs(c - held) >= dead_zone:
-            held = c
-        out.append((t, held))
-    return out

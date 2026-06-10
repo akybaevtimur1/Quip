@@ -1,17 +1,13 @@
 """Stage 3 (Reframe): source.mp4 + сегмент → reframe_<clip_id>.json (per-shot, cut-aligned).
 
-Главный путь (largest-face): sample_faces_continuous → detect_cuts → build_shots →
-build_regions_from_shots → [TrackRegion] (frame-accurate cut alignment, no flashes).
+Главный путь (ASD): detect_scene_cuts → build_shots_frames → score_tracks_in_segment
+→ plan_regions → merge_short_regions → [TrackRegion] (frame-accurate, no flashes).
 
-ASD-путь (speaker tracking): speaker_windows (asd_reframe.py) → windows_to_shot_plan →
-build_regions_from_shots (совместимость).
+Редактор-путь (reframe_cache.py): sample_faces_continuous + detect_cuts → build_shots
+→ build_regions_from_shots (секунды, V2-legacy).
 
-Лучше конкретнее: каждый шот = стабильный mode (fill/fit) и center (медиана лиц в шоте).
-Короткие шоты (<1.5с) поглощаются соседним (stabilize_plan). Per-shot режим исключает флеши
-и мигание на быстро-монтажном контенте (многосклеек в 0.5с).
-
-Legacy: build_trajectory/build_regions (экспоненциальное сглаживание) сохранены для обратной
-совместимости, но не используются на главном пути.
+Каждый шот = стабильный mode (fill/fit) + центр говорящего (plan_regions). Короткие шоты
+(<1.5с) поглощаются соседним (merge_short_regions). Per-shot границы = реальные склейки.
 
 Границы: PURE-математика изолирована (unit-тесты); I/O (ffmpeg/MediaPipe) — обёртки, JobError.
 """
@@ -33,19 +29,6 @@ _ASPECT_W, _ASPECT_H = 9, 16
 
 
 # ─────────────────────────── Dataclasses ───────────────────────────
-
-
-@dataclass(frozen=True)
-class ShotPlan:
-    """Legacy per-shot plan — сохранён для ASD speaker-пути (asd_reframe.py).
-
-    mode='fill' → кроп 9:16 по center (доля X); mode='fit' → весь кадр + блюр-рамки.
-    """
-
-    t0: float
-    t1: float
-    mode: str
-    center: float | None
 
 
 @dataclass(frozen=True)
@@ -116,18 +99,6 @@ def compute_crop_window(src_w: int, src_h: int, center_x_frac: float, *, t: floa
     return CropWindow(t=t, x=x, y=0, w=w, h=h)
 
 
-def aggregate_center(centers: list[float]) -> float:
-    """Медиана центров лица (устойчива к выбросам). JobError на пустом списке."""
-    vals = sorted(centers)
-    n = len(vals)
-    if n == 0:
-        raise JobError(_STAGE, "нет центров лица для агрегации")
-    mid = n // 2
-    if n % 2:
-        return vals[mid]
-    return (vals[mid - 1] + vals[mid]) / 2
-
-
 def shot_is_wide(
     frame_centers: list[list[float]], *, crop_w_frac: float, wide_ratio: float = 0.5
 ) -> bool:
@@ -172,36 +143,6 @@ def classify_frame(all_faces: list[tuple[float, float]], crop_w_frac: float) -> 
     return "fill"
 
 
-def build_trajectory(
-    raw_samples: list[tuple[float, list[tuple[float, float]]]],
-    smoothing: float,
-    crop_w_frac: float,
-    *,
-    mode_setting: str = "auto",
-) -> list[TrackPoint]:
-    """raw_samples (t, [(cx,w),...]) → [TrackPoint] с exponential smoothing.
-
-    Classify per-frame (auto/fit/fill), smooth_centers на cx крупнейшего лица.
-    Для fit-точек cx=None (используется прежде всего для анти-флеш в build_regions).
-    """
-    cx_raws: list[float | None] = [
-        max(faces, key=lambda f: f[1])[0] if faces else None for _, faces in raw_samples
-    ]
-    init_cx = next((cx for cx in cx_raws if cx is not None), 0.5)
-    cx_smoothed = smooth_centers(cx_raws, smoothing, init=init_cx)
-    points: list[TrackPoint] = []
-    for (t, faces), cx_sm in zip(raw_samples, cx_smoothed, strict=False):
-        if mode_setting == "fit":
-            mode = "fit"
-        elif mode_setting == "fill":
-            mode = "fill"
-        else:  # auto
-            mode = classify_frame(faces, crop_w_frac)
-        cx = cx_sm if mode == "fill" else None
-        points.append(TrackPoint(t=t, mode=mode, cx=cx))
-    return points
-
-
 def merge_short_regions(regions: list[TrackRegion], min_hold_sec: float) -> list[TrackRegion]:
     """Анти-флеш V2: регион < min_hold_sec поглощается предыдущим (держим его mode+points).
 
@@ -218,55 +159,6 @@ def merge_short_regions(regions: list[TrackRegion], min_hold_sec: float) -> list
         else:
             out.append(reg)
     return out
-
-
-def build_regions(
-    trajectory: list[TrackPoint],
-    min_hold_sec: float,
-    *,
-    duration: float | None = None,
-) -> list[TrackRegion]:
-    """TrackPoint список → TrackRegion список (режим-группировка + merge_short_regions).
-
-    Consecutive одинаковые режимы → один регион. t1 последнего = duration (если задан)
-    или t последнего сэмпла. merge_short_regions применяется в конце.
-    """
-    if not trajectory:
-        return []
-    regions: list[TrackRegion] = []
-    i = 0
-    while i < len(trajectory):
-        cur_mode = trajectory[i].mode
-        j = i + 1
-        while j < len(trajectory) and trajectory[j].mode == cur_mode:
-            j += 1
-        seg = trajectory[i:j]
-        t0 = seg[0].t
-        if j < len(trajectory):
-            t1 = trajectory[j].t
-        else:
-            t1 = duration if duration is not None else seg[-1].t
-        if cur_mode == "fit":
-            regions.append(TrackRegion(t0=t0, t1=t1, mode="fit", points=()))
-        else:
-            regions.append(TrackRegion(t0=t0, t1=t1, mode="fill", points=tuple(seg)))
-        i = j
-    return merge_short_regions(regions, min_hold_sec)
-
-
-def shot_plan_to_regions(plan: list[ShotPlan]) -> list[TrackRegion]:
-    """Adapter: ShotPlan (ASD speaker path) → TrackRegion для render_clip V2.
-
-    fill-шот → TrackRegion fill с одной точкой на t=t0; fit-шот → пустые points.
-    """
-    regions: list[TrackRegion] = []
-    for s in plan:
-        if s.mode == "fit":
-            regions.append(TrackRegion(t0=s.t0, t1=s.t1, mode="fit", points=()))
-        else:
-            pt = TrackPoint(t=s.t0, mode="fill", cx=s.center)
-            regions.append(TrackRegion(t0=s.t0, t1=s.t1, mode="fill", points=(pt,)))
-    return regions
 
 
 # ─────────────────────── Legacy ASD helpers (сохранены для asd_reframe.py) ───────────────────────
@@ -530,22 +422,6 @@ def detect_scene_cuts(
             raise JobError(_STAGE, f"PySceneDetect сбой: {e}") from e
     # get_scene_list даёт [(start, end), …]; склейка = start КАДР каждой сцены, кроме первой (0).
     return [s[0].get_frames() for s in scenes[1:]]
-
-
-def windows_to_shot_plan(
-    windows: list[CropWindow], *, duration: float, src_w: int
-) -> list[ShotPlan]:
-    """Speaker-адаптер: окна говорящего (CropWindow) → ShotPlan (для ASD → shot_plan_to_regions).
-
-    center восстанавливаем из пикселей: (x + w/2)/src_w. t1 шота = старт следующего окна
-    (последнего → duration). Пусто → [].
-    """
-    out: list[ShotPlan] = []
-    for i, w in enumerate(windows):
-        t1 = windows[i + 1].t if i + 1 < len(windows) else duration
-        center = (w.x + w.w / 2) / src_w
-        out.append(ShotPlan(t0=w.t, t1=t1, mode="fill", center=center))
-    return out
 
 
 # ─────────────────────────── I/O: кадры (ffmpeg) + лица (MediaPipe) ───────────────────────────

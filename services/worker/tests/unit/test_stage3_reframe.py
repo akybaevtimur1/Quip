@@ -1,28 +1,21 @@
-"""Тесты pure-математики Stage 3 (reframe 9:16) V2 — тест-первым.
+"""Тесты pure-математики Stage 3 (reframe 9:16) — тест-первым.
 
-V2 (Continuous Reframe): TrackPoint/TrackRegion + exponential smoothing вместо ShotPlan.
-Crop-окно 9:16, агрегация, smooth_centers, classify_frame, build_trajectory, build_regions,
-merge_short_regions, shot_plan_to_regions. I/O (ffmpeg+MediaPipe) тестируем глазами на сэмпле.
+Cut-aligned reframe: TrackPoint/TrackRegion, classify_frame, smooth_centers,
+merge_short_regions, build_regions_from_shots, plan_regions, build_shots_frames.
+I/O (ffmpeg/MediaPipe) тестируем глазами на сэмпле.
 """
 
 import pytest
 
 from app.errors import JobError
-from app.models import CropWindow
 from app.pipeline.stage3_reframe import (
-    ShotPlan,
     TrackPoint,
     TrackRegion,
-    aggregate_center,
-    build_regions,
-    build_trajectory,
     classify_frame,
     compute_crop_window,
     merge_short_regions,
     shot_is_wide,
-    shot_plan_to_regions,
     smooth_centers,
-    windows_to_shot_plan,
 )
 
 
@@ -60,24 +53,6 @@ class TestComputeCropWindow:
     def test_bad_dims_raise(self) -> None:
         with pytest.raises(JobError):
             compute_crop_window(0, 1080, 0.5, t=0.0)
-
-
-class TestAggregateCenter:
-    def test_median_odd(self) -> None:
-        assert aggregate_center([0.4, 0.6, 0.5]) == 0.5
-
-    def test_median_even(self) -> None:
-        assert aggregate_center([0.4, 0.6]) == 0.5
-
-    def test_resists_outlier(self) -> None:
-        assert aggregate_center([0.5, 0.5, 0.5, 0.95]) == 0.5
-
-    def test_single(self) -> None:
-        assert aggregate_center([0.7]) == 0.7
-
-    def test_empty_raises(self) -> None:
-        with pytest.raises(JobError):
-            aggregate_center([])
 
 
 class TestShotIsWide:
@@ -151,42 +126,6 @@ class TestClassifyFrame:
         assert classify_frame([(0.45, 0.1), (0.55, 0.1)], crop_w_frac=0.32) == "fill"
 
 
-class TestBuildTrajectory:
-    """build_trajectory: raw_samples → TrackPoint list с smoothing."""
-
-    def test_fill_mode_gets_cx(self) -> None:
-        samples = [(0.0, [(0.6, 0.1)])]  # одно лицо → fill
-        pts = build_trajectory(samples, smoothing=1.0, crop_w_frac=0.32)
-        assert len(pts) == 1
-        assert pts[0].mode == "fill"
-        assert pts[0].cx is not None
-
-    def test_fit_mode_no_cx(self) -> None:
-        samples = [(0.0, [])]  # нет лиц → fit
-        pts = build_trajectory(samples, smoothing=0.15, crop_w_frac=0.32)
-        assert pts[0].mode == "fit"
-        assert pts[0].cx is None
-
-    def test_forced_fill_always_fill(self) -> None:
-        samples = [(0.0, []), (0.2, [])]  # нет лиц, но forced fill
-        pts = build_trajectory(samples, smoothing=0.15, crop_w_frac=0.32, mode_setting="fill")
-        assert all(p.mode == "fill" for p in pts)
-
-    def test_forced_fit_always_fit(self) -> None:
-        samples = [(0.0, [(0.5, 0.1)])]  # есть лицо, но forced fit
-        pts = build_trajectory(samples, smoothing=0.15, crop_w_frac=0.32, mode_setting="fit")
-        assert pts[0].mode == "fit"
-
-    def test_smoothing_applied(self) -> None:
-        # cx_raw = [0.8]; init=first face cx=0.8; smooth → 0.8+0.15*(0.8-0.8)=0.8
-        samples = [(0.0, [(0.8, 0.1)])]
-        pts = build_trajectory(samples, smoothing=0.15, crop_w_frac=0.32)
-        assert pts[0].cx == pytest.approx(0.8)
-
-    def test_empty_returns_empty(self) -> None:
-        assert build_trajectory([], 0.15, 0.32) == []
-
-
 class TestMergeShortRegions:
     """Анти-флеш V2: регион < min_hold_sec поглощается предыдущим."""
 
@@ -227,123 +166,6 @@ class TestMergeShortRegions:
         ]
         result = merge_short_regions(regions, min_hold_sec=1.5)
         assert result[0].t0 == 0.0  # первый не поглощён
-
-
-class TestBuildRegions:
-    """build_regions: trajectory → TrackRegion список."""
-
-    def test_empty_returns_empty(self) -> None:
-        assert build_regions([], min_hold_sec=1.5) == []
-
-    def test_all_fill_one_region(self) -> None:
-        pts = [
-            TrackPoint(0.0, "fill", 0.5),
-            TrackPoint(0.2, "fill", 0.52),
-            TrackPoint(0.4, "fill", 0.51),
-        ]
-        result = build_regions(pts, min_hold_sec=0.0, duration=5.0)
-        assert len(result) == 1
-        assert result[0].mode == "fill"
-        assert result[0].t0 == 0.0
-        assert result[0].t1 == 5.0
-        assert len(result[0].points) == 3
-
-    def test_all_fit_one_region(self) -> None:
-        pts = [TrackPoint(0.0, "fit", None), TrackPoint(0.2, "fit", None)]
-        result = build_regions(pts, min_hold_sec=0.0, duration=3.0)
-        assert len(result) == 1
-        assert result[0].mode == "fit"
-        assert result[0].points == ()
-
-    def test_mode_switch_two_regions(self) -> None:
-        pts = [
-            TrackPoint(0.0, "fill", 0.5),
-            TrackPoint(0.2, "fill", 0.5),
-            TrackPoint(0.4, "fit", None),  # switch
-            TrackPoint(0.6, "fit", None),
-        ]
-        result = build_regions(pts, min_hold_sec=0.0, duration=5.0)
-        assert len(result) == 2
-        assert result[0].mode == "fill"
-        assert result[1].mode == "fit"
-        assert result[0].t1 == result[1].t0  # смежные (нет зазора)
-
-    def test_short_region_merged_by_antiflash(self) -> None:
-        # fill(0-3) → fit(3-3.4 = 0.4с < 1.5) → поглощается → fill(3-5) (нет!)
-        # Реально: fit-регион поглощается в предыдущий fill → результат [fill(0-3.4), fit(3.4-5)]
-        # merge_short_regions поглощает в ПРЕДЫДУЩИЙ: fit(3-3.4)→fill(0-3.4), потом fill(3.4-5).
-        pts = [
-            TrackPoint(0.0, "fill", 0.5),
-            TrackPoint(0.5, "fill", 0.5),
-            TrackPoint(1.0, "fill", 0.5),
-            TrackPoint(3.0, "fit", None),  # короткий fit (0.4с ≈ 1 сэмпл)
-            TrackPoint(3.4, "fill", 0.5),  # обратно fill
-        ]
-        result = build_regions(pts, min_hold_sec=2.0, duration=5.0)
-        # Ожидаем: fit [3.0, 3.4] (0.4 < 2.0) → поглощается в fill [0,3.0] → fill [0,3.4]
-        # Потом fill [3.4, 5.0] → итого 2 fill-региона или 1 большой (зависит от merge)
-        # merge_short_regions поглощает fit в предыдущий fill → fill[0,3.4]
-        # Затем идёт fill[3.4,5.0] — отдельный fill (разные группы изначально — wait,
-        # после merge: остаётся fill[0,3.4] и fill[3.4,5.0])
-        assert all(r.mode == "fill" for r in result)
-
-    def test_duration_sets_last_t1(self) -> None:
-        pts = [TrackPoint(0.0, "fill", 0.5), TrackPoint(0.2, "fill", 0.5)]
-        result = build_regions(pts, min_hold_sec=0.0, duration=10.0)
-        assert result[-1].t1 == 10.0
-
-
-class TestShotPlanToRegions:
-    """shot_plan_to_regions: ShotPlan → TrackRegion (ASD-adapter)."""
-
-    def test_empty(self) -> None:
-        assert shot_plan_to_regions([]) == []
-
-    def test_fill_plan_gets_point(self) -> None:
-        plan = [ShotPlan(0.0, 5.0, "fill", 0.6)]
-        result = shot_plan_to_regions(plan)
-        assert len(result) == 1
-        assert result[0].mode == "fill"
-        assert len(result[0].points) == 1
-        assert result[0].points[0].t == 0.0
-        assert result[0].points[0].cx == 0.6
-
-    def test_fit_plan_empty_points(self) -> None:
-        plan = [ShotPlan(0.0, 5.0, "fit", None)]
-        result = shot_plan_to_regions(plan)
-        assert result[0].mode == "fit"
-        assert result[0].points == ()
-
-    def test_mixed_plan(self) -> None:
-        plan = [
-            ShotPlan(0.0, 3.0, "fill", 0.4),
-            ShotPlan(3.0, 5.0, "fit", None),
-        ]
-        result = shot_plan_to_regions(plan)
-        assert result[0].mode == "fill"
-        assert result[1].mode == "fit"
-
-
-class TestWindowsToShotPlan:
-    """Speaker-адаптер: окна говорящего → ShotPlan."""
-
-    def test_empty(self) -> None:
-        assert windows_to_shot_plan([], duration=20.0, src_w=2000) == []
-
-    def test_single_window_spans_to_duration(self) -> None:
-        w = CropWindow(t=0.0, x=900, y=0, w=600, h=1080)
-        out = windows_to_shot_plan([w], duration=20.0, src_w=2000)
-        # центр = (x + w/2)/src_w = (900+300)/2000 = 0.6
-        assert out == [ShotPlan(0.0, 20.0, "fill", 0.6)]
-
-    def test_two_windows_chain_t1(self) -> None:
-        w0 = CropWindow(t=0.0, x=900, y=0, w=600, h=1080)
-        w1 = CropWindow(t=8.0, x=200, y=0, w=600, h=1080)
-        out = windows_to_shot_plan([w0, w1], duration=20.0, src_w=2000)
-        assert out == [
-            ShotPlan(0.0, 8.0, "fill", 0.6),
-            ShotPlan(8.0, 20.0, "fill", 0.25),
-        ]
 
 
 class TestBuildShotsFrames:
