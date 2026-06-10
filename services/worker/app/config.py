@@ -70,8 +70,10 @@ class Settings(BaseSettings):
     # анти-флеш: регион < min_hold НЕ переключает режим, поглощается предыдущим.
     reframe_min_hold_sec: float = 1.5
     reframe_wide_ratio: float = 0.5
-    # ASD speaker-путь: порог ffmpeg-склеек + dead-zone (tolerance слияния планов).
-    reframe_cut_threshold: float = 0.4
+    # ASD speaker-путь: порог склеек (PySceneDetect, ~27) + порог ASD-скора говорения.
+    reframe_cut_threshold: float = 0.4  # legacy alias (ffmpeg 0..1 scale)
+    reframe_scene_threshold: float = 27.0  # PySceneDetect ContentDetector threshold
+    reframe_speak_threshold: float = 0.0  # ASD speak-score minimum (0=any activity)
     reframe_dead_zone: float = 0.12
 
     @model_validator(mode="after")

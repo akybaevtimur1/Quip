@@ -126,83 +126,62 @@ class TestBuildSmoothFilter:
         with pytest.raises(JobError):
             build_smooth_filter([], 1920, 1080, 24.0, "c.ass")
 
-    def test_fill_to_fit_uses_xfade(self) -> None:
+    def test_fill_to_fit_is_hard_cut(self) -> None:
         regions = [_fill_region(0.0, 3.0, [0.5]), _fit_region(3.0, 7.0)]
-        fc = build_smooth_filter(regions, 1920, 1080, 30.0, "c.ass", xfade_dur=0.15)
-        assert "xfade=transition=fade" in fc
-        assert "concat=n=2" not in fc  # xfade replaces concat at mode boundary
+        fc = build_smooth_filter(regions, 1920, 1080, 30.0, "c.ass")
+        assert "xfade" not in fc
+        assert "concat=n=2:v=1:a=0" in fc
 
-    def test_fit_to_fill_uses_xfade(self) -> None:
+    def test_fit_to_fill_is_hard_cut(self) -> None:
         regions = [_fit_region(0.0, 3.0), _fill_region(3.0, 7.0, [0.5])]
-        fc = build_smooth_filter(regions, 1920, 1080, 30.0, "c.ass", xfade_dur=0.15)
-        assert "xfade=transition=fade" in fc
+        fc = build_smooth_filter(regions, 1920, 1080, 30.0, "c.ass")
+        assert "xfade" not in fc
+        assert "concat=n=2:v=1:a=0" in fc
 
-    def test_fill_fill_fit_fill_mixed_chain(self) -> None:
-        # fill→fill (concat), fill→fit (xfade), fit→fill (xfade)
+    def test_fill_fill_fit_fill_all_concat(self) -> None:
+        # все переходы — concat (жёсткий cut), нет xfade
         regions = [
             _fill_region(0.0, 2.0, [0.5]),
             _fill_region(2.0, 4.0, [0.5]),
             _fit_region(4.0, 7.0),
             _fill_region(7.0, 10.0, [0.5]),
         ]
-        fc = build_smooth_filter(regions, 1920, 1080, 30.0, "c.ass", xfade_dur=0.15)
-        assert "concat=n=2:v=1:a=0" in fc  # fill→fill
-        assert fc.count("xfade=transition=fade") == 2  # fill→fit and fit→fill
-
-    def test_xfade_offset_calculation(self) -> None:
-        # fill(3s) → fit: offset should be 3.0 - 0.15 = 2.85
-        regions = [_fill_region(0.0, 3.0, [0.5]), _fit_region(3.0, 7.0)]
-        fc = build_smooth_filter(regions, 1920, 1080, 30.0, "c.ass", xfade_dur=0.15)
-        assert "offset=2.85" in fc
-
-    def test_xfade_zero_falls_back_to_concat(self) -> None:
-        regions = [_fill_region(0.0, 3.0, [0.5]), _fit_region(3.0, 7.0)]
-        fc = build_smooth_filter(regions, 1920, 1080, 30.0, "c.ass", xfade_dur=0.0)
+        fc = build_smooth_filter(regions, 1920, 1080, 30.0, "c.ass")
         assert "xfade" not in fc
-        assert "concat=n=2:v=1:a=0" in fc
+        assert fc.count("concat=n=2:v=1:a=0") >= 1
 
 
 # ─────────────────────── TestChainVideoSegs ───────────────────────
 
 
 class TestChainVideoSegs:
-    """_chain_video_segs: pairwise concat for same-mode, xfade for mode changes."""
+    """_chain_video_segs: всегда попарный concat (жёсткий cut на границе шота)."""
 
-    def test_two_same_mode_concat(self) -> None:
-        parts = _chain_video_segs(["s0", "s1"], [2.0, 3.0], ["fill", "fill"], 0.15, "cv")
-        assert len(parts) == 1
-        assert parts[0] == "[s0][s1]concat=n=2:v=1:a=0[cv];"
+    def test_two_segments_concat(self) -> None:
+        parts = _chain_video_segs(["s0", "s1"], "cv")
+        assert parts == ["[s0][s1]concat=n=2:v=1:a=0[cv];"]
 
-    def test_two_different_mode_xfade(self) -> None:
-        parts = _chain_video_segs(["s0", "s1"], [3.0, 4.0], ["fill", "fit"], 0.15, "cv")
-        assert len(parts) == 1
-        assert "xfade=transition=fade:duration=0.150:offset=2.85[cv]" in parts[0]
+    def test_three_segments_chain(self) -> None:
+        parts = _chain_video_segs(["s0", "s1", "s2"], "cv")
+        assert parts == [
+            "[s0][s1]concat=n=2:v=1:a=0[ch1];",
+            "[ch1][s2]concat=n=2:v=1:a=0[cv];",
+        ]
 
-    def test_three_segs_mixed_labels(self) -> None:
-        # fill(2s) → fill(2s) → fit(3s): concat then xfade
-        parts = _chain_video_segs(
-            ["s0", "s1", "s2"], [2.0, 2.0, 3.0], ["fill", "fill", "fit"], 0.15, "cv"
-        )
-        assert len(parts) == 2
-        assert "concat=n=2:v=1:a=0[ch1];" in parts[0]
-        # cumDur after concat = 4.0; offset = 4.0 - 0.15 = 3.85
-        assert "xfade=transition=fade:duration=0.150:offset=3.85[cv]" in parts[1]
+    def test_never_uses_xfade(self) -> None:
+        parts = _chain_video_segs(["s0", "s1", "s2"], "cv")
+        assert all("xfade" not in p for p in parts)
 
-    def test_cumulative_dur_with_xfade(self) -> None:
-        # fill(3s) → fit(4s) → fill(2s): two xfades
-        # after 1st xfade: cumDur = (3-0.15) + 4 = 6.85
-        # 2nd xfade offset: 6.85 - 0.15 = 6.7
-        parts = _chain_video_segs(
-            ["s0", "s1", "s2"], [3.0, 4.0, 2.0], ["fill", "fit", "fill"], 0.15, "cv"
-        )
-        assert len(parts) == 2
-        assert "offset=2.85[ch1]" in parts[0]
-        assert "offset=6.7[cv]" in parts[1]
 
-    def test_xfade_zero_always_concat(self) -> None:
-        parts = _chain_video_segs(["s0", "s1"], [2.0, 3.0], ["fill", "fit"], 0.0, "cv")
-        assert "concat" in parts[0]
-        assert "xfade" not in parts[0]
+class TestBuildSmoothFilterHardCut:
+    def test_fill_to_fit_is_hard_cut(self) -> None:
+        regions = [
+            TrackRegion(0.0, 2.0, "fill", (TrackPoint(0.0, "fill", 0.5),)),
+            TrackRegion(2.0, 4.0, "fit", ()),
+        ]
+        fc = build_smooth_filter(regions, 1920, 1080, 30.0, "c.ass")
+        assert "xfade" not in fc
+        assert "concat=n=2" in fc
 
 
 # ─────────────────────── TestInterpCx ───────────────────────

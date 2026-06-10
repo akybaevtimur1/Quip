@@ -67,40 +67,19 @@ def build_fill_crop_expr(
     return expr
 
 
-def _chain_video_segs(
-    seg_labels: list[str],
-    durations: list[float],
-    modes: list[str],
-    xfade_dur: float,
-    final_label: str,
-) -> list[str]:
-    """Chain N≥2 video segments: pairwise concat for same-mode, xfade for mode changes. PURE.
+def _chain_video_segs(seg_labels: list[str], final_label: str) -> list[str]:
+    """Chain N≥2 видео-сегментов попарным concat (жёсткий cut на границе шота). PURE.
 
-    xfade=transition=fade at fill↔fit boundaries smooths the abrupt visual jump.
-    cumDur tracks output duration so xfade offset is correct when chaining >2 segs.
+    Граница = реальная склейка источника → жёсткий cut невидим (контент и так прыгает).
+    xfade удалён намеренно: кроссфейд тайт↔широкий сам читался как зум-вспышка.
     """
     parts: list[str] = []
     current = seg_labels[0]
-    cumDur = durations[0]
-
     for i in range(1, len(seg_labels)):
         is_last = i == len(seg_labels) - 1
         out_label = final_label if is_last else f"ch{i}"
-        mode_changes = modes[i] != modes[i - 1]
-
-        if mode_changes and xfade_dur > 0 and cumDur > xfade_dur:
-            offset = round(cumDur - xfade_dur, 3)
-            parts.append(
-                f"[{current}][{seg_labels[i]}]xfade=transition=fade:"
-                f"duration={xfade_dur:.3f}:offset={offset}[{out_label}];"
-            )
-            cumDur = round(offset + durations[i], 3)
-        else:
-            parts.append(f"[{current}][{seg_labels[i]}]concat=n=2:v=1:a=0[{out_label}];")
-            cumDur = round(cumDur + durations[i], 3)
-
+        parts.append(f"[{current}][{seg_labels[i]}]concat=n=2:v=1:a=0[{out_label}];")
         current = out_label
-
     return parts
 
 
@@ -114,15 +93,14 @@ def build_smooth_filter(
     out_w: int = 1080,
     out_h: int = 1920,
     blur: int = 20,
-    xfade_dur: float = 0.15,
 ) -> str:
     """filter_complex Engine A: split → per-region trim+crop_expr/fit → chain → subtitles.
 
     fill-регион: crop=W:H:EXPR:0 (piecewise-const expr следит за лицом).
     fit-регион: blur-overlay (весь кадр + рамки, b-roll широко).
-    fill↔fit переходы: xfade=fade (сглаживает резкий визуальный перепад, дефолт 0.15с).
-    same-mode переходы: pairwise concat (без лишних вычислений).
-    setsar=1 на каждом (concat/xfade требуют одинаковый SAR). Аудио НЕ трогаем.
+    Все переходы: жёсткий cut (pairwise concat). xfade удалён — граница = реальная
+    склейка источника, поэтому hard-cut невидим.
+    setsar=1 на каждом (concat требует одинаковый SAR). Аудио НЕ трогаем.
     """
     if not regions:
         raise JobError(_STAGE, "smooth-фильтр требует ≥1 регион")
@@ -130,11 +108,9 @@ def build_smooth_filter(
     crop_w = round(src_h * 9 / 16)
     heads = "".join(f"[a{i}]" for i in range(n))
     parts = [f"[0:v]setpts=PTS-STARTPTS,split={n}{heads};"]
-    durations: list[float] = []
     for i, r in enumerate(regions):
         f0 = round(r.t0 * fps)
         f1 = round(r.t1 * fps)
-        durations.append((f1 - f0) / fps)
         if r.mode == "fit":
             seg = (
                 f"split=2[bg{i}][fg{i}];"
@@ -155,11 +131,7 @@ def build_smooth_filter(
     if n == 1:
         parts.append(f"[s0]subtitles={ass_name}[outv]")
     else:
-        parts.extend(
-            _chain_video_segs(
-                [f"s{i}" for i in range(n)], durations, [r.mode for r in regions], xfade_dur, "cv"
-            )
-        )
+        parts.extend(_chain_video_segs([f"s{i}" for i in range(n)], "cv"))
         parts.append(f"[cv]subtitles={ass_name}[outv]")
     return "".join(parts)
 
@@ -401,12 +373,11 @@ def build_timeline_filter(
     out_w: int = 1080,
     out_h: int = 1920,
     blur: int = 20,
-    xfade_dur: float = 0.15,
 ) -> str:
     """filter_complex для мульти-интервального рендера (спека §6). PURE.
 
     Видео: split→per-seg trim(source-кадры)+reframe→_chain_video_segs→subtitles.
-    fill↔fit переходы: xfade=fade (сглаживает резкий визуальный перепад).
+    Все переходы: жёсткий cut (concat). xfade удалён — границы = реальные склейки.
     Аудио: asplit→per-seg atrim(source-времена)→concat (бесшовно, до энкода).
     """
     if not segments:
@@ -416,9 +387,7 @@ def build_timeline_filter(
     vheads = "".join(f"[v{i}]" for i in range(n))
     aheads = "".join(f"[a{i}]" for i in range(n))
     parts = [f"[0:v]split={n}{vheads};[0:a]asplit={n}{aheads};"]
-    durations: list[float] = []
     for i, s in enumerate(segments):
-        durations.append((s.src_f1 - s.src_f0) / fps)
         if s.mode == "fit":
             seg = (
                 f"split=2[bg{i}][fg{i}];"
@@ -441,11 +410,10 @@ def build_timeline_filter(
         )
 
     sv_labels = [f"sv{i}" for i in range(n)]
-    modes = [s.mode for s in segments]
     if n == 1:
         parts.append(f"[sv0]subtitles={ass_name}[outv];")
     else:
-        parts.extend(_chain_video_segs(sv_labels, durations, modes, xfade_dur, "cv"))
+        parts.extend(_chain_video_segs(sv_labels, "cv"))
         parts.append(f"[cv]subtitles={ass_name}[outv];")
 
     sa = "".join(f"[sa{i}]" for i in range(n))
