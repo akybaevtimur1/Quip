@@ -71,6 +71,22 @@ class TrackRegion:
     points: tuple[TrackPoint, ...]  # fill: значимые cx; fit: пустой tuple
 
 
+@dataclass(frozen=True)
+class SpeakerTrack:
+    """Дорожка лица с ASD-скором (выход Pass-1 анализа, вход plan_regions).
+
+    f0/f1 — клип-относительные КАДРЫ (полуинтервал [f0, f1)). cx — per-frame X-центр (доля
+    кадра), len == f1-f0. width — средняя ширина лица (доля; для largest-face фолбэка и wide).
+    speak — средний ASD speak-score (>0 ≈ говорит).
+    """
+
+    f0: int
+    f1: int
+    cx: tuple[float, ...]
+    width: float
+    speak: float
+
+
 # MediaPipe Tasks FaceDetector
 _FACE_MODEL_URL = (
     "https://storage.googleapis.com/mediapipe-models/face_detector/"
@@ -280,6 +296,87 @@ def build_shots_frames(cuts: list[int], total_frames: int) -> list[tuple[int, in
     pts = sorted({c for c in cuts if 0 < c < total_frames})
     bounds = [0, *pts, total_frames]
     return [(bounds[i], bounds[i + 1]) for i in range(len(bounds) - 1) if bounds[i + 1] > bounds[i]]
+
+
+def _track_cx_in_shot(t: SpeakerTrack, f0: int, f1: int) -> list[float]:
+    """cx дорожки t для кадров пересечения с шотом [f0, f1). PURE."""
+    lo, hi = max(t.f0, f0), min(t.f1, f1)
+    return [t.cx[f - t.f0] for f in range(lo, hi)]
+
+
+def _is_wide_shot(active: list[SpeakerTrack], f0: int, f1: int, spread_min: float) -> bool:
+    """2+ дорожек, разнесённых по X сильнее spread_min (доля кадра) → широкий план (fit). PURE."""
+    reps: list[float] = []
+    for t in active:
+        cxs = _track_cx_in_shot(t, f0, f1)
+        if cxs:
+            reps.append(sum(cxs) / len(cxs))
+    return len(reps) >= 2 and (max(reps) - min(reps)) > spread_min
+
+
+def _pick_target(active: list[SpeakerTrack], speak_threshold: float) -> SpeakerTrack | None:
+    """Выбрать дорожку в кадр: макс. speak; если ниже порога → макс. width (largest-face). PURE."""
+    if not active:
+        return None
+    best = max(active, key=lambda t: t.speak)
+    if best.speak < speak_threshold:
+        best = max(active, key=lambda t: t.width)
+    return best
+
+
+def _track_trajectory(
+    t: SpeakerTrack, f0: int, f1: int, fps: float, smoothing: float
+) -> tuple[TrackPoint, ...]:
+    """Сглаженная cx-траектория дорожки внутри шота → TrackPoint'ы (клип-время = кадр/fps). PURE.
+
+    init = первый реальный cx (пан не «течёт» от центра). Нет пересечения → точка-фолбэк cx=0.5.
+    """
+    lo, hi = max(t.f0, f0), min(t.f1, f1)
+    raw = [t.cx[f - t.f0] for f in range(lo, hi)]
+    if not raw:
+        return (TrackPoint(t=f0 / fps, mode="fill", cx=0.5),)
+    sm = smooth_centers([c for c in raw], smoothing, init=raw[0])
+    return tuple(TrackPoint(t=(lo + i) / fps, mode="fill", cx=c) for i, c in enumerate(sm))
+
+
+def plan_regions(
+    shots: list[tuple[int, int]],
+    tracks: list[SpeakerTrack],
+    fps: float,
+    *,
+    crop_w_frac: float,
+    smoothing: float = 0.15,
+    speak_threshold: float = 0.0,
+    wide_spread_min: float | None = None,
+    mode_setting: str = "auto",
+) -> list[TrackRegion]:
+    """Cut-aligned планировщик: на КАЖДЫЙ шот один режим + траектория. Сердце Pass-1. PURE.
+
+    shots — интервалы [(f0,f1)] в КАДРАХ (build_shots_frames). На шот:
+      широкий (2+ разнесённых дорожек) → fit; иначе fill на говорящем (макс. speak), при
+      молчании ASD (< speak_threshold) → фолбэк на крупнейшее лицо; нет дорожек → fit.
+    mode_setting "fill"/"fit" — глобальный оверрайд. wide_spread_min дефолт = crop_w_frac.
+    Границы регионов = границы шотов (= кадры склеек) → смена режима только на склейке.
+    """
+    spread_min = crop_w_frac if wide_spread_min is None else wide_spread_min
+    regions: list[TrackRegion] = []
+    for f0, f1 in shots:
+        active = [t for t in tracks if t.f0 < f1 and t.f1 > f0]
+        t0, t1 = f0 / fps, f1 / fps
+        if mode_setting == "fit":
+            regions.append(TrackRegion(t0=t0, t1=t1, mode="fit", points=()))
+            continue
+        if mode_setting != "fill" and (not active or _is_wide_shot(active, f0, f1, spread_min)):
+            regions.append(TrackRegion(t0=t0, t1=t1, mode="fit", points=()))
+            continue
+        target = _pick_target(active, speak_threshold)
+        pts = (
+            _track_trajectory(target, f0, f1, fps, smoothing)
+            if target is not None
+            else (TrackPoint(t=t0, mode="fill", cx=0.5),)
+        )
+        regions.append(TrackRegion(t0=t0, t1=t1, mode="fill", points=pts))
+    return regions
 
 
 def samples_in_shot(

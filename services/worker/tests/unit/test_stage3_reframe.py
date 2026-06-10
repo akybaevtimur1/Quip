@@ -515,3 +515,109 @@ class TestBuildRegionsFromShots:
         )
         assert regions[0].mode == "fill"
         assert regions[0].points and abs(regions[0].points[0].cx - 0.5) < 1e-9
+
+
+class TestPlanRegions:
+    """plan_regions: shots(кадры) + SpeakerTrack → TrackRegion, решение на шот."""
+
+    def _track(self, f0: int, f1: int, cx: float, width: float, speak: float):  # type: ignore[no-untyped-def]
+        from app.pipeline.stage3_reframe import SpeakerTrack
+
+        n = f1 - f0
+        return SpeakerTrack(f0=f0, f1=f1, cx=tuple([cx] * n), width=width, speak=speak)
+
+    def test_single_speaker_fill_on_track(self) -> None:
+        from app.pipeline.stage3_reframe import plan_regions
+
+        # один шот [0,30 кадров), один говорящий на cx=0.7
+        tracks = [self._track(0, 30, 0.7, 0.12, 0.9)]
+        regions = plan_regions(
+            [(0, 30)], tracks, fps=30.0, crop_w_frac=0.32, smoothing=1.0, speak_threshold=0.0
+        )
+        assert len(regions) == 1
+        assert regions[0].mode == "fill"
+        assert regions[0].points  # есть траектория
+        assert abs(regions[0].points[0].cx - 0.7) < 1e-9
+
+    def test_two_spread_speakers_is_fit(self) -> None:
+        from app.pipeline.stage3_reframe import plan_regions
+
+        tracks = [
+            self._track(0, 30, 0.2, 0.1, 0.5),
+            self._track(0, 30, 0.8, 0.1, 0.5),
+        ]
+        regions = plan_regions([(0, 30)], tracks, fps=30.0, crop_w_frac=0.32)
+        assert regions[0].mode == "fit"
+        assert regions[0].points == ()
+
+    def test_picks_louder_speaker_not_largest(self) -> None:
+        from app.pipeline.stage3_reframe import plan_regions
+
+        # ДВА лица КЛАСТЕРОМ (размах 0.15 < crop_w 0.32 → не широко). Крупнее (width 0.3) на
+        # cx=0.45 молчит; говорит мелкое (width 0.1) на cx=0.60 → кадр на говорящего.
+        tracks = [
+            self._track(0, 30, 0.45, 0.3, 0.1),
+            self._track(0, 30, 0.60, 0.1, 0.95),
+        ]
+        regions = plan_regions(
+            [(0, 30)], tracks, fps=30.0, crop_w_frac=0.32, smoothing=1.0, speak_threshold=0.3
+        )
+        assert regions[0].mode == "fill"
+        assert abs(regions[0].points[0].cx - 0.60) < 1e-9  # на говорящего, не на крупнейшего
+
+    def test_asd_silent_falls_back_to_largest_face(self) -> None:
+        from app.pipeline.stage3_reframe import plan_regions
+
+        # Кластер (не широко); никто не превышает порог → берём крупнейшее лицо (width 0.3, cx=0.45)
+        tracks = [
+            self._track(0, 30, 0.45, 0.3, 0.05),
+            self._track(0, 30, 0.60, 0.1, 0.10),
+        ]
+        regions = plan_regions(
+            [(0, 30)], tracks, fps=30.0, crop_w_frac=0.32, smoothing=1.0, speak_threshold=0.5
+        )
+        assert regions[0].mode == "fill"
+        assert abs(regions[0].points[0].cx - 0.45) < 1e-9  # фолбэк на largest-face
+
+    def test_no_tracks_is_fit(self) -> None:
+        from app.pipeline.stage3_reframe import plan_regions
+
+        regions = plan_regions([(0, 30)], [], fps=30.0, crop_w_frac=0.32)
+        assert regions[0].mode == "fit"
+
+    def test_speaker_change_between_shots(self) -> None:
+        from app.pipeline.stage3_reframe import plan_regions
+
+        # шот1 [0,30): говорит A(cx0.3); шот2 [30,60): говорит B(cx0.7)
+        tracks = [
+            self._track(0, 30, 0.3, 0.1, 0.9),
+            self._track(30, 60, 0.7, 0.1, 0.9),
+        ]
+        regions = plan_regions(
+            [(0, 30), (30, 60)],
+            tracks,
+            fps=30.0,
+            crop_w_frac=0.32,
+            smoothing=1.0,
+            speak_threshold=0.0,
+        )
+        assert len(regions) == 2
+        assert abs(regions[0].points[0].cx - 0.3) < 1e-9
+        assert abs(regions[1].points[0].cx - 0.7) < 1e-9
+        # границы регионов = границы шотов в СЕКУНДАХ (кадр/fps)
+        assert regions[0].t0 == 0.0 and regions[0].t1 == 1.0
+        assert regions[1].t0 == 1.0 and regions[1].t1 == 2.0
+
+    def test_mode_setting_fit_overrides(self) -> None:
+        from app.pipeline.stage3_reframe import plan_regions
+
+        tracks = [self._track(0, 30, 0.5, 0.1, 0.9)]
+        regions = plan_regions([(0, 30)], tracks, fps=30.0, crop_w_frac=0.32, mode_setting="fit")
+        assert regions[0].mode == "fit"
+
+    def test_mode_setting_fill_no_track_fallback_center(self) -> None:
+        from app.pipeline.stage3_reframe import plan_regions
+
+        regions = plan_regions([(0, 30)], [], fps=30.0, crop_w_frac=0.32, mode_setting="fill")
+        assert regions[0].mode == "fill"
+        assert regions[0].points and abs(regions[0].points[0].cx - 0.5) < 1e-9
