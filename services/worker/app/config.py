@@ -58,23 +58,18 @@ class Settings(BaseSettings):
     # reframe: auto = лицо→fill(кроп), нет лица→fit(блюр-рамки, ничего не режет);
     #          fill = всегда кроп; fit = всегда весь кадр в рамках.
     reframe_mode: Literal["auto", "fill", "fit"] = "auto"
-    # active-speaker наведение (на ГОВОРЯЩЕЕ лицо, не крупнейшее). Требует asd-экстру (torch).
-    # off → largest-face continuous (V2). reframe_speaker_crop_scale — тюнинг кадра под MediaPipe.
-    reframe_speaker: bool = False
     reframe_speaker_crop_scale: float = 0.55
-    # V2 continuous tracking: движок, сэмплирование, сглаживание.
-    # engine A = ffmpeg piecewise expression (быстрый); B = cv2 per-frame pipe (медленный, точный).
+    # движок рендера: A = ffmpeg piecewise expr (быстрый); B = cv2 per-frame (точный).
     reframe_engine: str = "A"
-    reframe_face_fps: float = 5.0  # fps сэмплирования лиц (выше = точнее/медленнее)
+    # ASD требует 25fps (модель обучена на 25fps; выше = точнее/медленнее).
+    reframe_face_fps: float = 25.0
     reframe_smoothing: float = 0.15  # exponential smoothing коэф (0=без; 1=нет сглаж.)
     # анти-флеш: регион < min_hold НЕ переключает режим, поглощается предыдущим.
     reframe_min_hold_sec: float = 1.5
-    reframe_wide_ratio: float = 0.5
-    # ASD speaker-путь: порог склеек (PySceneDetect, ~27) + порог ASD-скора говорения.
-    reframe_cut_threshold: float = 0.4  # legacy alias (ffmpeg 0..1 scale)
-    reframe_scene_threshold: float = 27.0  # PySceneDetect ContentDetector threshold
-    reframe_speak_threshold: float = 0.0  # ASD speak-score minimum (0=any activity)
-    reframe_dead_zone: float = 0.12
+    reframe_wide_ratio: float = 0.5  # editor: wide_spread_min для resolve_regions
+    # PySceneDetect ContentDetector (~27) + ASD порог говорения.
+    reframe_scene_threshold: float = 27.0
+    reframe_speak_threshold: float = 0.0  # ниже порога → фолбэк на largest-face
 
     @model_validator(mode="after")
     def _require_selected_provider_key(self) -> Self:

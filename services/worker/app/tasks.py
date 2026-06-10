@@ -40,7 +40,7 @@ def render_clip_edit_job(job_id: str, clip_id: str) -> None:
                 iv.source_end,
                 cache_dir=analysis_dir,
                 fps=s.reframe_face_fps,
-                cut_threshold=s.reframe_cut_threshold,
+                cut_threshold=s.reframe_scene_threshold,
             )
             for iv in edit.source_intervals
         ]
