@@ -655,73 +655,46 @@ def reframe_segment(
     *,
     clip_id: str,
     out_dir: Path,
+    fps: float,
     mode_setting: str = "auto",
-    speaker: bool = False,
     speaker_crop_scale: float = 0.55,
-    face_fps: float = 5.0,
+    face_fps: float = 25.0,
     smoothing: float = 0.15,
     min_hold_sec: float = 1.5,
-    wide_ratio: float = 0.5,
-    cut_threshold: float = 0.4,
-    dead_zone: float = 0.12,
+    speak_threshold: float = 0.0,
+    scene_threshold: float = 27.0,
 ) -> tuple[list[TrackRegion], bool]:
-    """Сегмент → (регионы V2, face_found). Continuous per-frame tracking.
+    """Сегмент → (cut-aligned регионы, face_found). Единый путь (ASD по дефолту).
 
-    sample_faces_continuous → build_trajectory → build_regions → merge_short_regions.
-    speaker=True → ASD windows → shot_plan_to_regions (fallback → standard path).
-    Пишет reframe_<clip_id>.json ({regions:[...]}).
+    PySceneDetect → кадры склеек → build_shots_frames → score_tracks_in_segment (MediaPipe+ASD)
+    → plan_regions → merge_short_regions. Пишет reframe_<clip_id>.json ({regions:[...]}).
     """
+    from app.pipeline.asd_reframe import score_tracks_in_segment  # noqa: PLC0415
+
     duration = end - start
+    total_frames = round(duration * face_fps)
     crop_w_frac = round(src_h * _ASPECT_W / _ASPECT_H) / src_w
 
-    face_frames = sample_faces_continuous(video, start, end, fps=face_fps)
-    face_found = any(faces for (_t, faces) in face_frames)
+    cuts = detect_scene_cuts(video, start, end, face_fps, threshold=scene_threshold)
+    shots = build_shots_frames(cuts, total_frames)
 
-    regions: list[TrackRegion]
-
-    if speaker and face_found:
-        from app.pipeline.asd_reframe import score_tracks_in_segment  # noqa: PLC0415
-
-        asd_fps = face_fps  # same extraction rate for cuts + face frames
-        tracks = score_tracks_in_segment(
-            video,
-            src_w,
-            src_h,
-            start,
-            end,
-            asd_fps,
-            crop_scale=speaker_crop_scale,
-        )
-        if tracks:
-            cuts_frames = detect_scene_cuts(video, start, end, asd_fps, threshold=cut_threshold)
-            total_frames = round((end - start) * asd_fps)
-            shots_frames = build_shots_frames(cuts_frames, total_frames)
-            regions = plan_regions(
-                shots_frames,
-                tracks,
-                asd_fps,
-                crop_w_frac=crop_w_frac,
-                smoothing=smoothing,
-                mode_setting=mode_setting,
-            )
-            if not regions:
-                regions = [TrackRegion(t0=0.0, t1=duration, mode="fit", points=())]
-            out_dir.mkdir(parents=True, exist_ok=True)
-            _write_reframe_json(out_dir, clip_id, regions)
-            return regions, face_found
-
-    cuts = detect_cuts(video, start, end, threshold=cut_threshold)
-    shots = build_shots(cuts, duration)
-    regions = build_regions_from_shots(
-        shots,
-        face_frames,
-        crop_w_frac,
-        smoothing,
-        min_hold_sec,
-        mode_setting=mode_setting,
-        wide_ratio=wide_ratio,
+    tracks = score_tracks_in_segment(
+        video, src_w, src_h, start, end, face_fps, crop_scale=speaker_crop_scale
     )
+    face_found = bool(tracks)
 
+    regions = merge_short_regions(
+        plan_regions(
+            shots,
+            tracks,
+            face_fps,
+            crop_w_frac=crop_w_frac,
+            smoothing=smoothing,
+            speak_threshold=speak_threshold,
+            mode_setting=mode_setting,
+        ),
+        min_hold_sec,
+    )
     if not regions:
         regions = [TrackRegion(t0=0.0, t1=duration, mode="fit", points=())]
 

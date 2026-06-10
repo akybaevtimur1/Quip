@@ -132,12 +132,12 @@ def run_pipeline(
         t0 = time.perf_counter()
         regions, face_found = reframe_segment(
             out / "source.mp4", meta.width, meta.height, seg.start, seg.end,
-            clip_id=clip_id, out_dir=out, mode_setting=s.reframe_mode,
-            speaker=s.reframe_speaker, speaker_crop_scale=s.reframe_speaker_crop_scale,
+            clip_id=clip_id, out_dir=out, fps=meta.fps, mode_setting=s.reframe_mode,
+            speaker_crop_scale=s.reframe_speaker_crop_scale,
             face_fps=s.reframe_face_fps, smoothing=s.reframe_smoothing,
             min_hold_sec=s.reframe_min_hold_sec,
-            wide_ratio=s.reframe_wide_ratio,
-            cut_threshold=s.reframe_cut_threshold, dead_zone=s.reframe_dead_zone,
+            speak_threshold=s.reframe_speak_threshold,
+            scene_threshold=s.reframe_scene_threshold,
         )  # fmt: skip
         reframe_t += time.perf_counter() - t0
         write_captions_ass(transcript.words, seg.start, seg.end, out / f"captions_{clip_id}.ass")
