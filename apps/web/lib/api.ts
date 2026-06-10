@@ -46,7 +46,7 @@ export async function trimClip(
   version: number,
   wordIndices: number[],
 ): Promise<ClipEdit> {
-  const res = await fetch(`${BASE}/jobs/${jobId}/clips/${clipId}/trim`, {
+  const res = await fetch(`${BASE}/jobs/${jobId}/clips/${clipId}/edit/trim`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ version, word_indices: wordIndices }),
@@ -63,7 +63,7 @@ export async function extendClip(
   edge: "start" | "end",
   newValue: number,
 ): Promise<ClipEdit> {
-  const res = await fetch(`${BASE}/jobs/${jobId}/clips/${clipId}/extend`, {
+  const res = await fetch(`${BASE}/jobs/${jobId}/clips/${clipId}/edit/extend`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ version, edge, new_value: newValue }),
@@ -87,7 +87,7 @@ export async function getRenderStatus(
   jobId: string,
   clipId: string,
 ): Promise<{ status: string; video_url: string | null; error: string | null }> {
-  const res = await fetch(`${BASE}/jobs/${jobId}/clips/${clipId}/render-status`, {
+  const res = await fetch(`${BASE}/jobs/${jobId}/clips/${clipId}/render`, {
     cache: "no-store",
   });
   if (!res.ok) throw new Error(`getRenderStatus failed: ${res.status}`);

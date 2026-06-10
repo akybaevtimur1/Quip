@@ -203,7 +203,10 @@ def get_render(job_id: str, clip_id: str) -> dict[str, Any]:
 @app.get("/jobs/{job_id}/clips/{clip_id}/analysis")
 def get_analysis(job_id: str, clip_id: str) -> dict[str, Any]:
     """Интервалы + слова клипа (для клиент-превью субтитров/таймлайна)."""
-    edit = _load_or_404(job_id, clip_id)
+    try:
+        edit = store.ensure_edit(job_id, clip_id)
+    except (FileNotFoundError, KeyError) as e:
+        raise HTTPException(status_code=404, detail="clip/segment not found") from e
     words = store.load_transcript_words(job_id)
     in_clip = [
         w.model_dump()
