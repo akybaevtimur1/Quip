@@ -89,7 +89,12 @@ def call_deepgram(
     headers = {"Authorization": f"Token {api_key}", "Content-Type": "audio/wav"}
     try:
         r = httpx.post(
-            _DEEPGRAM_URL, params=params, headers=headers, content=wav.read_bytes(), timeout=600.0
+            _DEEPGRAM_URL,
+            params=params,
+            headers=headers,
+            content=wav.read_bytes(),
+            # write=None: без лимита на upload (WAV может быть >100MB при медленном аплоаде)
+            timeout=httpx.Timeout(connect=30.0, write=None, read=300.0, pool=5.0),
         )
     except httpx.HTTPError as e:
         raise JobError(_STAGE, f"сетевая ошибка Deepgram: {e}") from e
