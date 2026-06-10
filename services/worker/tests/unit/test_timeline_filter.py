@@ -35,7 +35,8 @@ def test_filter_two_segments_fill_then_fit():
     assert "trim=start_frame=250:end_frame=300" in fc
     assert "trim=start_frame=750:end_frame=775" in fc
     assert "atrim=start=10.000:end=12.000" in fc
-    assert "concat=n=2:v=1:a=0[cv]" in fc
+    # fill→fit mode change: uses xfade instead of video-concat
+    assert "xfade=transition=fade" in fc
     assert "[cv]subtitles=captions_clip_01.ass[outv]" in fc
     assert "concat=n=2:v=0:a=1[outa]" in fc
     assert "[bg1]" in fc and "[fg1]" in fc  # fit-лейблы уникальны по индексу сегмента
