@@ -55,6 +55,11 @@ class Settings(BaseSettings):
     clip_max_sec: int = 60
     caption_max_words_per_group: int = 5
     max_clips: int = 8  # сколько кандидатов отдавать (юзер выберет из них в UI)
+
+    # transcript cache (content-addressed, data/_cache/transcripts/)
+    transcript_cache_enabled: bool = True
+    transcript_cache_max_entries: int = 200  # LRU cap by mtime
+    transcript_cache_max_age_days: float = 60.0  # TTL for cache entries
     # reframe: auto = лицо→fill(кроп), нет лица→fit(блюр-рамки, ничего не режет);
     #          fill = всегда кроп; fit = всегда весь кадр в рамках.
     reframe_mode: Literal["auto", "fill", "fit"] = "auto"

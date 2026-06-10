@@ -26,6 +26,7 @@ from app.pipeline.stage2_select import select_segments
 from app.pipeline.stage3_reframe import reframe_segment
 from app.pipeline.stage4_captions import words_in_segment, write_captions_ass
 from app.pipeline.stage5_render import render_clip
+from app.transcript_cache import audio_sha, cache_key, evict, get_cached, put_cached
 
 DATA_ROOT = Path(__file__).resolve().parents[1] / "data"  # services/worker/data
 
@@ -87,18 +88,42 @@ def run_pipeline(
         raise JobError("import", f"нет data/{job_id}/source.mp4 и не передан URL")
     stages["download"] = round(time.perf_counter() - t0, 2)
 
-    # ── Stage 1: Transcribe (кэш по transcript.json) ──
+    # ── Stage 1: Transcribe (уровень 1: job-local transcript.json; уровень 2: hash-кэш) ──
     emit(JobStatus.transcribing, 35)
     t0 = time.perf_counter()
     tr_path = out / "transcript.json"
     transcribe_cost = 0.0
+    cache_dir = DATA_ROOT / "_cache" / "transcripts"
+
     if tr_path.exists():
+        # Level 1: job-local cache (same job_id re-run)
         transcript = Transcript.model_validate_json(tr_path.read_text(encoding="utf-8"))
-        print(f"[1] transcribe: cached ({len(transcript.words)} words)")
+        print(f"[1] transcribe: cached/local ({len(transcript.words)} words)")
     else:
-        transcript = transcribe_to_file(out / "source.wav", tr_path)
-        transcribe_cost = round(transcript.duration / 60 * DEEPGRAM_NOVA_USD_PER_MIN, 4)
-        print(f"[1] transcribe: {len(transcript.words)} words (${transcribe_cost})")
+        wav_path = out / "source.wav"
+        # Level 2: content-addressed cache (same audio, different job_id)
+        cached_tr: Transcript | None = None
+        ck: str | None = None
+        if s.transcript_cache_enabled:
+            sha = audio_sha(wav_path)
+            ck = cache_key(sha, s.transcription_provider, s.deepgram_model)
+            cached_tr = get_cached(cache_dir, ck)
+
+        if cached_tr is not None:
+            transcript = cached_tr
+            tr_path.write_text(transcript.model_dump_json(indent=2), encoding="utf-8")
+            print(f"[1] transcribe: cached/hash ({len(transcript.words)} words, $0)")
+        else:
+            transcript = transcribe_to_file(wav_path, tr_path)
+            transcribe_cost = round(transcript.duration / 60 * DEEPGRAM_NOVA_USD_PER_MIN, 4)
+            print(f"[1] transcribe: {len(transcript.words)} words (${transcribe_cost})")
+            if s.transcript_cache_enabled and ck is not None:
+                put_cached(cache_dir, ck, transcript)
+                evict(
+                    cache_dir,
+                    max_entries=s.transcript_cache_max_entries,
+                    max_age_days=s.transcript_cache_max_age_days,
+                )
     stages["transcription"] = round(time.perf_counter() - t0, 2)
 
     # ── Stage 2: Select (кэш по segments.json) ──
