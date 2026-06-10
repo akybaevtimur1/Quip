@@ -346,6 +346,39 @@ class TestWindowsToShotPlan:
         ]
 
 
+class TestBuildShotsFrames:
+    def test_no_cuts_one_shot(self) -> None:
+        from app.pipeline.stage3_reframe import build_shots_frames
+
+        assert build_shots_frames([], total_frames=150) == [(0, 150)]
+
+    def test_cuts_split_into_frame_intervals(self) -> None:
+        from app.pipeline.stage3_reframe import build_shots_frames
+
+        # склейки на кадрах 50 и 100 → 3 шота в КАДРАХ
+        assert build_shots_frames([50, 100], total_frames=150) == [(0, 50), (50, 100), (100, 150)]
+
+    def test_dedup_and_sort(self) -> None:
+        from app.pipeline.stage3_reframe import build_shots_frames
+
+        assert build_shots_frames([100, 50, 50], total_frames=150) == [
+            (0, 50),
+            (50, 100),
+            (100, 150),
+        ]
+
+    def test_cuts_at_bounds_ignored(self) -> None:
+        from app.pipeline.stage3_reframe import build_shots_frames
+
+        # склейка на 0 и на total — не порождают пустых шотов
+        assert build_shots_frames([0, 150], total_frames=150) == [(0, 150)]
+
+    def test_zero_total_empty(self) -> None:
+        from app.pipeline.stage3_reframe import build_shots_frames
+
+        assert build_shots_frames([10], total_frames=0) == []
+
+
 class TestSamplesInShot:
     def test_filters_to_interval_half_open(self) -> None:
         from app.pipeline.stage3_reframe import samples_in_shot

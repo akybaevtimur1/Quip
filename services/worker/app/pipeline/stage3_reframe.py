@@ -268,6 +268,20 @@ def build_shots(cuts: list[float], duration: float) -> list[tuple[float, float]]
     return [(bounds[i], bounds[i + 1]) for i in range(len(bounds) - 1) if bounds[i + 1] > bounds[i]]
 
 
+def build_shots_frames(cuts: list[int], total_frames: int) -> list[tuple[int, int]]:
+    """Номера кадров склеек (клип-относительные) → интервалы шотов [(f0, f1), …] в КАДРАХ. PURE.
+
+    Frame-accurate замена build_shots (тот в секундах). Склейки на 0 и в конце игнорируем,
+    дубликаты схлопываем. Пустой/нулевой total → []. Единица — КАДР (не float-секунда),
+    чтобы граница шота попала ровно на кадр реальной склейки (нет рассинхрона в рендере).
+    """
+    if total_frames <= 0:
+        return []
+    pts = sorted({c for c in cuts if 0 < c < total_frames})
+    bounds = [0, *pts, total_frames]
+    return [(bounds[i], bounds[i + 1]) for i in range(len(bounds) - 1) if bounds[i + 1] > bounds[i]]
+
+
 def samples_in_shot(
     raw_samples: list[tuple[float, list[tuple[float, float]]]], t0: float, t1: float
 ) -> list[tuple[float, list[tuple[float, float]]]]:
