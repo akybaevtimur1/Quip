@@ -449,3 +449,40 @@ REST-эндпоинты: GET/PATCH /edit, trim/add-section/extend/crop/render/an
 Optimistic-lock: version mismatch → HTTP 409.
 Доказано E6: comedy01/clip_01 trim→2 интервала, expected=19.77s video=19.76s audio=19.78s render=9.88s.
 Правки = $0 (нет Deepgram/Gemini). 218 unit-тестов, just check зелёный.
+
+### Reframe v3 — единый ASD-путь + DoD Δ=0, 2026-06-10 (коммиты `76e5132`…`9a14660`)
+**Задача**: убрать флеши окончательно + всегда следить за ГОВОРЯЩИМ (не largest-face).
+Итерации R1–R1d убрали большинство флешей, но использовали ffmpeg scene-порог (float, не frame-
+accurate) и форк `if reframe_speaker:` — два отдельных пути с разными багами.
+
+**Архитектурные изменения:**
+- **torch/ASD → базовые зависимости** (был `[project.optional-dependencies] asd` → `uv sync` без
+  флага удалял torch → ASD молча не работал). Теперь `uv sync` без флагов = рабочий ASD.
+- **face_fps=25.0** (было 5.0). LR-ASD обучена на 4:1 audio/video (25fps видео). При 5fps модель
+  даёт случайные speak-score → fallback на largest-face. Фикс в config.py.
+- **SpeakerTrack** dataclass: f0/f1 (кадры), cx (tuple центров по кадрам), width, speak (mean ASD).
+  Заменяет CropWindow — содержит всю инфу для планировщика.
+- **score_tracks_in_segment** (`asd_reframe.py`) → `list[SpeakerTrack]` вместо `list[CropWindow]|None`.
+- **build_shots_frames** (PURE) — кадры-склейки из PySceneDetect → список интервалов `(f0, f1)`.
+  Целые числа на всём пути: PySceneDetect → `trim=start_frame=` в ffmpeg — float-округление исключено.
+- **plan_regions** (PURE) — единый планировщик: ASD score → говорящий/largest-face; геометрия →
+  fill/fit; границы = реальные кадры-склейки. Нет форка `if reframe_speaker:`.
+- **Жёсткий cut** (stage5): xfade между fill/fit удалён (`build_smooth_filter`, `build_timeline_filter`).
+  Кроссфейд тайт↔широкий сам был zoom-вспышкой.
+- **Мёртвый код удалён**: ShotPlan, aggregate_center, build_trajectory, build_regions,
+  shot_plan_to_regions, windows_to_shot_plan, pick_speaker_centers, apply_dead_zone.
+- **Windows file-lock**: PySceneDetect держит lock на temp .mp4 → `vid.capture.release()` перед
+  выходом из TemporaryDirectory.
+
+**DoD — `tmp/dod_reframe_direct.py`** (без Deepgram/Gemini, прямо на 3 сегментах dod01):
+- seg_A (60–180с): 30 склеек → 28 регионов, 27 границ — все Δ=0 ✅
+- seg_B (300–420с): 15 склеек → 15 регионов, 14 границ — все Δ=0 ✅
+- seg_C (600–720с): 26 склеек → 24 региона, 23 границы — все Δ=0 ✅
+- **ИТОГО: 64 границы режима, max Δ = 0 кадров** → флеш физически невозможен.
+
+`just check` зелёный (все unit-тесты + mypy + ruff + tsc + anti-drift).
+
+⚠️ Грабли: Deepgram WriteTimeout на длинных видео (>30мин, WAV >80МБ).
+`httpx.post()` с дефолтным write_timeout=5с не успевает загрузить. Нужно `write=None` (без таймаута)
+или `httpx.Client(timeout=httpx.Timeout(connect=10, write=None, read=300, pool=10))` в stage1.
+Это фикс на следующую сессию (DoD dod01 обойдён прямым reframe-тестом без транскрипции).
