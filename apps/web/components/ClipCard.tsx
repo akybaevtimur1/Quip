@@ -27,14 +27,22 @@ export function ClipCard({
 }) {
   const [videoSrc, setVideoSrc] = useState(() => resolveUrl(clip.video_url));
   const [showEditor, setShowEditor] = useState(false);
+  const [renderDone, setRenderDone] = useState(false);
+
+  const handleRenderDone = (url: string) => {
+    setVideoSrc(url);
+    setRenderDone(true);
+    setTimeout(() => setRenderDone(false), 4000);
+  };
 
   return (
     <article
-      className={`flex flex-col gap-3 rounded-2xl border bg-surface p-3 transition ${
+      className={`flex flex-col rounded-2xl border bg-surface transition ${
         selected ? "border-accent/60 ring-1 ring-accent/30" : "border-line opacity-55"
       }`}
     >
-      <div className="relative overflow-hidden rounded-xl bg-surface-2">
+      {/* ── video ── */}
+      <div className="relative overflow-hidden rounded-t-2xl bg-surface-2">
         <video
           key={videoSrc}
           src={videoSrc}
@@ -46,6 +54,15 @@ export function ClipCard({
         <span className="absolute left-2 top-2">
           <ReasonChip type={clip.type} />
         </span>
+        {/* render-done flash */}
+        {renderDone && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/60 animate-pulse pointer-events-none">
+            <span className="rounded-full bg-green-500/90 px-4 py-2 text-sm font-semibold text-white">
+              ✓ Обновлено
+            </span>
+          </div>
+        )}
+        {/* select button */}
         <button
           type="button"
           onClick={onToggle}
@@ -61,49 +78,51 @@ export function ClipCard({
         </button>
       </div>
 
-      <div className="flex items-center justify-between">
-        <span className="font-mono text-xs text-muted">{clipRange(clip.start, clip.end)}</span>
-        <span className="font-mono text-sm font-semibold text-ink">{clip.score.toFixed(2)}</span>
+      {/* ── meta ── */}
+      <div className="flex flex-col gap-2 p-3">
+        <div className="flex items-center justify-between">
+          <span className="font-mono text-xs text-muted">{clipRange(clip.start, clip.end)}</span>
+          <span className="font-mono text-sm font-semibold text-ink">{clip.score.toFixed(2)}</span>
+        </div>
+        <p className="text-sm leading-snug text-ink">{clip.reason}</p>
+        {clip.transcript && (
+          <p className="line-clamp-2 text-xs leading-snug text-muted">«{clip.transcript}»</p>
+        )}
+
+        {/* actions */}
+        <div className="flex gap-2 pt-1">
+          <a
+            href={videoSrc}
+            download
+            className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-line bg-surface-2 px-3 py-2 text-sm font-semibold text-ink transition hover:border-accent/50 hover:text-accent focus:outline-none"
+          >
+            <Download className="size-4" />
+            Скачать
+          </a>
+          <button
+            type="button"
+            onClick={() => setShowEditor((v) => !v)}
+            className={`inline-flex items-center justify-center gap-1.5 rounded-xl border px-3 py-2 text-sm font-semibold transition focus:outline-none ${
+              showEditor
+                ? "border-accent/60 bg-accent/10 text-accent"
+                : "border-line bg-surface-2 text-ink hover:border-accent/50 hover:text-accent"
+            }`}
+          >
+            {showEditor ? <X className="size-4" /> : <Pencil className="size-4" />}
+            {showEditor ? "Закрыть" : "Редактировать"}
+          </button>
+        </div>
       </div>
 
-      <p className="text-sm leading-snug text-ink">{clip.reason}</p>
-
-      {clip.transcript ? (
-        <p className="line-clamp-2 text-xs leading-snug text-muted">«{clip.transcript}»</p>
-      ) : null}
-
-      <div className="mt-1 flex gap-2">
-        <a
-          href={videoSrc}
-          download
-          className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl border border-line bg-surface-2 px-3 py-2 text-sm font-semibold text-ink transition hover:border-accent/50 hover:text-accent focus:outline-none focus:ring-2 focus:ring-accent/40"
-        >
-          <Download className="size-4" />
-          Скачать
-        </a>
-        <button
-          type="button"
-          onClick={() => setShowEditor((v) => !v)}
-          className={`inline-flex items-center justify-center gap-1 rounded-xl border px-3 py-2 text-sm font-semibold transition focus:outline-none focus:ring-2 focus:ring-accent/40 ${
-            showEditor
-              ? "border-accent/60 bg-accent/10 text-accent"
-              : "border-line bg-surface-2 text-ink hover:border-accent/50 hover:text-accent"
-          }`}
-        >
-          {showEditor ? <X className="size-4" /> : <Pencil className="size-4" />}
-          {showEditor ? "Close" : "Edit"}
-        </button>
-      </div>
-
+      {/* ── inline editor ── */}
       {showEditor && (
-        <ClipEditor
-          jobId={jobId}
-          clipId={clip.id}
-          onRenderDone={(url) => {
-            setVideoSrc(url);
-            // keep editor open so user can see the result and make more edits
-          }}
-        />
+        <div className="rounded-b-2xl border-t border-line bg-surface overflow-hidden">
+          <ClipEditor
+            jobId={jobId}
+            clipId={clip.id}
+            onRenderDone={handleRenderDone}
+          />
+        </div>
       )}
     </article>
   );

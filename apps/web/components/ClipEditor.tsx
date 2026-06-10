@@ -1,5 +1,6 @@
 "use client";
 
+import { CheckCircle, Film, Loader2, Scissors } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   extendClip,
@@ -24,33 +25,29 @@ interface ClipEditorProps {
   onRenderDone: (newVideoUrl: string) => void;
 }
 
-type Phase = "loading" | "ready" | "saving" | "rendering" | "error";
+type Phase = "loading" | "ready" | "saving" | "rendering" | "done" | "error";
 
 export default function ClipEditor({ jobId, clipId, onRenderDone }: ClipEditorProps) {
   const [phase, setPhase] = useState<Phase>("loading");
   const [error, setError] = useState<string | null>(null);
   const [edit, setEdit] = useState<ClipEdit | null>(null);
   const [words, setWords] = useState<Word[]>([]);
-  // parallel array: globalIndices[i] = transcript word index for words[i]
   const [globalIndices, setGlobalIndices] = useState<number[]>([]);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [extendSec, setExtendSec] = useState<string>("5");
-  // bumping this triggers a re-load
+  const [renderElapsed, setRenderElapsed] = useState(0);
   const [loadKey, setLoadKey] = useState(0);
 
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const stopPoll = useCallback(() => {
-    if (pollRef.current) {
-      clearInterval(pollRef.current);
-      pollRef.current = null;
-    }
+    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
   }, []);
 
-  // load on mount and whenever loadKey changes
   useEffect(() => {
     let cancelled = false;
-
     async function fetchData() {
       setPhase("loading");
       setError(null);
@@ -71,19 +68,14 @@ export default function ClipEditor({ jobId, clipId, onRenderDone }: ClipEditorPr
         setPhase("error");
       }
     }
-
     fetchData();
-    return () => {
-      cancelled = true;
-      stopPoll();
-    };
+    return () => { cancelled = true; stopPoll(); };
   }, [jobId, clipId, loadKey, stopPoll]);
 
   const toggleWord = (pos: number) => {
     setSelected((prev) => {
       const next = new Set(prev);
-      if (next.has(pos)) next.delete(pos);
-      else next.add(pos);
+      if (next.has(pos)) next.delete(pos); else next.add(pos);
       return next;
     });
   };
@@ -107,10 +99,8 @@ export default function ClipEditor({ jobId, clipId, onRenderDone }: ClipEditorPr
     }
   };
 
-  const handleExtend = async () => {
+  const handleExtend = async (secs: number) => {
     if (!edit) return;
-    const secs = parseFloat(extendSec);
-    if (isNaN(secs) || secs <= 0) return;
     const lastInterval = edit.source_intervals[edit.source_intervals.length - 1];
     if (!lastInterval) return;
     const newEnd = lastInterval.source_end + secs;
@@ -133,6 +123,7 @@ export default function ClipEditor({ jobId, clipId, onRenderDone }: ClipEditorPr
   const handleRender = async () => {
     if (!edit) return;
     setPhase("rendering");
+    setRenderElapsed(0);
     setError(null);
     stopPoll();
     try {
@@ -142,36 +133,45 @@ export default function ClipEditor({ jobId, clipId, onRenderDone }: ClipEditorPr
       setPhase("ready");
       return;
     }
+    // elapsed timer
+    timerRef.current = setInterval(() => setRenderElapsed((s) => s + 1), 1000);
+    // status poll
     pollRef.current = setInterval(async () => {
       try {
         const st = await getRenderStatus(jobId, clipId);
         if (st.status === "done" && st.video_url) {
           stopPoll();
-          setPhase("ready");
+          setPhase("done");
           onRenderDone(resolveUrl(st.video_url));
         } else if (st.status === "failed") {
           stopPoll();
           setError(st.error ?? "Render failed");
           setPhase("ready");
         }
-      } catch {
-        // keep polling
-      }
+      } catch { /* keep polling */ }
     }, 2000);
   };
 
+  // ── loading skeleton ──
   if (phase === "loading") {
     return (
-      <div className="p-4 text-center text-sm text-muted animate-pulse">Loading editor…</div>
+      <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted">
+        <Loader2 className="size-4 animate-spin" />
+        Loading transcript…
+      </div>
     );
   }
 
+  // ── fatal error (no data at all) ──
   if (phase === "error" && !edit) {
     return (
-      <div className="p-4 text-sm text-red-400">
-        {error}
-        <button onClick={() => setLoadKey((k) => k + 1)} className="ml-2 underline">
-          Retry
+      <div className="space-y-2 py-4 text-center text-sm">
+        <p className="text-red-400">{error}</p>
+        <button
+          onClick={() => setLoadKey((k) => k + 1)}
+          className="rounded-lg border border-line px-3 py-1.5 text-xs text-muted hover:text-ink transition-colors"
+        >
+          Try again
         </button>
       </div>
     );
@@ -180,67 +180,117 @@ export default function ClipEditor({ jobId, clipId, onRenderDone }: ClipEditorPr
   const totalSec = edit
     ? edit.source_intervals.reduce((s, iv) => s + (iv.source_end - iv.source_start), 0)
     : 0;
-
   const busy = phase === "saving" || phase === "rendering";
+  const cutCount = edit
+    ? edit.source_intervals.length - 1
+    : 0;
 
   return (
-    <div className="border-t border-line bg-surface-2 p-3 space-y-3 text-sm rounded-b-xl">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <span className="text-xs text-muted">
-          {edit?.source_intervals.length ?? 0} interval
-          {(edit?.source_intervals.length ?? 0) !== 1 ? "s" : ""} · {totalSec.toFixed(1)}s
-        </span>
-        {phase === "rendering" && (
-          <span className="text-xs text-accent animate-pulse">Rendering…</span>
-        )}
-        {phase === "saving" && <span className="text-xs text-muted">Saving…</span>}
-      </div>
+    <div className="divide-y divide-line">
 
-      {error && (
-        <div className="rounded bg-red-900/30 px-2 py-1 text-xs text-red-400">{error}</div>
-      )}
-
-      {/* Words */}
-      <div>
-        <div className="mb-1.5 text-xs text-muted">
-          Click words to select for trim
-          {selected.size > 0 && (
-            <span className="ml-1 text-accent">({selected.size} selected)</span>
+      {/* ── HEADER ── */}
+      <div className="flex items-center justify-between px-4 py-3">
+        <div className="flex items-center gap-2">
+          <Scissors className="size-4 text-accent" />
+          <span className="font-medium text-ink text-sm">Edit clip</span>
+        </div>
+        <div className="flex items-center gap-3 text-xs text-muted font-mono">
+          <span>{totalSec.toFixed(1)}s</span>
+          {cutCount > 0 && (
+            <span className="rounded-full bg-accent/15 px-2 py-0.5 text-accent">
+              {cutCount} cut{cutCount > 1 ? "s" : ""}
+            </span>
           )}
         </div>
-        <div className="flex flex-wrap gap-1 max-h-36 overflow-y-auto rounded-lg border border-line bg-surface p-2">
+      </div>
+
+      {/* ── ERROR BANNER ── */}
+      {error && (
+        <div className="px-4 py-2 text-xs text-red-400 bg-red-900/20">
+          {error}
+        </div>
+      )}
+
+      {/* ── STEP 1: CUT WORDS ── */}
+      <div className="px-4 py-3 space-y-2">
+        <div className="flex items-center justify-between">
+          <p className="text-xs font-semibold text-muted uppercase tracking-wider">
+            1 · Выбери слова для вырезания
+          </p>
+          {selected.size > 0 && (
+            <button
+              onClick={() => setSelected(new Set())}
+              className="text-xs text-muted hover:text-ink transition-colors"
+            >
+              Сбросить
+            </button>
+          )}
+        </div>
+
+        {/* words grid */}
+        <div className="flex flex-wrap gap-1 max-h-44 overflow-y-auto rounded-xl border border-line bg-surface p-2">
           {words.map((w, i) => (
             <button
               key={i}
               disabled={busy}
               onClick={() => toggleWord(i)}
+              title={`${w.start.toFixed(1)}s – ${w.end.toFixed(1)}s`}
               className={[
-                "rounded px-1.5 py-0.5 text-xs transition-colors",
+                "rounded-md px-2 py-1 text-xs transition-all select-none",
                 selected.has(i)
-                  ? "bg-accent text-white"
-                  : "bg-surface-2 text-ink hover:opacity-80",
+                  ? "bg-red-500/20 text-red-400 line-through ring-1 ring-red-500/40"
+                  : "bg-surface-2 text-ink hover:bg-surface-2 hover:ring-1 hover:ring-line",
               ].join(" ")}
             >
               {w.text}
             </button>
           ))}
-          {words.length === 0 && <span className="text-xs text-muted">No words loaded</span>}
+          {words.length === 0 && (
+            <span className="text-xs text-muted py-1">Нет слов</span>
+          )}
         </div>
-      </div>
 
-      {/* Controls */}
-      <div className="flex flex-wrap gap-2 items-center">
+        {selected.size > 0 ? (
+          <p className="text-xs text-red-400">
+            {selected.size} слов будет вырезано из клипа
+          </p>
+        ) : (
+          <p className="text-xs text-muted">
+            Нажми на слово чтобы отметить его. Можно выбрать несколько подряд.
+          </p>
+        )}
+
         <button
           disabled={busy || selected.size === 0}
           onClick={handleTrim}
-          className="rounded-lg bg-red-700/80 px-3 py-1 text-xs text-white disabled:opacity-40 hover:bg-red-600 transition-colors"
+          className="flex w-full items-center justify-center gap-2 rounded-xl bg-red-600/80 py-2 text-sm font-semibold text-white transition-colors hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-30"
         >
-          Trim{selected.size > 0 ? ` (${selected.size})` : ""}
+          {phase === "saving" ? (
+            <><Loader2 className="size-4 animate-spin" /> Сохраняю…</>
+          ) : (
+            <><Scissors className="size-4" /> Вырезать {selected.size > 0 ? `(${selected.size} слов)` : ""}</>
+          )}
         </button>
+      </div>
 
-        <div className="flex items-center gap-1">
-          <span className="text-xs text-muted">+end</span>
+      {/* ── STEP 2: EXTEND ── */}
+      <div className="px-4 py-3 space-y-2">
+        <p className="text-xs font-semibold text-muted uppercase tracking-wider">
+          2 · Продлить конец клипа
+        </p>
+        <div className="flex gap-2">
+          {[3, 5, 10, 15].map((s) => (
+            <button
+              key={s}
+              disabled={busy}
+              onClick={() => handleExtend(s)}
+              className="flex-1 rounded-xl border border-line bg-surface py-2 text-xs font-medium text-ink transition-colors hover:border-accent/50 hover:text-accent disabled:opacity-30"
+            >
+              +{s}s
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center gap-2">
           <input
             type="number"
             value={extendSec}
@@ -248,26 +298,55 @@ export default function ClipEditor({ jobId, clipId, onRenderDone }: ClipEditorPr
             disabled={busy}
             min="0.5"
             step="0.5"
-            className="w-14 rounded border border-line bg-surface px-1.5 py-0.5 text-xs text-ink disabled:opacity-40 focus:outline-none focus:ring-1 focus:ring-accent/50"
+            className="w-20 rounded-xl border border-line bg-surface px-3 py-2 text-xs text-ink disabled:opacity-30 focus:outline-none focus:ring-1 focus:ring-accent/50"
           />
-          <span className="text-xs text-muted">s</span>
+          <span className="text-xs text-muted">секунд</span>
           <button
             disabled={busy}
-            onClick={handleExtend}
-            className="rounded-lg border border-line bg-surface px-2 py-1 text-xs text-ink disabled:opacity-40 hover:border-accent/50 hover:text-accent transition-colors"
+            onClick={() => handleExtend(parseFloat(extendSec) || 5)}
+            className="flex-1 rounded-xl border border-line bg-surface py-2 text-xs font-medium text-ink transition-colors hover:border-accent/50 hover:text-accent disabled:opacity-30"
           >
-            Apply
+            Применить
           </button>
         </div>
-
-        <button
-          disabled={busy}
-          onClick={handleRender}
-          className="ml-auto rounded-lg bg-accent px-3 py-1 text-xs text-white font-semibold disabled:opacity-40 hover:bg-accent-2 transition-colors"
-        >
-          {phase === "rendering" ? "Rendering…" : "Re-render"}
-        </button>
       </div>
+
+      {/* ── STEP 3: RE-RENDER ── */}
+      <div className="px-4 py-3 space-y-2">
+        <p className="text-xs font-semibold text-muted uppercase tracking-wider">
+          3 · Рендер с правками
+        </p>
+
+        {phase === "done" ? (
+          <div className="flex items-center gap-2 rounded-xl bg-green-900/30 px-4 py-3 text-sm text-green-400">
+            <CheckCircle className="size-5 shrink-0" />
+            <span>Готово — видео обновилось сверху</span>
+          </div>
+        ) : phase === "rendering" ? (
+          <div className="rounded-xl border border-accent/20 bg-accent/5 px-4 py-3">
+            <div className="flex items-center gap-2 text-sm text-accent">
+              <Loader2 className="size-4 animate-spin" />
+              <span>Рендеринг… {renderElapsed}s</span>
+            </div>
+            <p className="mt-1 text-xs text-muted">Обычно 10–30 секунд. Видео появится автоматически.</p>
+          </div>
+        ) : (
+          <>
+            <p className="text-xs text-muted">
+              Нажми — клип перерендерится с твоими вырезками. Видео сверху обновится автоматически.
+            </p>
+            <button
+              disabled={busy}
+              onClick={handleRender}
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-accent py-2.5 text-sm font-semibold text-white transition-colors hover:bg-accent-2 disabled:opacity-30"
+            >
+              <Film className="size-4" />
+              Рендерить клип
+            </button>
+          </>
+        )}
+      </div>
+
     </div>
   );
 }
