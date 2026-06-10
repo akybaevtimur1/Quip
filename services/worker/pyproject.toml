@@ -58,6 +58,10 @@ ignore_missing_imports = true
 module = ["torch", "torch.*", "python_speech_features", "scipy", "scipy.*"]
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+module = ["scenedetect", "scenedetect.*"]
+ignore_missing_imports = true
+
 # Стороннее ядро ASD — не анализируем (treat as Any), импорты из него = Any.
 [[tool.mypy.overrides]]
 module = ["app.asd._vendor.*"]

@@ -478,6 +478,60 @@ def detect_cuts(video: Path, start: float, end: float, *, threshold: float = 0.3
     return cuts
 
 
+def detect_scene_cuts(
+    video: Path, start: float, end: float, fps: float, *, threshold: float = 27.0
+) -> list[int]:
+    """Frame-accurate склейки сегмента (PySceneDetect ContentDetector), КЛИП-относительные КАДРЫ.
+
+    Сегмент режется ffmpeg в temp h264 (декодит AV1, старт=0 → seek-точность), затем
+    PySceneDetect на нём. Возвращает номера кадров склеек (0-based от старта сегмента).
+    Нет склеек → []. JobError при сбое (№8).
+    """
+    from scenedetect import ContentDetector, SceneManager, open_video  # noqa: PLC0415
+
+    with tempfile.TemporaryDirectory() as td:
+        seg = Path(td) / "seg.mp4"
+        cut_cmd = [
+            "ffmpeg",
+            "-y",
+            "-ss",
+            str(start),
+            "-to",
+            str(end),
+            "-i",
+            str(video),
+            "-an",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "ultrafast",
+            "-r",
+            str(fps),
+            str(seg),
+        ]
+        try:
+            proc = subprocess.run(cut_cmd, capture_output=True, text=True)
+        except FileNotFoundError as e:
+            raise JobError(_STAGE, f"не найден ffmpeg: {e}") from e
+        if proc.returncode != 0:
+            tail = (proc.stderr or "")[-300:]
+            raise JobError(_STAGE, f"ffmpeg seg код {proc.returncode}: {tail}")
+        try:
+            vid = open_video(str(seg))
+            sm = SceneManager()
+            sm.add_detector(ContentDetector(threshold=threshold))
+            sm.detect_scenes(vid)
+            scenes = sm.get_scene_list()
+            # Закрываем дескриптор ДО выхода из TemporaryDirectory (Windows держит лок на файл).
+            # VideoStreamCv2 не имеет release() — закрываем вложенный cv2.VideoCapture напрямую.
+            if hasattr(vid, "capture") and hasattr(vid.capture, "release"):
+                vid.capture.release()
+        except Exception as e:
+            raise JobError(_STAGE, f"PySceneDetect сбой: {e}") from e
+    # get_scene_list даёт [(start, end), …]; склейка = start КАДР каждой сцены, кроме первой (0).
+    return [s[0].get_frames() for s in scenes[1:]]
+
+
 def windows_to_shot_plan(
     windows: list[CropWindow], *, duration: float, src_w: int
 ) -> list[ShotPlan]:
