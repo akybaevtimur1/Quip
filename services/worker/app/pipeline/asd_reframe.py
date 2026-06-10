@@ -1,10 +1,10 @@
-"""I/O active-speaker reframe: MediaPipe@25fps → дорожки → crop+ASD → центр ГОВОРЯЩЕГО/план.
+"""I/O active-speaker reframe: MediaPipe@fps → дорожки → crop+ASD → SpeakerTrack[].
 
 Lean-путь (BENCHMARKS §6): наш быстрый MediaPipe-детект (не S3FD) кормит 0.84M ASD-модель.
 Тяжёлые либы (torch/scipy/mediapipe/cv2/python_speech_features) — ЛЕНИВЫЙ импорт: модуль
-импортируется без asd-экстры, но speaker_windows() требует её (REFRAME_SPEAKER=on).
+импортируется без asd-экстры, но score_tracks_in_segment() требует её (REFRAME_SPEAKER=on).
 
-Чистая математика (build_tracks, pick_speaker_centers) — в stage3_speaker (unit-тесты).
+Чистая математика (build_tracks) — в stage3_speaker (unit-тесты).
 Здесь только обёртки I/O; JobError при сбое (правило №8).
 """
 
@@ -19,13 +19,11 @@ from typing import Any
 import numpy as np
 
 from app.errors import JobError
-from app.models import CropWindow
-from app.pipeline.stage3_reframe import build_shots, compute_crop_window, detect_cuts
-from app.pipeline.stage3_speaker import apply_dead_zone, build_tracks, pick_speaker_centers
+from app.pipeline.stage3_reframe import SpeakerTrack
+from app.pipeline.stage3_speaker import build_tracks
 
 _STAGE = "reframe"
-_FPS = 25
-_SILENT = -9.0  # speak-score для дорожки без валидного скора
+_SILENT: float = -9.0  # speak-score для дорожки без валидного скора
 
 
 def _ffmpeg(cmd: list[str]) -> None:
@@ -57,21 +55,21 @@ def _crop_faces(track: dict[str, Any], frames: list[Any], crop_scale: float) -> 
     return np.array(out)
 
 
-def speaker_windows(
+def score_tracks_in_segment(
     video: Path,
     src_w: int,
     src_h: int,
     start: float,
     end: float,
+    fps: float,
     *,
     crop_scale: float = 0.55,
-    cut_threshold: float = 0.4,
-    dead_zone: float = 0.12,
-) -> list[CropWindow] | None:
-    """Сегмент → окна 9:16 по ГОВОРЯЩЕМУ лицу на план (или None, если лиц нет → caller на fallback).
+) -> list[SpeakerTrack]:
+    """Сегмент → дорожки лиц с ASD speak-score (вход plan_regions). [] если лиц нет.
 
-    Шаги: кадры@25fps + аудио → MediaPipe-детект → build_tracks → crop+ASD-score на дорожку →
-    detect_cuts/build_shots (D2) → pick_speaker_centers → окна. crop_scale тюним под MediaPipe.
+    Кадры@fps + аудио → MediaPipe-детект → build_tracks → crop+ASD на дорожку → SpeakerTrack
+    (f0/f1 в КЛИП-кадрах @fps, cx per-frame, width средняя доля, speak средний скор).
+    crop_scale тюним под MediaPipe-кропы (модель обучена на S3FD).
     """
     import cv2  # noqa: PLC0415
     import mediapipe as mp  # noqa: PLC0415
@@ -97,7 +95,7 @@ def speaker_windows(
                 "-i",
                 str(video),
                 "-r",
-                str(_FPS),
+                str(fps),
                 "-f",
                 "image2",
                 str(fdir / "%06d.jpg"),
@@ -135,7 +133,7 @@ def speaker_windows(
                 raise JobError(_STAGE, f"не прочитать кадр {fpath}")
             frames.append(img)
         if not frames:
-            return None
+            return []
 
         opts = mp_vision.FaceDetectorOptions(
             base_options=mp_python.BaseOptions(model_asset_path=str(model)),
@@ -164,20 +162,25 @@ def speaker_windows(
 
         tracks = build_tracks(frame_faces)
         if not tracks:
-            return None
+            return []
 
         sr, audio = wavfile.read(wav)
-        scored: list[tuple[float, float, float, float]] = []
+        out: list[SpeakerTrack] = []
         for tr in tracks:
             faces224 = _crop_faces(tr, frames, crop_scale)
-            a0, a1 = int(tr["frame"][0] / _FPS * sr), int((tr["frame"][-1] + 1) / _FPS * sr)
+            a0 = int(tr["frame"][0] / fps * sr)
+            a1 = int((tr["frame"][-1] + 1) / fps * sr)
             sc = score_track(faces224, audio[a0:a1])
             speak = float(np.mean(sc)) if sc.size else _SILENT
-            cx = float(((tr["bbox"][:, 0] + tr["bbox"][:, 2]) / 2).mean() / src_w)
-            t0 = float(tr["frame"][0]) / _FPS
-            t1 = float(tr["frame"][-1] + 1) / _FPS
-            scored.append((t0, t1, cx, speak))
-
-        shots = build_shots(detect_cuts(video, start, end, threshold=cut_threshold), end - start)
-        centers = apply_dead_zone(pick_speaker_centers(scored, shots), dead_zone=dead_zone)
-        return [compute_crop_window(src_w, src_h, c, t=t0) for (t0, c) in centers]
+            cx_series = ((tr["bbox"][:, 0] + tr["bbox"][:, 2]) / 2 / src_w).tolist()
+            width = float(((tr["bbox"][:, 2] - tr["bbox"][:, 0]) / src_w).mean())
+            out.append(
+                SpeakerTrack(
+                    f0=int(tr["frame"][0]),
+                    f1=int(tr["frame"][-1]) + 1,
+                    cx=tuple(min(1.0, max(0.0, c)) for c in cx_series),
+                    width=width,
+                    speak=speak,
+                )
+            )
+        return out

@@ -680,20 +680,32 @@ def reframe_segment(
     regions: list[TrackRegion]
 
     if speaker and face_found:
-        from app.pipeline.asd_reframe import speaker_windows  # noqa: PLC0415
+        from app.pipeline.asd_reframe import score_tracks_in_segment  # noqa: PLC0415
 
-        windows = (
-            speaker_windows(
-                video, src_w, src_h, start, end,
-                crop_scale=speaker_crop_scale,
-                cut_threshold=cut_threshold,
-                dead_zone=dead_zone,
+        asd_fps = face_fps  # same extraction rate for cuts + face frames
+        tracks = score_tracks_in_segment(
+            video,
+            src_w,
+            src_h,
+            start,
+            end,
+            asd_fps,
+            crop_scale=speaker_crop_scale,
+        )
+        if tracks:
+            cuts_frames = detect_scene_cuts(video, start, end, asd_fps, threshold=cut_threshold)
+            total_frames = round((end - start) * asd_fps)
+            shots_frames = build_shots_frames(cuts_frames, total_frames)
+            regions = plan_regions(
+                shots_frames,
+                tracks,
+                asd_fps,
+                crop_w_frac=crop_w_frac,
+                smoothing=smoothing,
+                mode_setting=mode_setting,
             )
-            or []
-        )  # fmt: skip
-        if windows:
-            shot_plan = windows_to_shot_plan(windows, duration=duration, src_w=src_w)
-            regions = shot_plan_to_regions(shot_plan)
+            if not regions:
+                regions = [TrackRegion(t0=0.0, t1=duration, mode="fit", points=())]
             out_dir.mkdir(parents=True, exist_ok=True)
             _write_reframe_json(out_dir, clip_id, regions)
             return regions, face_found
