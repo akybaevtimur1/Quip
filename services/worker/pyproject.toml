@@ -14,18 +14,15 @@ dependencies = [
     "numpy>=2.4.6",
     "pydantic>=2.13.4",
     "pydantic-settings>=2.14.1",
+    "python_speech_features>=0.6",
+    "scenedetect>=0.6.4",
+    "scipy>=1.11",
+    "torch>=2.2",
     "uvicorn[standard]>=0.49.0",
     "yt-dlp>=2026.3.17",
 ]
 
-# Active-speaker reframe (REFRAME_SPEAKER=on). Тяжёлые либы — опционально, базовый воркер
-# их не тянет. torch — CPU-колёса (на Linux: --index-url https://download.pytorch.org/whl/cpu).
-[project.optional-dependencies]
-asd = [
-    "torch>=2.2",
-    "python_speech_features>=0.6",
-    "scipy>=1.11",
-]
+# torch — CPU-колёса (на Linux: --index-url https://download.pytorch.org/whl/cpu).
 
 [build-system]
 requires = ["hatchling"]
