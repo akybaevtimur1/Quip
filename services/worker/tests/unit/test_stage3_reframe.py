@@ -443,3 +443,65 @@ class TestPlanRegions:
         regions = plan_regions([(0, 30)], [], fps=30.0, crop_w_frac=0.32, mode_setting="fill")
         assert regions[0].mode == "fill"
         assert regions[0].points and abs(regions[0].points[0].cx - 0.5) < 1e-9
+
+
+class TestResampleTrack:
+    """resample_track: дорожка ASD@25fps → нативная сетка fps (фикс флеша на ≠25fps видео).
+
+    Корень бага: геометрия регионов была в сетке face_fps=25, а рендер режет в нативном
+    fps источника (29.97/23.976/...). round(t0*native_fps) уезжал на ±1 кадр от склейки →
+    один кадр нового шота со старым кропом = флеш. На 25fps-видео (comedy01/dod01) сетки
+    совпадали → баг был невидим в тестах.
+    """
+
+    @staticmethod
+    def _track(f0: int, f1: int, cx: float) -> object:
+        from app.pipeline.stage3_reframe import SpeakerTrack
+
+        return SpeakerTrack(f0=f0, f1=f1, cx=tuple([cx] * (f1 - f0)), width=0.1, speak=0.9)
+
+    def test_identity_when_same_fps(self) -> None:
+        from app.pipeline.stage3_reframe import resample_track
+
+        t = self._track(0, 25, 0.4)
+        assert resample_track(t, 25.0, 25.0) is t
+
+    def test_25_to_30_upsamples_frame_count(self) -> None:
+        from app.pipeline.stage3_reframe import resample_track
+
+        # 1с дорожки @25fps (кадры 0..25) → @30fps (кадры 0..30)
+        t = self._track(0, 25, 0.6)
+        r = resample_track(t, 25.0, 30.0)
+        assert r.f0 == 0 and r.f1 == 30
+        assert len(r.cx) == 30
+        assert all(abs(c - 0.6) < 1e-9 for c in r.cx)  # постоянный cx сохраняется
+        assert r.width == t.width and r.speak == t.speak  # скаляры не трогаем
+
+    def test_25_to_2997_offset_track(self) -> None:
+        from app.pipeline.stage3_reframe import resample_track
+
+        # дорожка не с нуля: f0=50@25fps (t=2.0с) → 2.0*29.97≈59.94 → кадр 60
+        t = self._track(50, 75, 0.3)
+        r = resample_track(t, 25.0, 29.97)
+        assert r.f0 == round(50 / 25 * 29.97)  # == 60
+        assert r.f1 == round(75 / 25 * 29.97)  # == 90
+        assert len(r.cx) == r.f1 - r.f0  # инвариант: len(cx) == f1-f0
+
+    def test_native_grid_boundaries_land_on_exact_render_frames(self) -> None:
+        """ГЛАВНЫЙ инвариант фикса: t1 региона в нативной сетке → round(t1*fps) точный кадр."""
+        from app.pipeline.stage3_reframe import resample_track
+
+        for native_fps in (23.976, 24.0, 29.97, 60.0):
+            t = self._track(0, 25, 0.5)
+            r = resample_track(t, 25.0, native_fps)
+            t1_sec = r.f1 / native_fps
+            assert round(t1_sec * native_fps) == r.f1  # рендер режет ровно на границе → нет флеша
+
+    def test_resampled_cx_tracks_movement(self) -> None:
+        from app.pipeline.stage3_reframe import SpeakerTrack, resample_track
+
+        # cx растёт 0.0→1.0 по 25 кадрам; после ресемпла в 50fps движение монотонно сохраняется
+        cx = tuple(i / 24 for i in range(25))
+        t = SpeakerTrack(f0=0, f1=25, cx=cx, width=0.1, speak=0.5)
+        r = resample_track(t, 25.0, 50.0)
+        assert r.cx[0] < r.cx[len(r.cx) // 2] < r.cx[-1]

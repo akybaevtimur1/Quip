@@ -190,6 +190,26 @@ def build_shots_frames(cuts: list[int], total_frames: int) -> list[tuple[int, in
     return [(bounds[i], bounds[i + 1]) for i in range(len(bounds) - 1) if bounds[i + 1] > bounds[i]]
 
 
+def resample_track(track: SpeakerTrack, src_fps: float, dst_fps: float) -> SpeakerTrack:
+    """Пересэмплировать дорожку из сетки src_fps в сетку dst_fps (frame-grid conversion). PURE.
+
+    ASD сэмплит лица @25fps (модель LR-ASD требует 4:1 audio/video), но геометрия
+    (склейки/шоты/регионы) и рендер работают в НАТИВНОМ fps источника. Без этой конвертации
+    границы регионов (кадры 25fps) не попадают на кадры рендера (нативный fps) → флеш-кадр.
+    cx пересэмплируем nearest-neighbor по времени; width/speak — скаляры. f0/f1 — по времени.
+    """
+    if src_fps == dst_fps or not track.cx:
+        return track
+    nf0 = round(track.f0 / src_fps * dst_fps)
+    nf1 = max(nf0 + 1, round(track.f1 / src_fps * dst_fps))
+    n_src = len(track.cx)
+    cx_new: list[float] = []
+    for nf in range(nf0, nf1):
+        idx = round(nf / dst_fps * src_fps) - track.f0  # время кадра dst → индекс в src-сетке
+        cx_new.append(track.cx[max(0, min(n_src - 1, idx))])
+    return SpeakerTrack(f0=nf0, f1=nf1, cx=tuple(cx_new), width=track.width, speak=track.speak)
+
+
 def _track_cx_in_shot(t: SpeakerTrack, f0: int, f1: int) -> list[float]:
     """cx дорожки t для кадров пересечения с шотом [f0, f1). PURE."""
     lo, hi = max(t.f0, f0), min(t.f1, f1)
@@ -560,23 +580,29 @@ def reframe_segment(
     """
     from app.pipeline.asd_reframe import score_tracks_in_segment  # noqa: PLC0415
 
-    duration = end - start
-    total_frames = round(duration * face_fps)
+    # Геометрия (склейки/шоты/регионы) И рендер работают в НАТИВНОЙ сетке fps источника.
+    # origin = aligned_start (= round(start*fps)/fps) — ТА ЖЕ граница кадра, что в render_clip,
+    # иначе t0 регионов уезжает на <1 кадр от filtergraph-часов → флеш. ASD остаётся @face_fps
+    # (модель требует 25fps), дорожки потом ресемплим в нативную сетку (resample_track).
+    aligned_start = round(start * fps) / fps
+    duration = end - aligned_start
+    total_frames = round(duration * fps)
     crop_w_frac = round(src_h * _ASPECT_W / _ASPECT_H) / src_w
 
-    cuts = detect_scene_cuts(video, start, end, face_fps, threshold=scene_threshold)
+    cuts = detect_scene_cuts(video, aligned_start, end, fps, threshold=scene_threshold)
     shots = build_shots_frames(cuts, total_frames)
 
-    tracks = score_tracks_in_segment(
-        video, src_w, src_h, start, end, face_fps, crop_scale=speaker_crop_scale
+    tracks_native = score_tracks_in_segment(
+        video, src_w, src_h, aligned_start, end, face_fps, crop_scale=speaker_crop_scale
     )
-    face_found = bool(tracks)
+    face_found = bool(tracks_native)
+    tracks = [resample_track(t, face_fps, fps) for t in tracks_native]
 
     regions = merge_short_regions(
         plan_regions(
             shots,
             tracks,
-            face_fps,
+            fps,
             crop_w_frac=crop_w_frac,
             smoothing=smoothing,
             speak_threshold=speak_threshold,
