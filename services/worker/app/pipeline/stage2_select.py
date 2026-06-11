@@ -24,7 +24,7 @@ from app.models import ClipType, Segment, Transcript, Word
 _STAGE = "select"
 _MAX_ATTEMPTS = 7  # попытки на primary модели; backoff min(2^n, 30)с ≈ 1 мин ожидания
 # При устойчивых 503 primary пробуем другие эндпоинты Gemini (разная нагрузка)
-_FALLBACK_MODELS = ("gemini-2.0-flash", "gemini-1.5-flash")
+_FALLBACK_MODELS = ("gemini-2.5-flash", "gemini-2.0-flash")
 
 # ─────────────────────────── pure-постобработка (unit-тесты) ───────────────────────────
 
