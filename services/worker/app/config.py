@@ -75,6 +75,9 @@ class Settings(BaseSettings):
     # PySceneDetect ContentDetector (~27) + ASD порог говорения.
     reframe_scene_threshold: float = 27.0
     reframe_speak_threshold: float = 0.0  # ниже порога → фолбэк на largest-face
+    # split-screen (v3): ровно 2 устойчивых разнесённых лица → верх/низ (вместо fit);
+    # 3+ лиц / нестабильные треки → fit как раньше. false = всегда fit (старое поведение).
+    reframe_split_enabled: bool = True
 
     @model_validator(mode="after")
     def _require_selected_provider_key(self) -> Self:

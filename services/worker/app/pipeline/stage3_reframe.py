@@ -45,13 +45,16 @@ class TrackRegion:
     """Непрерывный регион с одним режимом (V2).
 
     fill: points — сглаженная траектория cx (build_fill_crop_expr → ffmpeg expr);
-    fit: points=() (весь кадр + блюр-рамки, нет траектории).
+    fit: points=() (весь кадр + блюр-рамки, нет траектории);
+    split (v3): points = траектория ВЕРХНЕГО спикера (меньший cx),
+    points_b = траектория НИЖНЕГО (два кропа 1080×960 + vstack).
     """
 
     t0: float
     t1: float
-    mode: str  # "fill" | "fit"
-    points: tuple[TrackPoint, ...]  # fill: значимые cx; fit: пустой tuple
+    mode: str  # "fill" | "fit" | "split"
+    points: tuple[TrackPoint, ...]  # fill/split: значимые cx; fit: пустой tuple
+    points_b: tuple[TrackPoint, ...] = ()  # только split: второй спикер
 
 
 @dataclass(frozen=True)
@@ -155,7 +158,9 @@ def merge_short_regions(regions: list[TrackRegion], min_hold_sec: float) -> list
     for reg in regions[1:]:
         if reg.t1 - reg.t0 < min_hold_sec:
             prev = out[-1]
-            out[-1] = TrackRegion(t0=prev.t0, t1=reg.t1, mode=prev.mode, points=prev.points)
+            out[-1] = TrackRegion(
+                t0=prev.t0, t1=reg.t1, mode=prev.mode, points=prev.points, points_b=prev.points_b
+            )
         else:
             out.append(reg)
     return out
@@ -226,6 +231,36 @@ def _is_wide_shot(active: list[SpeakerTrack], f0: int, f1: int, spread_min: floa
     return len(reps) >= 2 and (max(reps) - min(reps)) > spread_min
 
 
+def _split_pair(
+    active: list[SpeakerTrack],
+    f0: int,
+    f1: int,
+    spread_min: float,
+    coverage_min: float = 0.6,
+) -> tuple[SpeakerTrack, SpeakerTrack] | None:
+    """Пара для split: РОВНО 2 устойчивых трека (покрытие ≥ coverage_min шота),
+    разнесённых сильнее spread_min. Возвращает (левый, правый) по среднему cx. PURE.
+
+    3+ устойчивых лица или нестабильные треки → None (остаётся fit — требование
+    фаундера «оставить горизонтальный вид для других ситуаций»).
+    """
+    shot_len = f1 - f0
+    if shot_len <= 0:
+        return None
+    stable: list[tuple[float, SpeakerTrack]] = []
+    for t in active:
+        cxs = _track_cx_in_shot(t, f0, f1)
+        if len(cxs) >= coverage_min * shot_len:
+            stable.append((sum(cxs) / len(cxs), t))
+    if len(stable) != 2:
+        return None
+    stable.sort(key=lambda p: p[0])
+    (cx_a, ta), (cx_b, tb) = stable
+    if cx_b - cx_a <= spread_min:
+        return None  # кластер — это fill-кейс
+    return ta, tb
+
+
 def _pick_target(active: list[SpeakerTrack], speak_threshold: float) -> SpeakerTrack | None:
     """Выбрать дорожку в кадр: макс. speak; если ниже порога → макс. width (largest-face). PURE."""
     if not active:
@@ -274,14 +309,18 @@ def plan_regions(
     speak_threshold: float = 0.0,
     wide_spread_min: float | None = None,
     mode_setting: str = "auto",
+    split_enabled: bool = False,
 ) -> list[TrackRegion]:
     """Cut-aligned планировщик: на КАЖДЫЙ шот один режим + траектория. Сердце Pass-1. PURE.
 
     shots — интервалы [(f0,f1)] в КАДРАХ (build_shots_frames). На шот:
-      широкий (2+ разнесённых дорожек) → fit; иначе fill на говорящем (макс. speak), при
-      молчании ASD (< speak_threshold) → фолбэк на крупнейшее лицо; нет дорожек → fit.
+      широкий (2+ разнесённых дорожек) → split_enabled И ровно 2 устойчивых трека →
+      split (верх/низ, оба full-bleed); иначе fit (пейзаж/толпа/3+ лиц — «горизонтальный
+      вид» остаётся); не широкий → fill на говорящем (макс. speak), при молчании ASD
+      (< speak_threshold) → фолбэк на крупнейшее лицо; нет дорожек → fit.
     mode_setting "fill"/"fit" — глобальный оверрайд. wide_spread_min дефолт = crop_w_frac.
-    Границы регионов = границы шотов (= кадры склеек) → смена режима только на склейке.
+    Границы регионов = границы шотов (= кадры склеек) → смена режима только на склейке
+    (инвариант docs/REFRAME_FPS_GRID_INVARIANT.md не трогаем: split не двигает границы).
     """
     spread_min = crop_w_frac if wide_spread_min is None else wide_spread_min
     regions: list[TrackRegion] = []
@@ -292,6 +331,19 @@ def plan_regions(
             regions.append(TrackRegion(t0=t0, t1=t1, mode="fit", points=()))
             continue
         if mode_setting != "fill" and (not active or _is_wide_shot(active, f0, f1, spread_min)):
+            pair = _split_pair(active, f0, f1, spread_min) if split_enabled else None
+            if pair is not None:
+                ta, tb = pair
+                regions.append(
+                    TrackRegion(
+                        t0=t0,
+                        t1=t1,
+                        mode="split",
+                        points=_track_trajectory(ta, f0, f1, fps, smoothing),
+                        points_b=_track_trajectory(tb, f0, f1, fps, smoothing),
+                    )
+                )
+                continue
             regions.append(TrackRegion(t0=t0, t1=t1, mode="fit", points=()))
             continue
         target = _pick_target(active, speak_threshold)
@@ -544,6 +596,7 @@ def _write_reframe_json(out_dir: Path, clip_id: str, regions: list[TrackRegion])
                         "t1": r.t1,
                         "mode": r.mode,
                         "points": [{"t": p.t, "mode": p.mode, "cx": p.cx} for p in r.points],
+                        "points_b": [{"t": p.t, "mode": p.mode, "cx": p.cx} for p in r.points_b],
                     }
                     for r in regions
                 ]
@@ -572,6 +625,7 @@ def reframe_segment(
     min_hold_sec: float = 1.5,
     speak_threshold: float = 0.0,
     scene_threshold: float = 27.0,
+    split_enabled: bool = False,
 ) -> tuple[list[TrackRegion], bool]:
     """Сегмент → (cut-aligned регионы, face_found). Единый путь (ASD по дефолту).
 
@@ -607,6 +661,7 @@ def reframe_segment(
             smoothing=smoothing,
             speak_threshold=speak_threshold,
             mode_setting=mode_setting,
+            split_enabled=split_enabled,
         ),
         min_hold_sec,
     )

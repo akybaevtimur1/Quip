@@ -407,6 +407,83 @@ class TestPlanRegions:
         regions = plan_regions([(0, 30)], [], fps=30.0, crop_w_frac=0.32)
         assert regions[0].mode == "fit"
 
+    def test_split_two_spread_stable_tracks(self) -> None:
+        from app.pipeline.stage3_reframe import plan_regions
+
+        # 2 устойчивых разнесённых трека + split_enabled → split (вместо fit),
+        # обе траектории; порядок стабилен по cx (левый → points).
+        tracks = [
+            self._track(0, 30, 0.8, 0.1, 0.5),
+            self._track(0, 30, 0.2, 0.1, 0.5),
+        ]
+        regions = plan_regions(
+            [(0, 30)], tracks, fps=30.0, crop_w_frac=0.32, smoothing=1.0, split_enabled=True
+        )
+        assert regions[0].mode == "split"
+        assert regions[0].points and regions[0].points_b
+        assert abs(regions[0].points[0].cx - 0.2) < 1e-9  # левый сверху
+        assert abs(regions[0].points_b[0].cx - 0.8) < 1e-9
+
+    def test_split_disabled_falls_back_fit(self) -> None:
+        from app.pipeline.stage3_reframe import plan_regions
+
+        tracks = [
+            self._track(0, 30, 0.2, 0.1, 0.5),
+            self._track(0, 30, 0.8, 0.1, 0.5),
+        ]
+        regions = plan_regions([(0, 30)], tracks, fps=30.0, crop_w_frac=0.32, split_enabled=False)
+        assert regions[0].mode == "fit"
+
+    def test_three_spread_faces_still_fit(self) -> None:
+        from app.pipeline.stage3_reframe import plan_regions
+
+        tracks = [
+            self._track(0, 30, 0.15, 0.1, 0.5),
+            self._track(0, 30, 0.5, 0.1, 0.5),
+            self._track(0, 30, 0.85, 0.1, 0.5),
+        ]
+        regions = plan_regions([(0, 30)], tracks, fps=30.0, crop_w_frac=0.32, split_enabled=True)
+        assert regions[0].mode == "fit"
+
+    def test_split_requires_stable_coverage(self) -> None:
+        from app.pipeline.stage3_reframe import plan_regions
+
+        # Второй трек живёт лишь 6 кадров из 30 (<60% шота) → НЕ устойчив → fit как раньше
+        tracks = [
+            self._track(0, 30, 0.2, 0.1, 0.5),
+            self._track(0, 6, 0.8, 0.1, 0.5),
+        ]
+        regions = plan_regions([(0, 30)], tracks, fps=30.0, crop_w_frac=0.32, split_enabled=True)
+        assert regions[0].mode == "fit"
+
+    def test_split_cluster_not_split(self) -> None:
+        from app.pipeline.stage3_reframe import plan_regions
+
+        # 2 трека КЛАСТЕРОМ (размах < crop_w_frac) → это fill-кейс, не split
+        tracks = [
+            self._track(0, 30, 0.45, 0.3, 0.9),
+            self._track(0, 30, 0.55, 0.1, 0.1),
+        ]
+        regions = plan_regions(
+            [(0, 30)], tracks, fps=30.0, crop_w_frac=0.32, smoothing=1.0, split_enabled=True
+        )
+        assert regions[0].mode == "fill"
+
+    def test_track_region_points_b_default_empty(self) -> None:
+        assert TrackRegion(t0=0.0, t1=1.0, mode="fill", points=()).points_b == ()
+
+    def test_merge_short_regions_preserves_points_b(self) -> None:
+        from app.pipeline.stage3_reframe import merge_short_regions
+
+        pa = (TrackPoint(t=0.0, mode="split", cx=0.2),)
+        pb = (TrackPoint(t=0.0, mode="split", cx=0.8),)
+        long_split = TrackRegion(t0=0.0, t1=5.0, mode="split", points=pa, points_b=pb)
+        short_fit = TrackRegion(t0=5.0, t1=5.5, mode="fit", points=())
+        out = merge_short_regions([long_split, short_fit], min_hold_sec=1.5)
+        assert len(out) == 1
+        assert out[0].mode == "split" and out[0].points_b == pb
+        assert out[0].t1 == 5.5
+
     def test_speaker_change_between_shots(self) -> None:
         from app.pipeline.stage3_reframe import plan_regions
 
