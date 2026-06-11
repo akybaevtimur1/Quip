@@ -1,7 +1,7 @@
 "use client";
 
 import { Plus } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ClipGrid } from "@/components/ClipGrid";
 import { ErrorPanel } from "@/components/ErrorPanel";
 import { JobProgress } from "@/components/JobProgress";
@@ -15,6 +15,13 @@ export default function Home() {
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   const error = submitError ?? pollError;
+
+  // Deep-link: открыть существующую задачу по ?job=<id> (на маунте). start стабилен.
+  useEffect(() => {
+    const j = new URLSearchParams(window.location.search).get("job");
+    if (j) start(j);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function handleSubmit(url: string, maxClips: number) {
     setSubmitError(null);
