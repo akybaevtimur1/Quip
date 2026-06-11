@@ -19,8 +19,8 @@ export interface PresetStripProps {
   version: number;
   /** id текущего активного пресета (для подсветки). */
   activePresetId?: string | null;
-  /** Применённый edit-state (родитель обновляет своё состояние + версию). */
-  onApplied: (updated: ClipEdit) => void;
+  /** Применённый edit-state + id пресета (родитель обновляет состояние/версию + активный пресет). */
+  onApplied: (updated: ClipEdit, presetId: string) => void;
   /** 409/сетевой сбой — родитель решает (reload edit-state / тост). */
   onConflict?: () => void;
   onError?: (message: string) => void;
@@ -65,7 +65,7 @@ export function PresetStrip({
     setApplyingId(presetId);
     try {
       const updated = await applyPreset(jobId, clipId, version, presetId);
-      onApplied(updated);
+      onApplied(updated, presetId);
     } catch (e) {
       const msg = String(e);
       if (msg.includes("conflict") || msg.includes("409")) onConflict?.();

@@ -1,17 +1,21 @@
 "use client";
 
-import { CheckCircle, Film, Loader2, Scissors, Type } from "lucide-react";
+import { CheckCircle, Film, Loader2, Move, Palette, Scissors, Type } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   extendClip,
   getClipAnalysis,
   getClipEdit,
   getRenderStatus,
+  getTimeline,
   patchClipEdit,
+  setClipInterval,
   startRenderClip,
   trimClip,
 } from "@/lib/api";
-import type { CaptionReply, ClipEdit, Word } from "@/lib/types";
+import type { CaptionReply, ClipEdit, TimelineData, Word } from "@/lib/types";
+import { PresetStrip } from "./PresetStrip";
+import TimelineEditor from "./TimelineEditor";
 
 const WORKER_BASE = process.env.NEXT_PUBLIC_WORKER_URL ?? "";
 
@@ -45,6 +49,10 @@ export default function ClipEditor({ jobId, clipId, onRenderDone, onRepliesChang
   const [captionEdits, setCaptionEdits] = useState<Record<number, string>>({});
   const [savingCaptions, setSavingCaptions] = useState(false);
 
+  // Timeline (двигать/resize шортс на линии видео) + активный пресет стиля
+  const [timeline, setTimeline] = useState<TimelineData | null>(null);
+  const [activePresetId, setActivePresetId] = useState<string | null>(null);
+
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -65,6 +73,7 @@ export default function ClipEditor({ jobId, clipId, onRenderDone, onRepliesChang
       setError(null);
       setSelected(new Set());
       setCaptionEdits({});
+      setActivePresetId(null);
       try {
         const [editData, analysisData] = await Promise.all([
           getClipEdit(jobId, clipId),
@@ -75,6 +84,10 @@ export default function ClipEditor({ jobId, clipId, onRenderDone, onRepliesChang
         setWords(analysisData.words);
         setGlobalIndices((editData.captions.replies ?? []).flatMap((r) => r.word_refs));
         setPhase("ready");
+        // Таймлайн — отдельно и не-фатально (нет segments/transcript → редактор всё равно жив)
+        getTimeline(jobId)
+          .then((t) => { if (!cancelled) setTimeline(t); })
+          .catch(() => { if (!cancelled) setTimeline(null); });
       } catch (e) {
         if (cancelled) return;
         setError(String(e));
@@ -156,6 +169,31 @@ export default function ClipEditor({ jobId, clipId, onRenderDone, onRepliesChang
       if (msg.includes("conflict") || msg.includes("409")) handleConflict();
       else { setError(msg); setPhase("ready"); }
     }
+  };
+
+  const handleSetInterval = async (start: number, end: number) => {
+    if (!edit) return;
+    setPhase("saving");
+    setError(null);
+    try {
+      const newEdit = await setClipInterval(jobId, clipId, edit.version ?? 1, start, end);
+      const analysisData = await getClipAnalysis(jobId, clipId);
+      setEdit(newEdit);
+      setWords(analysisData.words);
+      setGlobalIndices((newEdit.captions.replies ?? []).flatMap((r) => r.word_refs));
+      setSelected(new Set());
+      setCaptionEdits({});
+      setPhase("ready");
+    } catch (e) {
+      const msg = String(e);
+      if (msg.includes("conflict") || msg.includes("409")) handleConflict();
+      else { setError(msg); setPhase("ready"); }
+    }
+  };
+
+  const handlePresetApplied = (updated: ClipEdit, presetId: string) => {
+    setEdit(updated);
+    setActivePresetId(presetId);
   };
 
   const handleSaveCaptions = async () => {
@@ -271,6 +309,32 @@ export default function ClipEditor({ jobId, clipId, onRenderDone, onRepliesChang
         </div>
       )}
 
+      {/* ── MOMENT ON TIMELINE (двигать/resize шортс) ── */}
+      {timeline && edit && (
+        <div className="px-4 py-3 space-y-2">
+          <p className="text-xs font-semibold text-muted uppercase tracking-wider flex items-center gap-1.5">
+            <Move className="size-3" />
+            Момент на видео
+          </p>
+          <TimelineEditor
+            jobId={jobId}
+            clipId={clipId}
+            version={edit.version ?? 1}
+            data={timeline}
+            interval={{
+              source_start: edit.source_intervals[0]?.source_start ?? 0,
+              source_end:
+                edit.source_intervals[edit.source_intervals.length - 1]?.source_end ?? 0,
+            }}
+            onIntervalChange={handleSetInterval}
+          />
+          <p className="text-xs text-muted">
+            Тащи блок — двигать; края — короче/длиннее. Цветные маркеры = сильные моменты ИИ
+            (клик — прыгнуть); наведи на линию — увидишь, что там говорят.
+          </p>
+        </div>
+      )}
+
       {/* ── STEP 1: SUBTITLES ── */}
       <div className="px-4 py-3 space-y-2">
         <div className="flex items-center justify-between">
@@ -282,6 +346,25 @@ export default function ClipEditor({ jobId, clipId, onRenderDone, onRepliesChang
             <span className="text-xs text-accent">{dirtyCapCount} изменено</span>
           )}
         </div>
+
+        {/* Галерея стилей (пресеты A–D, дефолт A) */}
+        {edit && (
+          <div className="space-y-1">
+            <p className="flex items-center gap-1 text-[11px] text-muted">
+              <Palette className="size-3" />
+              Стиль
+            </p>
+            <PresetStrip
+              jobId={jobId}
+              clipId={clipId}
+              version={edit.version ?? 1}
+              activePresetId={activePresetId}
+              onApplied={handlePresetApplied}
+              onConflict={handleConflict}
+              onError={setError}
+            />
+          </div>
+        )}
 
         <div className="max-h-56 overflow-y-auto space-y-1 rounded-xl border border-line bg-surface p-2">
           {captionGroups.length === 0 && (
