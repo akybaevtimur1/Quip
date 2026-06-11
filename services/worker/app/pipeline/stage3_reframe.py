@@ -217,11 +217,7 @@ def _pick_target(active: list[SpeakerTrack], speak_threshold: float) -> SpeakerT
 
 
 def _track_trajectory(
-    t: SpeakerTrack,
-    f0: int,
-    f1: int,
-    fps: float,
-    smoothing: float,
+    t: SpeakerTrack, f0: int, f1: int, fps: float, smoothing: float
 ) -> tuple[TrackPoint, ...]:
     """Сглаженная cx-траектория дорожки внутри шота → TrackPoint'ы (клип-время = кадр/fps). PURE.
 
