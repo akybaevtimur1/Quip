@@ -4,18 +4,19 @@ import { useEffect, useRef } from "react";
 import type SubtitlesOctopus from "libass-wasm";
 
 // ────────────────────────────────────────────────────────────────────────────
-// LibassLayer — тонкая обёртка SubtitlesOctopus (libass.wasm, MIT).
-// Рисует ТОТ ЖЕ ASS, что жжёт ffmpeg на экспорте → превью субтитров =
-// экспорт пиксель-в-пиксель. SubtitlesOctopus сам создаёт <canvas> рядом с
-// видео (sibling в его родителе) и синхронит по video.currentTime + timeOffset.
+// LibassLayer — обёртка SubtitlesOctopus (libass.wasm, MIT) в CANVAS-режиме.
+// Рисует ТОТ ЖЕ ASS, что жжёт ffmpeg на экспорте → превью = экспорт
+// пиксель-в-пиксель.
 //
-// ASS — в КЛИП-времени (0-based), видео в превью = source.mp4 в SOURCE-времени,
-// поэтому timeOffset = -sourceStart выравнивает: при source-времени T реплика
-// показывается на клип-времени T − sourceStart. Сеттера timeOffset нет → смена
-// sourceStart пересоздаёт инстанс (ниже — в deps эффекта).
+// ПОЧЕМУ канвас-режим (а не video-режим): video-режим позиционирует канвас по
+// letterbox-геометрии видео-элемента (object-contain). У нас превью = 9:16
+// контейнер с object-COVER кропом источника, а ASS свёрстан под полный
+// 1080×1920-кадр → канвас обязан заполнять ВЕСЬ контейнер. Поэтому держим свой
+// <canvas> (absolute inset-0), задаём размер сами (ResizeObserver + resize())
+// и гоним время вручную: setCurrentTime(video.currentTime − sourceStart) в rAF.
+// Бонус: смена sourceStart больше НЕ пересоздаёт тяжёлый WASM-инстанс.
 //
-// Ничего видимого сам не рендерит (canvas вставляет октопус). При ошибке НЕ
-// кидает — зовёт props.onError, чтобы родитель показал CSS-фолбэк CaptionOverlay.
+// При ошибке НЕ кидает — зовёт props.onError, родитель показывает CSS-фолбэк.
 // ────────────────────────────────────────────────────────────────────────────
 
 interface LibassLayerProps {
@@ -26,34 +27,35 @@ interface LibassLayerProps {
 }
 
 export function LibassLayer({ videoRef, assText, sourceStart, onError }: LibassLayerProps) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
   const instanceRef = useRef<SubtitlesOctopus | null>(null);
-  // assText держим в ref, чтобы эффект создания инстанса не зависел от assText
-  // (иначе каждая правка пересоздавала бы тяжёлый WASM-инстанс). Отдельный
-  // эффект ниже зовёт setTrack на живом инстансе. Синк ref'ов — в эффекте
-  // (правило react-hooks/refs: не писать ref во время рендера).
+  // ref'ы вместо deps: правки ASS/интервала не должны пересоздавать WASM-инстанс
   const assRef = useRef(assText);
+  const startRef = useRef(sourceStart);
   const onErrorRef = useRef(onError);
   useEffect(() => {
     assRef.current = assText;
+    startRef.current = sourceStart;
     onErrorRef.current = onError;
   });
 
-  // ── создание / пересоздание инстанса (deps: видео-узел + sourceStart) ──
-  // sourceStart в deps: timeOffset задаётся ТОЛЬКО в конструкторе, сеттера нет.
+  // ── создание инстанса (один раз на mount) + размер + rAF-синк времени ──
   useEffect(() => {
+    const canvas = canvasRef.current;
     const video = videoRef.current;
-    if (!video || !assRef.current) return;
+    if (!canvas || !video || !assRef.current) return;
 
     let disposed = false;
     let local: SubtitlesOctopus | null = null;
+    let raf = 0;
+    let ro: ResizeObserver | null = null;
 
     (async () => {
       try {
-        const SubtitlesOctopus = (await import("libass-wasm")).default;
-        // эффект мог размонтироваться, пока грузился чанк/WASM
+        const SubtitlesOctopusCtor = (await import("libass-wasm")).default;
         if (disposed) return;
-        local = new SubtitlesOctopus({
-          video,
+        local = new SubtitlesOctopusCtor({
+          canvas,
           subContent: assRef.current,
           workerUrl: "/libass/subtitles-octopus-worker.js",
           legacyWorkerUrl: "/libass/subtitles-octopus-worker-legacy.js",
@@ -63,19 +65,63 @@ export function LibassLayer({ videoRef, assText, sourceStart, onError }: LibassL
             "/libass/fonts/Unbounded.ttf",
             "/libass/fonts/Rubik.ttf",
           ],
-          timeOffset: -sourceStart,
-          onError: () => onErrorRef.current?.(),
+          // дефолтный fallback = default.woff2 РЯДОМ С ВОРКЕРОМ — мы его не хостим,
+          // воркер падал «Loading data file default.woff2 failed» → тихий CSS-фолбэк.
+          // Наш fallback — Montserrat (есть кириллица), файл хостится.
+          fallbackFont: "/libass/fonts/Montserrat.ttf",
+          onError: (e?: unknown) => {
+            // внятный лог вместо «Worker error: {}» (ErrorEvent не сериализуется)
+            const msg =
+              e instanceof ErrorEvent ? e.message : e instanceof Error ? e.message : String(e);
+            console.error("[libass] init/worker error:", msg || "(без деталей)");
+            onErrorRef.current?.();
+          },
         });
         instanceRef.current = local;
+
+        // размер канваса = размер контейнера (CSS-пиксели × DPR)
+        const applySize = () => {
+          const box = canvas.parentElement;
+          if (!box || !local) return;
+          const r = box.getBoundingClientRect();
+          const dpr = window.devicePixelRatio || 1;
+          const w = Math.max(1, Math.round(r.width * dpr));
+          const h = Math.max(1, Math.round(r.height * dpr));
+          try {
+            local.resize(w, h);
+          } catch {
+            /* инстанс мог умереть — onError уже сработал */
+          }
+        };
+        applySize();
+        ro = new ResizeObserver(applySize);
+        if (canvas.parentElement) ro.observe(canvas.parentElement);
+
+        // время: ASS в клип-времени, видео в source-времени
+        let lastT = -1;
+        const tick = () => {
+          if (disposed) return;
+          const t = Math.max(0, video.currentTime - startRef.current);
+          if (Math.abs(t - lastT) > 0.01 && local) {
+            lastT = t;
+            try {
+              local.setCurrentTime(t);
+            } catch {
+              /* noop */
+            }
+          }
+          raf = requestAnimationFrame(tick);
+        };
+        raf = requestAnimationFrame(tick);
       } catch {
-        // инициализация/импорт упали → деградация на CSS-фолбэк, без throw
         if (!disposed) onErrorRef.current?.();
       }
     })();
 
     return () => {
       disposed = true;
-      // disposi'м тот инстанс, что реально создали (local), и чистим ref если он наш
+      cancelAnimationFrame(raf);
+      ro?.disconnect();
       const inst = local ?? instanceRef.current;
       if (inst) {
         try {
@@ -86,7 +132,7 @@ export function LibassLayer({ videoRef, assText, sourceStart, onError }: LibassL
       }
       if (instanceRef.current === local) instanceRef.current = null;
     };
-  }, [videoRef, sourceStart]);
+  }, [videoRef]);
 
   // ── живое обновление трека при смене assText (БЕЗ пересоздания) ──
   useEffect(() => {
@@ -99,7 +145,13 @@ export function LibassLayer({ videoRef, assText, sourceStart, onError }: LibassL
     }
   }, [assText]);
 
-  return null;
+  return (
+    <canvas
+      ref={canvasRef}
+      className="pointer-events-none absolute inset-0 z-10 size-full"
+      aria-hidden
+    />
+  );
 }
 
 export default LibassLayer;

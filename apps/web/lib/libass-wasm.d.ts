@@ -6,6 +6,7 @@ declare module "libass-wasm" {
     workerUrl?: string;
     legacyWorkerUrl?: string;
     fonts?: string[];
+    fallbackFont?: string;
     timeOffset?: number;
     onReady?: () => void;
     onError?: (error: unknown) => void;
