@@ -6,7 +6,11 @@ import { Suspense, useState } from "react";
 function LoginForm() {
   const router = useRouter();
   const params = useSearchParams();
-  const from = params.get("from") ?? "/";
+  const rawFrom = params.get("from") ?? "/";
+  // Reject external redirects: must be relative path starting with / but not // or /\
+  const from = rawFrom.startsWith("/") && !rawFrom.startsWith("//") && !rawFrom.startsWith("/\\")
+    ? rawFrom
+    : "/";
 
   const [passcode, setPasscode] = useState("");
   const [error, setError] = useState<string | null>(null);

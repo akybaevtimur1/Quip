@@ -22,7 +22,9 @@ from app.errors import JobError
 from app.models import ClipType, Segment, Transcript, Word
 
 _STAGE = "select"
-_MAX_ATTEMPTS = 4  # ретраи транзиентных 429/503 (free-tier перегрузки), бэк-офф 1/2/4с
+_MAX_ATTEMPTS = 7  # попытки на primary модели; backoff min(2^n, 30)с ≈ 1 мин ожидания
+# При устойчивых 503 primary пробуем другие эндпоинты Gemini (разная нагрузка)
+_FALLBACK_MODELS = ("gemini-2.0-flash", "gemini-1.5-flash")
 
 # ─────────────────────────── pure-постобработка (unit-тесты) ───────────────────────────
 
@@ -250,21 +252,39 @@ def select_segments(
         max_output_tokens=s.llm_max_output_tokens,
     )
 
-    # Ретраи транзиентных ошибок (free-tier 429/503). Без тихого фолбэка: исчерпали → JobError.
+    # Ретраи транзиентных ошибок (free-tier 429/503). Backoff capped 30с.
+    # Если primary-модель устойчиво 503 → пробуем fallback-модели (разная нагрузка).
     resp: Any = None
     last_err: Exception | None = None
+
     for attempt in range(_MAX_ATTEMPTS):
         try:
             resp = client.models.generate_content(
                 model=s.llm_model, contents=user_prompt, config=cfg
             )
             break
-        except Exception as e:  # SDK кидает разные типы (ServerError/ClientError) — оборачиваем
+        except Exception as e:
             last_err = e
             if attempt < _MAX_ATTEMPTS - 1:
-                time.sleep(2**attempt)
+                time.sleep(min(2**attempt, 30))
+
     if resp is None:
-        raise JobError(_STAGE, f"Gemini недоступен после {_MAX_ATTEMPTS} попыток: {last_err}")
+        for fb_model in _FALLBACK_MODELS:
+            for attempt in range(3):
+                try:
+                    resp = client.models.generate_content(
+                        model=fb_model, contents=user_prompt, config=cfg
+                    )
+                    break
+                except Exception as e:
+                    last_err = e
+                    if attempt < 2:
+                        time.sleep(min(2**attempt, 30))
+            if resp is not None:
+                break
+
+    if resp is None:
+        raise JobError(_STAGE, f"Gemini недоступен после всех попыток: {last_err}")
 
     if usage_sink is not None and resp.usage_metadata is not None:
         um = resp.usage_metadata
