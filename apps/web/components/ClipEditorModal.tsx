@@ -1,6 +1,8 @@
 "use client";
 
 import {
+  ArrowDown,
+  ArrowUp,
   CheckCircle,
   Film,
   Loader2,
@@ -13,6 +15,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   getClipAnalysis,
+  getClipAss,
   getClipEdit,
   getRenderStatus,
   getTimeline,
@@ -24,14 +27,18 @@ import {
 import type { CaptionReply, ClipEdit, ClipOut, TimelineData, Word } from "@/lib/types";
 import { CaptionOverlay } from "./CaptionOverlay";
 import { resolveUrl } from "./ClipCard";
+import { LibassLayer } from "./LibassLayer";
 import { PresetStrip } from "./PresetStrip";
 import TimelineEditor from "./TimelineEditor";
 
 // ────────────────────────────────────────────────────────────────────────────
-// ClipEditorModal — широкая модалка-редактор клипа (замена инлайн-редактору).
-// ЛЕВО: видео 9:16 + CaptionOverlay (editing) + галерея пресетов.
+// ClipEditorModal — широкая модалка-редактор клипа (WYSIWYG-превью).
+// ЛЕВО: видео = ИСТОЧНИК (source.mp4), перемотанный на текущий интервал (луп),
+//   в 9:16-контейнере (cover, центр-кроп) + libass.wasm рисует ТОТ ЖЕ ASS, что
+//   жжёт ffmpeg на экспорте (превью субтитров = экспорт пиксель-в-пиксель).
+//   Фолбэк: если libass не поднялся — старый CSS-CaptionOverlay (не белый экран).
 // ПРАВО: широкий таймлайн «Момент на видео» + вырезание слов + рендер.
-// Логика адаптирована из ClipEditor.tsx (та же семантика optimistic-lock/poll).
+// Двигаешь блок на таймлайне → меняется интервал → видео едет на новый момент.
 // ────────────────────────────────────────────────────────────────────────────
 
 interface ClipEditorModalProps {
@@ -44,10 +51,68 @@ interface ClipEditorModalProps {
 
 type Phase = "loading" | "ready" | "saving" | "rendering" | "done" | "error";
 
+/** Клип-временной диапазон активной реплики (в секундах, 0-based от outerStart). */
+interface ReplyRange {
+  replyIndex: number;
+  startSec: number;
+  endSec: number;
+}
+
+/**
+ * Клип-времена реплик из edit-state. reply[i] позиционно покрывает
+ * words[offset .. offset+word_refs.length] (зеркало backend compile_ass /
+ * CaptionOverlay.buildPagesFromReplies). Скрытые/пустые НЕ кликабельны, но
+ * всё равно сдвигают offset (иначе позиционное соответствие слов поедет).
+ * Клип-время = source-время слова − outerStart (один интервал).
+ */
+function buildReplyRanges(
+  replies: CaptionReply[],
+  words: Word[],
+  outerStart: number,
+): ReplyRange[] {
+  const ranges: ReplyRange[] = [];
+  let offset = 0;
+  for (let i = 0; i < replies.length; i++) {
+    const reply = replies[i];
+    const count = reply.word_refs.length;
+    const group = words.slice(offset, offset + count);
+    offset += count;
+    if (reply.hidden || count === 0 || group.length === 0) continue;
+    ranges.push({
+      replyIndex: i,
+      startSec: Math.max(0, group[0].start - outerStart),
+      endSec: Math.max(0, group[group.length - 1].end - outerStart),
+    });
+  }
+  return ranges;
+}
+
+/**
+ * Текст слов реплики (оригинал) — для начального значения textarea и сравнения
+ * «правка == оригинал → снять override». reply[i] покрывает words[offset..].
+ */
+function originalReplyText(
+  replies: CaptionReply[],
+  words: Word[],
+  replyIndex: number,
+): string {
+  let offset = 0;
+  for (let i = 0; i < replies.length; i++) {
+    const count = replies[i].word_refs.length;
+    if (i === replyIndex) {
+      return words
+        .slice(offset, offset + count)
+        .map((w) => w.text)
+        .join(" ");
+    }
+    offset += count;
+  }
+  return "";
+}
+
 export default function ClipEditorModal({
   jobId,
   clipId,
-  clip,
   onClose,
   onRenderDone,
 }: ClipEditorModalProps) {
@@ -63,12 +128,27 @@ export default function ClipEditorModal({
   const [timeline, setTimeline] = useState<TimelineData | null>(null);
   const [activePresetId, setActivePresetId] = useState<string | null>(null);
 
+  // ── WYSIWYG-превью ──
+  const [assText, setAssText] = useState<string>("");
+  const [libassFailed, setLibassFailed] = useState(false);
+  // активная реплика для inline-правки текста (хит-зона над canvas)
+  const [editingReply, setEditingReply] = useState<number | null>(null);
+  const [draft, setDraft] = useState("");
+  const [nowSec, setNowSec] = useState(0); // currentTime видео (для выбора активной реплики)
+
   const videoRef = useRef<HTMLVideoElement>(null);
   const presetRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const videoSrc = useMemo(() => resolveUrl(clip.video_url), [clip.video_url]);
+  // Превью-видео = ИСТОЧНИК (не отрендеренный клип). Кроп 9:16 — CSS (центр).
+  const sourceSrc = useMemo(() => resolveUrl(`media/${jobId}/source.mp4`), [jobId]);
+
+  // Границы текущего интервала клипа в source-времени (для seek/лупа/timeOffset).
+  const outerStart = edit?.source_intervals[0]?.source_start ?? 0;
+  const outerEnd =
+    edit?.source_intervals[edit.source_intervals.length - 1]?.source_end ?? 0;
 
   const stopPoll = useCallback(() => {
     if (pollRef.current) {
@@ -81,16 +161,26 @@ export default function ClipEditorModal({
     }
   }, []);
 
-  // ── Esc закрывает модалку ──
+  // ── Esc закрывает модалку (но не когда правим текст субтитра — там Esc = отмена) ──
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape" && editingReply === null) onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, [onClose, editingReply]);
 
-  // ── загрузка edit-state + analysis (параллельно), timeline отдельно/не-фатально ──
+  // ── общий хелпер: перезапрос ASS после любой правки субтитров/стиля/интервала ──
+  const refreshAss = useCallback(async () => {
+    try {
+      const ass = await getClipAss(jobId, clipId);
+      setAssText(ass);
+    } catch (e) {
+      setError(`Не удалось обновить превью субтитров: ${String(e)}`);
+    }
+  }, [jobId, clipId]);
+
+  // ── загрузка edit-state + analysis + ASS, timeline отдельно/не-фатально ──
   useEffect(() => {
     let cancelled = false;
     async function fetchData() {
@@ -98,15 +188,19 @@ export default function ClipEditorModal({
       setError(null);
       setSelected(new Set());
       setActivePresetId(null);
+      setLibassFailed(false);
       try {
-        const [editData, analysisData] = await Promise.all([
+        const [editData, analysisData, ass] = await Promise.all([
           getClipEdit(jobId, clipId),
           getClipAnalysis(jobId, clipId),
+          getClipAss(jobId, clipId).catch(() => ""),
         ]);
         if (cancelled) return;
         setEdit(editData);
         setWords(analysisData.words);
         setGlobalIndices((editData.captions.replies ?? []).flatMap((r) => r.word_refs));
+        setAssText(ass);
+        if (!ass) setError("Не удалось загрузить субтитры превью — показываю CSS-фолбэк.");
         setPhase("ready");
         getTimeline(jobId)
           .then((t) => {
@@ -128,6 +222,49 @@ export default function ClipEditorModal({
     };
   }, [jobId, clipId, loadKey, stopPoll]);
 
+  // ── перемотка источника на момент клипа + луп в границах интервала ──
+  // Слушаем сам video-элемент: loadedmetadata → seek на outerStart; timeupdate →
+  // луп если вышли за [outerStart, outerEnd). Реагируем на смену интервала
+  // (outerStart/outerEnd в deps) → видео едет на новый момент.
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || phase === "loading" || phase === "error") return;
+    if (outerEnd <= outerStart) return;
+
+    const seekToStart = () => {
+      // только если реально вне окна — иначе сбивали бы плавное воспроизведение
+      if (video.currentTime < outerStart || video.currentTime >= outerEnd) {
+        try {
+          video.currentTime = outerStart;
+        } catch {
+          /* до loadedmetadata seek может бросить — onLoaded повторит */
+        }
+      }
+    };
+    const onLoaded = () => {
+      try {
+        video.currentTime = outerStart;
+      } catch {
+        /* noop */
+      }
+    };
+    const onTimeUpdate = () => {
+      setNowSec(video.currentTime);
+      if (video.currentTime >= outerEnd || video.currentTime < outerStart - 0.3) {
+        seekToStart();
+      }
+    };
+
+    // если метаданные уже есть (readyState>=1) — сразу seek
+    if (video.readyState >= 1) onLoaded();
+    video.addEventListener("loadedmetadata", onLoaded);
+    video.addEventListener("timeupdate", onTimeUpdate);
+    return () => {
+      video.removeEventListener("loadedmetadata", onLoaded);
+      video.removeEventListener("timeupdate", onTimeUpdate);
+    };
+  }, [outerStart, outerEnd, phase]);
+
   const handleConflict = useCallback(() => {
     setError("Данные обновились — перезагружаю редактор…");
     setLoadKey((k) => k + 1);
@@ -142,7 +279,7 @@ export default function ClipEditorModal({
     });
   };
 
-  // ── refetch analysis после любого изменения интервалов (trim / set-interval) ──
+  // ── refetch analysis + ASS после любого изменения интервалов (trim / set-interval) ──
   const refetchAfter = useCallback(
     async (newEdit: ClipEdit) => {
       const analysisData = await getClipAnalysis(jobId, clipId);
@@ -150,9 +287,11 @@ export default function ClipEditorModal({
       setWords(analysisData.words);
       setGlobalIndices((newEdit.captions.replies ?? []).flatMap((r) => r.word_refs));
       setSelected(new Set());
+      setEditingReply(null);
       setPhase("ready");
+      await refreshAss();
     },
-    [jobId, clipId],
+    [jobId, clipId, refreshAss],
   );
 
   const handleSetInterval = useCallback(
@@ -163,6 +302,16 @@ export default function ClipEditorModal({
       try {
         const newEdit = await setClipInterval(jobId, clipId, edit.version ?? 1, start, end);
         await refetchAfter(newEdit);
+        // reseek видео на новый момент: outerStart изменится → seek-эффект сработает,
+        // но подстрахуемся явно (currentTime может уже быть внутри нового окна).
+        const video = videoRef.current;
+        if (video) {
+          try {
+            video.currentTime = newEdit.source_intervals[0]?.source_start ?? start;
+          } catch {
+            /* noop */
+          }
+        }
       } catch (e) {
         const msg = String(e);
         if (msg.includes("conflict") || msg.includes("409")) handleConflict();
@@ -193,7 +342,7 @@ export default function ClipEditorModal({
     }
   };
 
-  // ── inline-правка субтитра (контракт CaptionOverlay: replyIndex выровнен по replies) ──
+  // ── inline-правка субтитра (контракт: replyIndex выровнен по replies) ──
   const handleCaptionsChange = useCallback(
     async (replyIndex: number, text: string | null) => {
       if (!edit) return;
@@ -208,13 +357,14 @@ export default function ClipEditorModal({
           replies,
         });
         setEdit(newEdit);
+        await refreshAss();
       } catch (e) {
         const msg = String(e);
         if (msg.includes("conflict") || msg.includes("409")) handleConflict();
         else setError(msg);
       }
     },
-    [edit, jobId, clipId, handleConflict],
+    [edit, jobId, clipId, handleConflict, refreshAss],
   );
 
   const handleMarginChange = useCallback(
@@ -227,23 +377,28 @@ export default function ClipEditorModal({
           style: { ...edit.captions.style, margin_v: marginV },
         });
         setEdit(newEdit);
+        await refreshAss();
       } catch (e) {
         const msg = String(e);
         if (msg.includes("conflict") || msg.includes("409")) handleConflict();
         else setError(msg);
       }
     },
-    [edit, jobId, clipId, handleConflict],
+    [edit, jobId, clipId, handleConflict, refreshAss],
   );
 
   const handleStyleClick = useCallback(() => {
     presetRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }, []);
 
-  const handlePresetApplied = (updated: ClipEdit, presetId: string) => {
-    setEdit(updated);
-    setActivePresetId(presetId);
-  };
+  const handlePresetApplied = useCallback(
+    (updated: ClipEdit, presetId: string) => {
+      setEdit(updated);
+      setActivePresetId(presetId);
+      void refreshAss();
+    },
+    [refreshAss],
+  );
 
   const handleRender = async () => {
     if (!edit) return;
@@ -277,12 +432,68 @@ export default function ClipEditorModal({
     }, 2000);
   };
 
+  // ── клип-времена реплик + активная реплика по текущему времени видео ──
+  const replyRanges = useMemo(() => {
+    const replies = edit?.captions.replies ?? [];
+    if (replies.length === 0 || words.length === 0) return [];
+    return buildReplyRanges(replies, words, outerStart);
+  }, [edit, words, outerStart]);
+
+  const activeReplyIndex = useMemo(() => {
+    if (replyRanges.length === 0) return null;
+    const clipNow = nowSec - outerStart;
+    // внутри диапазона реплики
+    for (const r of replyRanges) {
+      if (clipNow >= r.startSec && clipNow <= r.endSec) return r.replyIndex;
+    }
+    // в паузе между репликами → ближайшая прошедшая
+    let prev: number | null = null;
+    for (const r of replyRanges) {
+      if (r.startSec <= clipNow) prev = r.replyIndex;
+      else break;
+    }
+    // до первой реплики → первая
+    return prev ?? replyRanges[0].replyIndex;
+  }, [replyRanges, nowSec, outerStart]);
+
+  // фокус на textarea при входе в правку
+  useEffect(() => {
+    if (editingReply !== null && textareaRef.current) {
+      textareaRef.current.focus();
+      textareaRef.current.select();
+    }
+  }, [editingReply]);
+
+  const openReplyEdit = useCallback(() => {
+    if (activeReplyIndex === null || !edit) return;
+    const replies = edit.captions.replies ?? [];
+    const reply = replies[activeReplyIndex];
+    const original = originalReplyText(replies, words, activeReplyIndex);
+    setDraft(reply?.text_override ?? original);
+    setEditingReply(activeReplyIndex);
+  }, [activeReplyIndex, edit, words]);
+
+  const commitReplyEdit = useCallback(() => {
+    if (editingReply === null || !edit) return;
+    const idx = editingReply;
+    const original = originalReplyText(edit.captions.replies ?? [], words, idx);
+    const trimmed = draft.trim();
+    setEditingReply(null);
+    // пустой или равный оригиналу → снять override (null)
+    void handleCaptionsChange(idx, trimmed && trimmed !== original ? trimmed : null);
+  }, [editingReply, edit, words, draft, handleCaptionsChange]);
+
+  const cancelReplyEdit = useCallback(() => setEditingReply(null), []);
+
   const busy = phase === "saving" || phase === "rendering";
   const totalSec = edit
     ? edit.source_intervals.reduce((s, iv) => s + (iv.source_end - iv.source_start), 0)
     : 0;
   const cutCount = edit ? edit.source_intervals.length - 1 : 0;
   const replies = edit?.captions.replies ?? null;
+  const marginV = edit?.captions.style.margin_v ?? 260;
+  // libass показываем когда ASS есть и инициализация не упала; иначе CSS-фолбэк
+  const useLibass = !!assText && !libassFailed;
 
   return (
     <div
@@ -350,34 +561,108 @@ export default function ClipEditorModal({
           <div className="flex flex-1 flex-col gap-6 overflow-y-auto p-6 lg:flex-row">
             {/* ════ ЛЕВО: видео + пресеты ════ */}
             <div className="flex w-full shrink-0 flex-col gap-3 lg:w-[360px]">
-              <div className="relative overflow-hidden rounded-xl border border-line bg-black">
+              {/* 9:16 контейнер: видео-источник (cover-кроп по центру) + libass canvas + хит-зона */}
+              <div className="relative aspect-[9/16] w-full overflow-hidden rounded-xl border border-line bg-black">
                 <video
                   ref={videoRef}
-                  key={videoSrc}
-                  src={videoSrc}
+                  key={sourceSrc}
+                  src={sourceSrc}
                   controls
                   playsInline
-                  preload="metadata"
-                  className="aspect-[9/16] w-full bg-black object-contain"
+                  preload="auto"
+                  className="absolute inset-0 size-full bg-black object-cover [object-position:center]"
                 />
-                {words.length > 0 && edit && (
-                  <CaptionOverlay
-                    editing
-                    words={words}
-                    clipStart={clip.start}
+
+                {/* субтитры: libass (точно как экспорт) ИЛИ CSS-фолбэк */}
+                {useLibass ? (
+                  <LibassLayer
                     videoRef={videoRef}
-                    replies={replies}
-                    style={edit.captions.style}
-                    highlight={edit.captions.highlight}
-                    onCaptionsChange={handleCaptionsChange}
-                    onMarginChange={handleMarginChange}
-                    onStyleClick={handleStyleClick}
+                    assText={assText}
+                    sourceStart={outerStart}
+                    onError={() => setLibassFailed(true)}
                   />
+                ) : (
+                  words.length > 0 &&
+                  edit && (
+                    <CaptionOverlay
+                      editing
+                      words={words}
+                      clipStart={outerStart}
+                      videoRef={videoRef}
+                      replies={replies}
+                      style={edit.captions.style}
+                      highlight={edit.captions.highlight}
+                      onCaptionsChange={handleCaptionsChange}
+                      onMarginChange={handleMarginChange}
+                      onStyleClick={handleStyleClick}
+                    />
+                  )
+                )}
+
+                {/* хит-зона правки субтитра поверх libass-canvas (canvas не кликается).
+                    Только когда libass активен — у CSS-фолбэка свой клик. */}
+                {useLibass && edit && replyRanges.length > 0 && editingReply === null && (
+                  <button
+                    type="button"
+                    aria-label="Редактировать активный субтитр"
+                    onClick={openReplyEdit}
+                    className="absolute inset-x-0 bottom-0 z-20 h-[28%] w-full cursor-text bg-transparent"
+                  />
+                )}
+
+                {/* мини-тулбар (двигать субтитр ↑↓ + стиль) — только при libass */}
+                {useLibass && edit && editingReply === null && (
+                  <div className="absolute left-1/2 top-2 z-30 flex -translate-x-1/2 items-center gap-1">
+                    <ToolbarBtn
+                      title="Поднять субтитр"
+                      onClick={() => handleMarginChange(clampMargin(marginV + 60))}
+                    >
+                      <ArrowUp className="size-3.5" />
+                    </ToolbarBtn>
+                    <ToolbarBtn
+                      title="Опустить субтитр"
+                      onClick={() => handleMarginChange(clampMargin(marginV - 60))}
+                    >
+                      <ArrowDown className="size-3.5" />
+                    </ToolbarBtn>
+                    <ToolbarBtn title="Стиль" onClick={handleStyleClick}>
+                      <Palette className="size-3.5" />
+                    </ToolbarBtn>
+                  </div>
+                )}
+
+                {/* inline-textarea правки активной реплики */}
+                {useLibass && editingReply !== null && (
+                  <div className="absolute inset-x-3 bottom-[10%] z-40">
+                    <textarea
+                      ref={textareaRef}
+                      value={draft}
+                      onChange={(e) => setDraft(e.target.value)}
+                      onBlur={commitReplyEdit}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && !e.shiftKey) {
+                          e.preventDefault();
+                          commitReplyEdit();
+                        } else if (e.key === "Escape") {
+                          e.preventDefault();
+                          cancelReplyEdit();
+                        }
+                      }}
+                      rows={2}
+                      placeholder="Текст субтитра…"
+                      className="w-full resize-none rounded-lg border border-accent/60 bg-black/80 p-2 text-center text-sm font-semibold text-white outline-none focus:ring-2 focus:ring-accent/50"
+                    />
+                    <p className="mt-1 text-center text-[10px] text-white/70">
+                      Enter — сохранить · Esc — отмена
+                    </p>
+                  </div>
                 )}
               </div>
 
               <p className="text-xs leading-snug text-muted">
-                Кликни по субтитру на видео — правь текст. Стрелки ↑↓ — двигают субтитр. Стиль — ниже.
+                {useLibass
+                  ? "Клик по субтитру внизу видео — правь текст. ↑↓ — двигают субтитр. Субтитры точно как в экспорте."
+                  : "Кликни по субтитру на видео — правь текст. Стрелки ↑↓ — двигают субтитр. Стиль — ниже."}
               </p>
 
               {/* галерея стилей */}
@@ -423,8 +708,7 @@ export default function ClipEditorModal({
                       onIntervalChange={handleSetInterval}
                     />
                     <p className="text-xs leading-snug text-muted">
-                      Тащи блок — двигать; края — короче/длиннее. Цветные маркеры = сильные
-                      моменты ИИ (клик — прыгнуть). Превью обновится после рендера.
+                      Двигаешь блок — видео едет на момент. Субтитры — точно как в экспорте.
                     </p>
                   </>
                 ) : (
@@ -522,8 +806,8 @@ export default function ClipEditorModal({
                 ) : (
                   <>
                     <p className="text-xs leading-snug text-muted">
-                      Клип перерендерится с вырезками, стилем и правками субтитров. Видео слева
-                      обновится автоматически.
+                      Клип перерендерится с вырезками, стилем и правками субтитров — финальный
+                      экспорт совпадёт с превью.
                     </p>
                     <button
                       disabled={busy}
@@ -542,4 +826,33 @@ export default function ClipEditorModal({
       </div>
     </div>
   );
+}
+
+function ToolbarBtn({
+  children,
+  title,
+  onClick,
+}: {
+  children: React.ReactNode;
+  title: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      title={title}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
+      className="inline-flex size-7 items-center justify-center rounded-md bg-black/70 text-white/90 backdrop-blur transition hover:bg-accent hover:text-white"
+    >
+      {children}
+    </button>
+  );
+}
+
+// margin_v кламп в разумный safe-диапазон (ASS-единицы, PlayResY=1920).
+function clampMargin(m: number): number {
+  return Math.max(40, Math.min(900, Math.round(m)));
 }
