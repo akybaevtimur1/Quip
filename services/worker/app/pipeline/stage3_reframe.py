@@ -217,18 +217,31 @@ def _pick_target(active: list[SpeakerTrack], speak_threshold: float) -> SpeakerT
 
 
 def _track_trajectory(
-    t: SpeakerTrack, f0: int, f1: int, fps: float, smoothing: float
+    t: SpeakerTrack,
+    f0: int,
+    f1: int,
+    fps: float,
+    smoothing: float,
+    min_delta: float = 0.03,
 ) -> tuple[TrackPoint, ...]:
     """Сглаженная cx-траектория дорожки внутри шота → TrackPoint'ы (клип-время = кадр/fps). PURE.
 
     init = первый реальный cx (пан не «течёт» от центра). Нет пересечения → точка-фолбэк cx=0.5.
+    Dead-zone: новый кейфрейм только при сдвиге ≥ min_delta от последнего — убирает
+    per-frame дрожание детектора, сохраняет следование реальному движению человека.
     """
     lo, hi = max(t.f0, f0), min(t.f1, f1)
     raw = [t.cx[f - t.f0] for f in range(lo, hi)]
     if not raw:
         return (TrackPoint(t=f0 / fps, mode="fill", cx=0.5),)
     sm = smooth_centers([c for c in raw], smoothing, init=raw[0])
-    return tuple(TrackPoint(t=(lo + i) / fps, mode="fill", cx=c) for i, c in enumerate(sm))
+    last_cx = sm[0]
+    pts: list[TrackPoint] = [TrackPoint(t=lo / fps, mode="fill", cx=last_cx)]
+    for i, c in enumerate(sm[1:], 1):
+        if abs(c - last_cx) >= min_delta:
+            pts.append(TrackPoint(t=(lo + i) / fps, mode="fill", cx=c))
+            last_cx = c
+    return tuple(pts)
 
 
 def plan_regions(
