@@ -375,7 +375,28 @@ Get-Content data\comedy01\reframe_clip_01.json | python -m json.tool | Select-Ob
 
 ---
 
-## 8. YouTube куки (ВАЖНО для скачивания)
+## 8. YouTube скачивание: PO-токены + куки (ВАЖНО)
+
+### PO-токен провайдер (главный рычаг надёжности, 2026)
+
+YouTube требует **PO-токены** (Proof-of-Origin) для многих форматов — без них «Sign in to
+confirm you're not a bot» / HTTP 403. Решение поставлено (2026-06-11):
+- **yt-dlp** обновлён до 2026.6.9 (обновлять часто: `uv lock --upgrade-package yt-dlp; uv sync`).
+- Плагин **`bgutil-ytdlp-pot-provider`** (в депах воркера) — yt-dlp подхватывает автоматически.
+- Бэкенд-провайдер — **Docker-контейнер** на :4416 (генерит токены под каждое видео):
+  ```powershell
+  # один раз (демон Docker Desktop должен быть запущен):
+  docker run --name bgutil-provider -d --init --restart unless-stopped -p 4416:4416 brainicism/bgutil-ytdlp-pot-provider
+  # проверка: должно вернуть {"version":"1.3.1"}
+  (Invoke-WebRequest http://127.0.0.1:4416/ping -UseBasicParsing).Content
+  ```
+  `--restart unless-stopped` → контейнер сам поднимается при старте Docker Desktop.
+- ⚠️ **ПЕРЕД ДЕМО:** запусти Docker Desktop (демон) → провайдер поднимется сам. Проверка
+  цепочки: `uv run yt-dlp -v --simulate <url>` → в логе `[pot] PO Token Providers: bgutil:http`.
+- Альтернатива без Docker: нативный Node-сервер провайдера (Node 22 стоит) — см. репо
+  Brainicism/bgutil-ytdlp-pot-provider (`server/`, npm i + build + `node build/main.js`).
+
+### Куки (дополнение к PO-токенам)
 
 Chrome 127+ и Edge сломали DPAPI-расшифровку кук — `--cookies-from-browser` падает.
 
