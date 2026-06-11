@@ -79,6 +79,27 @@ def test_crop_split_override_saved(monkeypatch, tmp_path):
     assert ovs[-1]["mode"] == "split" and ovs[-1]["center_b"] == 0.75
 
 
+def test_crop_auto_clears_overrides(monkeypatch, tmp_path):
+    client, job = _client(monkeypatch, tmp_path)
+    v = client.get(f"/jobs/{job}/clips/clip_01/edit").json()["version"]
+    r1 = client.post(
+        f"/jobs/{job}/clips/clip_01/edit/crop",
+        json={"version": v, "source_start": 0.0, "source_end": 3.0, "mode": "fit"},
+    )
+    assert len(r1.json()["reframe_overrides"]) == 1
+    r2 = client.post(
+        f"/jobs/{job}/clips/clip_01/edit/crop",
+        json={
+            "version": r1.json()["version"],
+            "source_start": 0.0,
+            "source_end": 3.0,
+            "mode": "auto",
+        },
+    )
+    assert r2.status_code == 200
+    assert r2.json()["reframe_overrides"] == []
+
+
 def test_crop_invalid_mode_422(monkeypatch, tmp_path):
     client, job = _client(monkeypatch, tmp_path)
     v = client.get(f"/jobs/{job}/clips/clip_01/edit").json()["version"]

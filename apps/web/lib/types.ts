@@ -6,6 +6,8 @@ export type {
   CaptionReply,
   CaptionStyle,
   CaptionTrack,
+  Chapter,
+  ChaptersData,
   ClipEdit,
   CropOverride,
   HighlightStyle,

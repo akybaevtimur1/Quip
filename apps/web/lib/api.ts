@@ -1,4 +1,12 @@
-import type { CaptionPreset, CaptionTrack, ClipEdit, Job, TimelineData, Word } from "./types";
+import type {
+  CaptionPreset,
+  CaptionTrack,
+  ChaptersData,
+  ClipEdit,
+  Job,
+  TimelineData,
+  Word,
+} from "./types";
 
 // База воркера: реальный worker через env, иначе встроенный мок (/api/mock).
 const BASE = process.env.NEXT_PUBLIC_WORKER_URL ?? "/api/mock";
@@ -41,6 +49,35 @@ export async function getJob(id: string): Promise<Job> {
 export async function getTimeline(jobId: string): Promise<TimelineData> {
   const res = await fetch(`${BASE}/jobs/${jobId}/timeline`, { cache: "no-store" });
   if (!res.ok) throw new Error(`getTimeline failed: ${res.status}`);
+  return res.json();
+}
+
+export async function getChapters(jobId: string): Promise<ChaptersData> {
+  // AI-карта видео (главы). Первый вызов стартует генерацию (status=pending) → поллить.
+  const res = await fetch(`${BASE}/jobs/${jobId}/chapters`, { cache: "no-store" });
+  if (!res.ok) throw new Error(`getChapters failed: ${res.status}`);
+  return res.json();
+}
+
+export async function setCropOverride(
+  jobId: string,
+  clipId: string,
+  version: number,
+  body: {
+    source_start: number;
+    source_end: number;
+    mode: "fill" | "fit" | "split" | "auto";
+    center?: number | null;
+    center_b?: number | null;
+  },
+): Promise<ClipEdit> {
+  const res = await fetch(`${BASE}/jobs/${jobId}/clips/${clipId}/edit/crop`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ version, ...body }),
+  });
+  if (res.status === 409) throw new Error("Edit conflict — reload and retry");
+  if (!res.ok) throw new Error(`setCropOverride failed: ${res.status}`);
   return res.json();
 }
 

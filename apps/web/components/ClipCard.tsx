@@ -1,11 +1,11 @@
 "use client";
 
-import { Check, Download, Maximize2, Minimize2, Pencil, X } from "lucide-react";
+import { Check, Download, Maximize2, Minimize2, Pencil } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { clipRange } from "@/lib/format";
 import type { ClipOut } from "@/lib/types";
 import { CaptionOverlay } from "./CaptionOverlay";
-import ClipEditorModal from "./ClipEditorModal";
 import { ReasonChip } from "./ReasonChip";
 
 const WORKER_BASE = process.env.NEXT_PUBLIC_WORKER_URL ?? "";
@@ -26,9 +26,7 @@ export function ClipCard({
   selected: boolean;
   onToggle: () => void;
 }) {
-  const [videoSrc, setVideoSrc] = useState(() => resolveUrl(clip.video_url));
-  const [showEditor, setShowEditor] = useState(false);
-  const [renderDone, setRenderDone] = useState(false);
+  const [videoSrc] = useState(() => resolveUrl(clip.video_url));
   const [showCaptions, setShowCaptions] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
@@ -49,14 +47,6 @@ export function ClipCard({
       containerRef.current?.requestFullscreen();
     }
   };
-
-  const handleRenderDone = (url: string) => {
-    setVideoSrc(url);
-    setRenderDone(true);
-    setTimeout(() => setRenderDone(false), 4000);
-  };
-
-  const handleToggleEditor = () => setShowEditor((v) => !v);
 
   return (
     <article
@@ -119,15 +109,6 @@ export function ClipCard({
           </button>
         )}
 
-        {/* render-done flash */}
-        {renderDone && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black/60 animate-pulse pointer-events-none">
-            <span className="rounded-full bg-green-500/90 px-4 py-2 text-sm font-semibold text-white">
-              ✓ Обновлено
-            </span>
-          </div>
-        )}
-
         {/* select button */}
         <button
           type="button"
@@ -165,31 +146,17 @@ export function ClipCard({
             <Download className="size-4" />
             Скачать
           </a>
-          <button
-            type="button"
-            onClick={handleToggleEditor}
-            className={`inline-flex items-center justify-center gap-1.5 rounded-xl border px-3 py-2 text-sm font-semibold transition focus:outline-none ${
-              showEditor
-                ? "border-accent/60 bg-accent/10 text-accent"
-                : "border-line bg-surface-2 text-ink hover:border-accent/50 hover:text-accent"
-            }`}
+          {/* Страница-редактор: возврат через «← Все клипы» (/?job=) или Back —
+              грид восстанавливается deep-link'ом, ничего не теряется. */}
+          <Link
+            href={`/edit/${jobId}/${clip.id}`}
+            className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-line bg-surface-2 px-3 py-2 text-sm font-semibold text-ink transition hover:border-accent/50 hover:text-accent focus:outline-none"
           >
-            {showEditor ? <X className="size-4" /> : <Pencil className="size-4" />}
-            {showEditor ? "Закрыть" : "Редактировать"}
-          </button>
+            <Pencil className="size-4" />
+            Редактировать
+          </Link>
         </div>
       </div>
-
-      {/* ── modal editor ── */}
-      {showEditor && (
-        <ClipEditorModal
-          jobId={jobId}
-          clipId={clip.id}
-          clip={clip}
-          onClose={() => setShowEditor(false)}
-          onRenderDone={handleRenderDone}
-        />
-      )}
     </article>
   );
 }

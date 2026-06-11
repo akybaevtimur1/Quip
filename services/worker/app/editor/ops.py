@@ -134,3 +134,13 @@ def set_crop_override(edit: ClipEdit, override: CropOverride) -> ClipEdit:
         if ov.source_end <= override.source_start or ov.source_start >= override.source_end
     ]
     return edit.model_copy(update={"reframe_overrides": kept + [override]})
+
+
+def clear_crop_overrides(edit: ClipEdit, source_start: float, source_end: float) -> ClipEdit:
+    """Убрать все overrides, пересекающие диапазон → вернуть авто-reframe (mode=\"auto\" в UI)."""
+    kept = [
+        ov
+        for ov in edit.reframe_overrides
+        if ov.source_end <= source_start or ov.source_start >= source_end
+    ]
+    return edit.model_copy(update={"reframe_overrides": kept})

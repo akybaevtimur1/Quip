@@ -23,7 +23,14 @@ from app.config import get_settings
 from app.editor import presets as presets_mod
 from app.editor import store
 from app.editor.captions_v2 import compile_ass
-from app.editor.ops import add_section, apply_extend, apply_trim, set_crop_override, set_interval
+from app.editor.ops import (
+    add_section,
+    apply_extend,
+    apply_trim,
+    clear_crop_overrides,
+    set_crop_override,
+    set_interval,
+)
 from app.editor.store import EditConflict
 from app.editor.timeline import build_timeline_data
 from app.editor.timemap import ClipTimeMap
@@ -192,7 +199,7 @@ class CropBody(BaseModel):
     version: int
     source_start: float
     source_end: float
-    mode: Literal["fill", "fit", "split"]
+    mode: Literal["fill", "fit", "split", "auto"]  # auto = снять override (вернуть авто)
     center: float | None = Field(default=None, ge=0.0, le=1.0)
     center_b: float | None = Field(default=None, ge=0.0, le=1.0)  # split: нижняя половина
 
@@ -278,6 +285,9 @@ def op_extend(job_id: str, clip_id: str, body: ExtendBody) -> dict[str, Any]:
 @app.post("/jobs/{job_id}/clips/{clip_id}/edit/crop")
 def op_crop(job_id: str, clip_id: str, body: CropBody) -> dict[str, Any]:
     edit = _load_or_404(job_id, clip_id)
+    if body.mode == "auto":
+        new = clear_crop_overrides(edit, body.source_start, body.source_end)
+        return _save_or_409(job_id, clip_id, new, body.version)
     ov = CropOverride(
         source_start=body.source_start,
         source_end=body.source_end,
