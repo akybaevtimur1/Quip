@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from app.editor.preset_seeds import seed_presets
 from app.models import CaptionPreset, ClipEdit
 from app.run import DATA_ROOT
 
@@ -21,16 +22,25 @@ def _presets_path() -> Path:
     return DATA_ROOT / "presets.json"
 
 
-def list_presets() -> list[CaptionPreset]:
+def _load_user_presets() -> list[CaptionPreset]:
+    """Только сохранённые пользователем пресеты (файл). Без сидов."""
     path = _presets_path()
     if not path.exists():
         return []
     return [CaptionPreset.model_validate(x) for x in json.loads(path.read_text(encoding="utf-8"))]
 
 
+def list_presets() -> list[CaptionPreset]:
+    """Встроенные сиды (первыми, A–D) + пользовательские. Дедуп по id — сид побеждает."""
+    seeds = seed_presets()
+    seed_ids = {p.id for p in seeds}
+    user = [p for p in _load_user_presets() if p.id not in seed_ids]
+    return seeds + user
+
+
 def save_preset(preset: CaptionPreset) -> CaptionPreset:
-    """Добавить/заменить пресет по id, записать файл."""
-    items = [p for p in list_presets() if p.id != preset.id]
+    """Добавить/заменить пользовательский пресет по id, записать файл (сиды не трогаем)."""
+    items = [p for p in _load_user_presets() if p.id != preset.id]
     items.append(preset)
     _presets_path().parent.mkdir(parents=True, exist_ok=True)
     _presets_path().write_text(

@@ -1,22 +1,67 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import type { CaptionReply, Word } from "@/lib/types";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { CaptionReply, CaptionStyle, HighlightStyle, Word } from "@/lib/types";
+
+// ────────────────────────────────────────────────────────────────────────────
+// Caption Engine v2 — живой рендер субтитров из модели стиля (CaptionStyle +
+// HighlightStyle). НЕТ тёмной плашки по умолчанию (читаемость = контур + тень).
+// Плашка всего блока — только если style.box_color задан. Караоке-подсветка
+// активного слова по highlight (box / перекраска / scale). highlight=null →
+// фраза целиком без караоке. См. docs .../2026-06-11-editor-v2-design.md §A.
+// ────────────────────────────────────────────────────────────────────────────
 
 const WORDS_PER_PAGE = 5;
 const SENT_END = /[.!?…,]/;
 
-// Accent color for the active-word highlight box.
-const HIGHLIGHT_COLOR = "#ff5a3d"; // coral (matches brand --color-accent)
+// ASS-холст: PlayResY=1920. Размеры стиля заданы в этих единицах — переводим в
+// пиксели относительно ВЫСОТЫ видео-контейнера (а не хардкод-px).
+const ASS_PLAY_RES_Y = 1920;
+
+// Дефолты модели (зеркало app/models.py CaptionStyle/HighlightStyle) — на случай
+// частичного объекта из API.
+const DEFAULT_STYLE: Required<CaptionStyle> = {
+  font: "Montserrat",
+  size: 90,
+  color: "#FFFFFF",
+  outline_color: "#000000",
+  outline_w: 6,
+  shadow: 2,
+  box_color: null,
+  box_opacity: 0.0,
+  box_radius: 0,
+  margin_v: 260,
+  alignment: 2,
+  uppercase: true,
+};
+
+function resolveStyle(style?: CaptionStyle | null): Required<CaptionStyle> {
+  return { ...DEFAULT_STYLE, ...(style ?? {}) };
+}
+
+// ── safe-area ──────────────────────────────────────────────────────────────
+// Текст живёт в нижних ~78% высоты: bottom от margin_v, но не выше этого порога.
+const SAFE_TOP_FRAC = 0.22; // верхние 22% — запретная зона
+const MAX_WIDTH_FRAC = 0.92; // ширина ≤ 92%
+
+interface Token {
+  text: string;
+  fromMs: number;
+  toMs: number;
+}
 
 interface Page {
   startMs: number;
   endMs: number;
-  tokens: { text: string; fromMs: number; toMs: number }[];
-  // index into replies[] if we have override text
+  tokens: Token[];
+  // index into replies[] (positional) — для text_override и inline-правки
   replyIndex: number;
 }
 
+/**
+ * Группировка слов в реплики (≤5 слов, разрыв на конце предложения при ≥2 словах).
+ * Зеркалит логику бэка group_words достаточно для превью караоке.
+ */
 function buildPages(words: Word[], clipStart: number): Page[] {
   if (words.length === 0) return [];
   const pages: Page[] = [];
@@ -43,15 +88,80 @@ function buildPages(words: Word[], clipStart: number): Page[] {
   return pages;
 }
 
-interface Props {
+/**
+ * Жирный контур через многослойный text-shadow (text-stroke в Safari режет тонко).
+ * Радиус контура масштабируем от высоты контейнера (как и размер шрифта).
+ */
+function buildTextShadow(outlineColor: string, outlinePx: number, shadowPx: number): string {
+  const r = Math.max(0.5, outlinePx);
+  const layers: string[] = [];
+  // 8 направлений × 2 кольца → плотный контур без дыр
+  const steps = 12;
+  for (let k = 0; k < steps; k++) {
+    const ang = (k / steps) * Math.PI * 2;
+    const dx = Math.cos(ang) * r;
+    const dy = Math.sin(ang) * r;
+    layers.push(`${dx.toFixed(2)}px ${dy.toFixed(2)}px 0 ${outlineColor}`);
+  }
+  // дроп-тень под всем словом
+  if (shadowPx > 0) {
+    layers.push(`0 ${shadowPx.toFixed(1)}px ${(shadowPx * 1.2).toFixed(1)}px rgba(0,0,0,0.55)`);
+  }
+  return layers.join(", ");
+}
+
+export interface CaptionOverlayProps {
+  // ── базовые (обратная совместимость) ──
   words: Word[];
   clipStart: number;
   videoRef: React.RefObject<HTMLVideoElement | null>;
-  // optional: when editor is open, use edited text_override from replies
+  /** text_override из replies (позиционно по replyIndex). */
   replies?: CaptionReply[] | null;
+
+  // ── новые (Caption Engine v2) ──
+  /** Модель стиля. Если не задана — дефолт пресета A. */
+  style?: CaptionStyle | null;
+  /** Караоке. null → без караоке (стиль D, фраза целиком). undefined → дефолт-караоке. */
+  highlight?: HighlightStyle | null;
+  /** true → inline-правка текста + тулбар (редактор). false → только показ (грид). */
+  editing?: boolean;
+  /** Колбэк при изменении текста реплики (inline-правка). Родитель шлёт PATCH. */
+  onCaptionsChange?: (replyIndex: number, text: string | null) => void;
+  /** Колбэк при изменении позиции (↕): новый margin_v (ASS-единицы). */
+  onMarginChange?: (marginV: number) => void;
+  /** Открыть полоску пресетов (🎨). */
+  onStyleClick?: () => void;
+  // jobId/clipId/version прокидываются родителем в onCaptionsChange-обработчик —
+  // сам оверлей сетевых вызовов не делает (родитель владеет PATCH).
+  jobId?: string;
+  clipId?: string;
+  version?: number;
 }
 
-export function CaptionOverlay({ words, clipStart, videoRef, replies }: Props) {
+export function CaptionOverlay({
+  words,
+  clipStart,
+  videoRef,
+  replies,
+  style: styleProp,
+  highlight: highlightProp,
+  editing = false,
+  onCaptionsChange,
+  onMarginChange,
+  onStyleClick,
+}: CaptionOverlayProps) {
+  const style = useMemo(() => resolveStyle(styleProp), [styleProp]);
+  // highlight: undefined → дефолтное караоке; null → выключено (стиль D)
+  const karaokeOff = highlightProp === null;
+  const highlight: Required<HighlightStyle> = useMemo(
+    () => ({
+      color: highlightProp?.color ?? "#FFE000",
+      scale: highlightProp?.scale ?? 1.0,
+      box: highlightProp?.box ?? false,
+    }),
+    [highlightProp],
+  );
+
   const pages = useMemo(() => buildPages(words, clipStart), [words, clipStart]);
 
   const [pageIdx, setPageIdx] = useState(-1);
@@ -60,6 +170,25 @@ export function CaptionOverlay({ words, clipStart, videoRef, replies }: Props) {
   const prevToken = useRef(-1);
   const rafRef = useRef<number>(0);
 
+  // ── измеряем высоту контейнера, чтобы перевести ASS-единицы в px ──
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const [containerH, setContainerH] = useState(0);
+  useLayoutEffect(() => {
+    const el = wrapRef.current?.parentElement;
+    if (!el) return;
+    const update = () => setContainerH(el.clientHeight);
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  // ── inline-edit state ──
+  const [editIdx, setEditIdx] = useState<number | null>(null);
+  const [draft, setDraft] = useState("");
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // ── караоке-трекер по времени видео ──
   useEffect(() => {
     const video = videoRef.current;
     if (!video || pages.length === 0) return;
@@ -74,9 +203,18 @@ export function CaptionOverlay({ words, clipStart, videoRef, replies }: Props) {
           break;
         }
       }
+      // между страницами держим ближайшую прошедшую (стабильность кадра)
+      if (pi === -1) {
+        for (let i = pages.length - 1; i >= 0; i--) {
+          if (ms >= pages[i].startMs && ms < pages[i].startMs + 1) {
+            pi = i;
+            break;
+          }
+        }
+      }
 
       let ti = -1;
-      if (pi >= 0) {
+      if (pi >= 0 && !karaokeOff) {
         const toks = pages[pi].tokens;
         for (let j = 0; j < toks.length; j++) {
           if (ms >= toks[j].fromMs && ms <= toks[j].toMs) {
@@ -84,7 +222,6 @@ export function CaptionOverlay({ words, clipStart, videoRef, replies }: Props) {
             break;
           }
         }
-        // if between words keep the last highlighted token visible
         if (ti === -1 && ms > pages[pi].startMs) {
           for (let j = toks.length - 1; j >= 0; j--) {
             if (ms > toks[j].fromMs) {
@@ -109,72 +246,261 @@ export function CaptionOverlay({ words, clipStart, videoRef, replies }: Props) {
 
     rafRef.current = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(rafRef.current);
-  }, [videoRef, pages]);
+  }, [videoRef, pages, karaokeOff]);
 
-  const page = pageIdx >= 0 ? pages[pageIdx] : null;
-  if (!page) return null;
+  // В режиме правки: если плеер на паузе и страницы нет — показываем первую,
+  // чтобы было что редактировать.
+  const activePageIdx = pageIdx >= 0 ? pageIdx : editing && pages.length > 0 ? 0 : -1;
+  const page = activePageIdx >= 0 ? pages[activePageIdx] : null;
 
-  // Check for edited text override for this page
+  // фокус на textarea при входе в правку
+  useEffect(() => {
+    if (editIdx !== null && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
+  }, [editIdx]);
+
+  if (!page || containerH === 0) {
+    // всё равно держим wrapRef в DOM для измерения родителя
+    return <div ref={wrapRef} className="absolute inset-0 pointer-events-none" aria-hidden />;
+  }
+
+  // ── ASS-единицы → px ──
+  const scale = containerH / ASS_PLAY_RES_Y;
+  const fontPx = Math.round(style.size * scale);
+  const outlinePx = style.outline_w * scale;
+  const shadowPx = style.shadow * scale;
+  // bottom от margin_v, но кламп: текст не выше нижних (1 - SAFE_TOP_FRAC)
+  const marginBottomPx = style.margin_v * scale;
+  const maxBottomPx = containerH * (1 - SAFE_TOP_FRAC) - fontPx;
+  const bottomPx = Math.min(marginBottomPx, Math.max(0, maxBottomPx));
+
+  const textShadow = buildTextShadow(style.outline_color, outlinePx, shadowPx);
+  const fontFamily =
+    style.font === "Montserrat"
+      ? "var(--font-display), 'Montserrat', system-ui, sans-serif"
+      : `${style.font}, var(--font-display), system-ui, sans-serif`;
+
+  // плашка всего блока — только если задана
+  const blockBg =
+    style.box_color != null
+      ? hexWithOpacity(style.box_color, style.box_opacity || 1)
+      : "transparent";
+
+  const replyIdx = page.replyIndex;
   const override =
-    replies && page.replyIndex < replies.length
-      ? replies[page.replyIndex]?.text_override ?? null
-      : null;
+    replies && replyIdx < replies.length ? (replies[replyIdx]?.text_override ?? null) : null;
+  const isEditingThis = editing && editIdx === replyIdx;
+
+  const transformText = (t: string) => (style.uppercase ? t.toUpperCase() : t);
+
+  const startEdit = () => {
+    if (!editing) return;
+    setDraft(override ?? page.tokens.map((t) => t.text).join(" "));
+    setEditIdx(replyIdx);
+  };
+
+  const commitEdit = () => {
+    if (editIdx === null) return;
+    const trimmed = draft.trim();
+    const original = pages[editIdx]?.tokens.map((t) => t.text).join(" ") ?? "";
+    // пустой или равный оригиналу → снять override (null)
+    onCaptionsChange?.(editIdx, trimmed && trimmed !== original ? trimmed : null);
+    setEditIdx(null);
+  };
+
+  const cancelEdit = () => setEditIdx(null);
 
   return (
-    <div
-      className="absolute left-0 right-0 px-3 text-center pointer-events-none select-none"
-      // 260/1920 ≈ 13.5% from bottom — matches ASS MarginV=260 so overlay covers burned-in subs
-      style={{ bottom: "13.5%" }}
-      aria-hidden
-    >
-      {/* Dark strip behind all words covers burned-in ASS on any background */}
+    <div ref={wrapRef} className="absolute inset-0 overflow-hidden" aria-hidden={!editing}>
       <div
+        className="absolute left-1/2 -translate-x-1/2 text-center"
         style={{
-          display: "inline-block",
-          background: "rgba(0,0,0,0.72)",
-          borderRadius: "8px",
-          padding: "4px 10px 6px",
-          maxWidth: "92%",
+          bottom: `${bottomPx}px`,
+          width: `${MAX_WIDTH_FRAC * 100}%`,
+          pointerEvents: editing ? "auto" : "none",
+          userSelect: editing ? "auto" : "none",
         }}
       >
-        {override ? (
-          // Edited text: show as one block, no per-word animation (no word timings available)
-          <span
-            className="font-display font-black uppercase"
-            style={{ fontSize: "clamp(18px, 4.5vw, 26px)", lineHeight: 1.3, color: "#fff" }}
-          >
-            {override}
-          </span>
-        ) : (
-          // Normal mode: per-word karaoke highlight
-          <span
-            className="inline-flex flex-wrap justify-center gap-x-[0.3em] gap-y-1 font-display font-black uppercase"
-            style={{ fontSize: "clamp(18px, 4.5vw, 26px)", lineHeight: 1.3 }}
-          >
-            {page.tokens.map((tok, i) => {
-              const active = i === tokenIdx;
-              return (
-                <span
-                  key={i}
-                  style={{
-                    display: "inline-block",
-                    color: active ? "#000" : "#fff",
-                    background: active ? HIGHLIGHT_COLOR : "transparent",
-                    borderRadius: "5px",
-                    padding: active ? "0 7px 1px" : "0 1px",
-                    transition: "background 80ms ease, color 80ms ease",
-                    textShadow: active
-                      ? "none"
-                      : undefined,
-                  }}
+        {/* мини-тулбар (режим правки) */}
+        {editing && !isEditingThis && (
+          <div className="mb-2 flex items-center justify-center gap-1">
+            <ToolbarBtn title="Текст" onClick={startEdit}>
+              ✎
+            </ToolbarBtn>
+            {onMarginChange && (
+              <>
+                <ToolbarBtn
+                  title="Поднять субтитр"
+                  onClick={() => onMarginChange(clampMargin(style.margin_v + 60))}
                 >
-                  {tok.text}
-                </span>
-              );
-            })}
-          </span>
+                  ↑
+                </ToolbarBtn>
+                <ToolbarBtn
+                  title="Опустить субтитр"
+                  onClick={() => onMarginChange(clampMargin(style.margin_v - 60))}
+                >
+                  ↓
+                </ToolbarBtn>
+              </>
+            )}
+            {onStyleClick && (
+              <ToolbarBtn title="Стиль" onClick={onStyleClick}>
+                🎨
+              </ToolbarBtn>
+            )}
+          </div>
         )}
+
+        <div
+          onClick={editing && !isEditingThis ? startEdit : undefined}
+          style={{
+            display: "inline-block",
+            maxWidth: "100%",
+            background: blockBg,
+            borderRadius: style.box_radius ? `${style.box_radius * scale}px` : undefined,
+            padding: style.box_color != null ? `${4 * scale}px ${12 * scale}px` : undefined,
+            cursor: editing && !isEditingThis ? "text" : "default",
+          }}
+        >
+          {isEditingThis ? (
+            <textarea
+              ref={inputRef}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onBlur={commitEdit}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  commitEdit();
+                } else if (e.key === "Escape") {
+                  e.preventDefault();
+                  cancelEdit();
+                }
+              }}
+              rows={2}
+              className="w-full resize-none bg-black/70 text-center outline-none"
+              style={{
+                fontFamily,
+                fontWeight: 900,
+                fontSize: `${fontPx}px`,
+                lineHeight: 1.25,
+                color: "#fff",
+                borderRadius: `${8 * scale}px`,
+                padding: `${4 * scale}px ${8 * scale}px`,
+              }}
+            />
+          ) : karaokeOff || override ? (
+            // фраза целиком (стиль D или отредактированный текст без пословных таймингов)
+            <span
+              style={{
+                fontFamily,
+                fontWeight: 900,
+                fontSize: `${fontPx}px`,
+                lineHeight: 1.25,
+                color: style.color,
+                textShadow,
+                wordBreak: "break-word",
+              }}
+            >
+              {transformText(override ?? page.tokens.map((t) => t.text).join(" "))}
+            </span>
+          ) : (
+            // караоке: пословная подсветка
+            <span
+              className="inline-flex flex-wrap justify-center"
+              style={{
+                fontFamily,
+                fontWeight: 900,
+                fontSize: `${fontPx}px`,
+                lineHeight: 1.25,
+                columnGap: "0.3em",
+                rowGap: `${4 * scale}px`,
+              }}
+            >
+              {page.tokens.map((tok, i) => {
+                const active = i === tokenIdx;
+                if (active && highlight.box) {
+                  // залитая плашка: текст тёмный, фон = highlight.color
+                  return (
+                    <span
+                      key={i}
+                      style={{
+                        display: "inline-block",
+                        color: "#000",
+                        background: highlight.color,
+                        borderRadius: `${6 * scale}px`,
+                        padding: `0 ${7 * scale}px`,
+                        transform: highlight.scale !== 1 ? `scale(${highlight.scale})` : undefined,
+                        transition: "background 80ms ease, color 80ms ease",
+                      }}
+                    >
+                      {transformText(tok.text)}
+                    </span>
+                  );
+                }
+                return (
+                  <span
+                    key={i}
+                    style={{
+                      display: "inline-block",
+                      // box=false → перекраска активного слова в highlight.color
+                      color: active ? highlight.color : style.color,
+                      textShadow,
+                      transform:
+                        active && highlight.scale !== 1 ? `scale(${highlight.scale})` : undefined,
+                      transformOrigin: "center bottom",
+                      transition: "color 80ms ease, transform 80ms ease",
+                    }}
+                  >
+                    {transformText(tok.text)}
+                  </span>
+                );
+              })}
+            </span>
+          )}
+        </div>
       </div>
     </div>
   );
+}
+
+function ToolbarBtn({
+  children,
+  title,
+  onClick,
+}: {
+  children: React.ReactNode;
+  title: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      title={title}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
+      className="inline-flex size-7 items-center justify-center rounded-md bg-black/70 text-sm text-white/90 backdrop-blur transition hover:bg-accent hover:text-white"
+    >
+      {children}
+    </button>
+  );
+}
+
+// margin_v кламп в разумный safe-диапазон (ASS-единицы, PlayResY=1920).
+function clampMargin(m: number): number {
+  return Math.max(40, Math.min(900, Math.round(m)));
+}
+
+// #RRGGBB + opacity → rgba()
+function hexWithOpacity(hex: string, opacity: number): string {
+  const h = hex.replace("#", "");
+  if (h.length !== 6) return hex;
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${Math.max(0, Math.min(1, opacity))})`;
 }

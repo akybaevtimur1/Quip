@@ -18,6 +18,11 @@ class EditConflict(Exception):
     """Версия edit-state в запросе устарела (optimistic-lock)."""
 
 
+def data_root() -> Path:
+    """Текущий DATA_ROOT (читается в рантайме → переживает monkeypatch в тестах)."""
+    return DATA_ROOT
+
+
 def _mirror_path(job_id: str, clip_id: str) -> Path:
     return DATA_ROOT / job_id / "clips" / clip_id / "edit.json"
 

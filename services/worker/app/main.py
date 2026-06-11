@@ -19,11 +19,20 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from app import __version__, db
+from app.config import get_settings
 from app.editor import presets as presets_mod
 from app.editor import store
-from app.editor.ops import add_section, apply_extend, apply_trim, set_crop_override
+from app.editor.ops import add_section, apply_extend, apply_trim, set_crop_override, set_interval
 from app.editor.store import EditConflict
-from app.models import CaptionPreset, CaptionStyle, CaptionTrack, CropOverride, HighlightStyle
+from app.editor.timeline import build_timeline_data
+from app.models import (
+    CaptionPreset,
+    CaptionStyle,
+    CaptionTrack,
+    CropOverride,
+    HighlightStyle,
+    Segment,
+)
 from app.run import DATA_ROOT
 from app.tasks import render_clip_edit_job, run_pipeline_job, run_upload_job
 
@@ -105,6 +114,28 @@ def get_job(job_id: str) -> dict[str, Any]:
     return job
 
 
+@app.get("/jobs/{job_id}/timeline")
+def get_timeline(job_id: str) -> dict[str, Any]:
+    """TimelineData: длительность источника + ВСЕ кандидаты ИИ + слова (для таймлайн-редактора).
+
+    Собирается из готовых meta.json + segments.json + transcript.json. Дорогих ИИ-вызовов НЕТ.
+    404, если артефактов нет (как /analysis).
+    """
+    import json
+
+    from app.pipeline.stage0_import import SourceMeta
+
+    out = store.data_root() / job_id
+    meta_path = out / "meta.json"
+    segs_path = out / "segments.json"
+    if not meta_path.exists() or not segs_path.exists():
+        raise HTTPException(status_code=404, detail="timeline data not found")
+    meta = SourceMeta.model_validate_json(meta_path.read_text(encoding="utf-8"))
+    segments = [Segment.model_validate(s) for s in json.loads(segs_path.read_text("utf-8"))]
+    words = store.load_transcript_words(job_id)
+    return build_timeline_data(meta.duration, segments, words).model_dump()
+
+
 # ──────────────────────────── Editor endpoints ────────────────────────────
 
 
@@ -137,6 +168,12 @@ class CropBody(BaseModel):
     source_end: float
     mode: str  # "fill" | "fit"
     center: float | None = None
+
+
+class SetIntervalBody(BaseModel):
+    version: int
+    source_start: float
+    source_end: float
 
 
 def _save_or_409(job_id: str, clip_id: str, new_edit: Any, version: int) -> dict[str, Any]:
@@ -204,6 +241,33 @@ def op_crop(job_id: str, clip_id: str, body: CropBody) -> dict[str, Any]:
         center=body.center,
     )
     return _save_or_409(job_id, clip_id, set_crop_override(edit, ov), body.version)
+
+
+@app.post("/jobs/{job_id}/clips/{clip_id}/edit/set-interval")
+def op_set_interval(job_id: str, clip_id: str, body: SetIntervalBody) -> dict[str, Any]:
+    """Заменить первичный интервал клипа окном [start,end] (двигать/resize на таймлайне).
+
+    Границы клампятся в [0,duration] и в [clip_min_sec, clip_max_sec] (set_interval, PURE).
+    Optimistic-lock (409 при version mismatch).
+    """
+    from app.pipeline.stage0_import import SourceMeta
+
+    edit = _load_or_404(job_id, clip_id)
+    words = store.load_transcript_words(job_id)
+    meta = SourceMeta.model_validate_json(
+        (store.data_root() / job_id / "meta.json").read_text(encoding="utf-8")
+    )
+    s = get_settings()
+    new = set_interval(
+        edit,
+        body.source_start,
+        body.source_end,
+        words,
+        duration=meta.duration,
+        min_sec=s.clip_min_sec,
+        max_sec=s.clip_max_sec,
+    )
+    return _save_or_409(job_id, clip_id, new, body.version)
 
 
 @app.post("/jobs/{job_id}/clips/{clip_id}/render", status_code=202)
