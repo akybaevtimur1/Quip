@@ -138,6 +138,30 @@ def get_timeline(job_id: str) -> dict[str, Any]:
     return build_timeline_data(meta.duration, segments, words).model_dump()
 
 
+@app.get("/jobs/{job_id}/chapters")
+def get_chapters(job_id: str, bg: BackgroundTasks) -> dict[str, Any]:
+    """AI-карта видео (главы с описаниями). Кэш data/<job>/chapters.json.
+
+    Файла нет → пишем pending + стартуем фон-генерацию (Gemini, ~$0.01-0.03,
+    платится один раз); фронт поллит до done/failed. 404 — нет транскрипта.
+    Повторный GET при pending вторую генерацию НЕ стартует.
+    """
+    from app import tasks as tasks_mod
+    from app.editor.chapters import load_chapters, save_chapters
+    from app.models import ChaptersData
+
+    out = store.data_root() / job_id
+    if not (out / "transcript.json").exists():
+        raise HTTPException(status_code=404, detail="transcript not found")
+    cached = load_chapters(out)
+    if cached is not None:
+        return cached.model_dump()
+    pending = ChaptersData(status="pending")
+    save_chapters(out, pending)
+    bg.add_task(tasks_mod.generate_chapters_job, job_id)
+    return pending.model_dump()
+
+
 # ──────────────────────────── Editor endpoints ────────────────────────────
 
 

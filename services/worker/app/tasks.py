@@ -81,6 +81,31 @@ def render_clip_edit_job(job_id: str, clip_id: str) -> None:
         db.set_render_status(job_id, clip_id, "failed", None, f"unexpected: {e}")
 
 
+def generate_chapters_job(job_id: str) -> None:
+    """Сгенерировать AI-карту видео (главы) в фоне → data/<job>/chapters.json.
+
+    Успех → status=done+chapters; падение → status=failed+error (правило №8,
+    фронт показывает причину). Кэш-файл уже содержит pending (пишет endpoint).
+    """
+    from app.editor import chapters as chmod
+    from app.editor import store
+    from app.models import ChaptersData, Transcript
+
+    out = store.data_root() / job_id
+    try:
+        transcript = Transcript.model_validate_json(
+            (out / "transcript.json").read_text(encoding="utf-8")
+        )
+        chapters = chmod.generate_chapters(
+            transcript.words, transcript.duration, transcript.language
+        )
+        chmod.save_chapters(out, ChaptersData(status="done", chapters=chapters))
+    except JobError as e:
+        chmod.save_chapters(out, ChaptersData(status="failed", error=str(e)))
+    except Exception as e:  # noqa: BLE001 — фон-таск: любое падение → статус failed, не молча
+        chmod.save_chapters(out, ChaptersData(status="failed", error=f"unexpected: {e}"))
+
+
 def run_pipeline_job(
     job_id: str, source_type: str, source_ref: str, max_clips: int | None = None
 ) -> None:
