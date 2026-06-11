@@ -41,6 +41,32 @@ def test_override_fit_replaces_interval():
     assert len(out[0]) == 1 and out[0][0].mode == "fit"
 
 
+def test_override_split_two_centers():
+    intervals = [SourceInterval(source_start=10.0, source_end=12.0)]
+    raw = [RawReframe(faces=_faces_centered(10), cuts=[])]
+    ov = [CropOverride(source_start=10.0, source_end=12.0, mode="split", center=0.25, center_b=0.8)]
+    out = resolve_regions(
+        intervals, raw, ov, src_w=SRC_W, src_h=SRC_H, smoothing=0.15, min_hold_sec=1.5
+    )
+    reg = out[0][0]
+    assert reg.mode == "split"
+    assert reg.points[0].cx == 0.25
+    assert reg.points_b[0].cx == 0.8
+
+
+def test_override_split_default_centers():
+    # center/center_b не заданы → явные дефолты 0.3/0.7
+    intervals = [SourceInterval(source_start=10.0, source_end=12.0)]
+    raw = [RawReframe(faces=_faces_centered(10), cuts=[])]
+    ov = [CropOverride(source_start=10.0, source_end=12.0, mode="split")]
+    out = resolve_regions(
+        intervals, raw, ov, src_w=SRC_W, src_h=SRC_H, smoothing=0.15, min_hold_sec=1.5
+    )
+    reg = out[0][0]
+    assert reg.mode == "split"
+    assert reg.points[0].cx == 0.3 and reg.points_b[0].cx == 0.7
+
+
 def test_override_fill_center():
     intervals = [SourceInterval(source_start=10.0, source_end=12.0)]
     raw = [RawReframe(faces=[(i / 5.0, []) for i in range(10)], cuts=[])]  # авто было бы fit

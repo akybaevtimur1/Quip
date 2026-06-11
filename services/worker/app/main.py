@@ -11,7 +11,7 @@ import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -192,8 +192,9 @@ class CropBody(BaseModel):
     version: int
     source_start: float
     source_end: float
-    mode: str  # "fill" | "fit"
-    center: float | None = None
+    mode: Literal["fill", "fit", "split"]
+    center: float | None = Field(default=None, ge=0.0, le=1.0)
+    center_b: float | None = Field(default=None, ge=0.0, le=1.0)  # split: нижняя половина
 
 
 class SetIntervalBody(BaseModel):
@@ -282,6 +283,7 @@ def op_crop(job_id: str, clip_id: str, body: CropBody) -> dict[str, Any]:
         source_end=body.source_end,
         mode=body.mode,
         center=body.center,
+        center_b=body.center_b,
     )
     return _save_or_409(job_id, clip_id, set_crop_override(edit, ov), body.version)
 

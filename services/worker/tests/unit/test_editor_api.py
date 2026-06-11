@@ -60,6 +60,35 @@ def test_get_edit_404_for_missing_clip(monkeypatch, tmp_path):
     assert r.status_code == 404
 
 
+def test_crop_split_override_saved(monkeypatch, tmp_path):
+    client, job = _client(monkeypatch, tmp_path)
+    v = client.get(f"/jobs/{job}/clips/clip_01/edit").json()["version"]
+    r = client.post(
+        f"/jobs/{job}/clips/clip_01/edit/crop",
+        json={
+            "version": v,
+            "source_start": 0.0,
+            "source_end": 3.0,
+            "mode": "split",
+            "center": 0.25,
+            "center_b": 0.75,
+        },
+    )
+    assert r.status_code == 200
+    ovs = r.json()["reframe_overrides"]
+    assert ovs[-1]["mode"] == "split" and ovs[-1]["center_b"] == 0.75
+
+
+def test_crop_invalid_mode_422(monkeypatch, tmp_path):
+    client, job = _client(monkeypatch, tmp_path)
+    v = client.get(f"/jobs/{job}/clips/clip_01/edit").json()["version"]
+    r = client.post(
+        f"/jobs/{job}/clips/clip_01/edit/crop",
+        json={"version": v, "source_start": 0.0, "source_end": 3.0, "mode": "zoom"},
+    )
+    assert r.status_code == 422
+
+
 def test_preset_save_and_apply(monkeypatch, tmp_path):
     from app.editor import presets
 

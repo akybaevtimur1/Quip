@@ -43,9 +43,24 @@ def _override_for(overrides: list[CropOverride], iv: SourceInterval) -> CropOver
 
 
 def _manual_region(ov: CropOverride, dur: float) -> list[TrackRegion]:
-    """Ручной override → один регион на весь интервал."""
+    """Ручной override → один регион на весь интервал (новых границ нет — инвариант цел).
+
+    split: два статичных центра (center/center_b; не заданы → явные дефолты 0.3/0.7).
+    """
     if ov.mode == "fit":
         return [TrackRegion(t0=0.0, t1=dur, mode="fit", points=())]
+    if ov.mode == "split":
+        cx_a = min(1.0, max(0.0, ov.center if ov.center is not None else 0.3))
+        cx_b = min(1.0, max(0.0, ov.center_b if ov.center_b is not None else 0.7))
+        return [
+            TrackRegion(
+                t0=0.0,
+                t1=dur,
+                mode="split",
+                points=(TrackPoint(t=0.0, mode="split", cx=cx_a),),
+                points_b=(TrackPoint(t=0.0, mode="split", cx=cx_b),),
+            )
+        ]
     cx = ov.center if ov.center is not None else 0.5
     pt = TrackPoint(t=0.0, mode="fill", cx=cx)
     return [TrackRegion(t0=0.0, t1=dur, mode="fill", points=(pt,))]
