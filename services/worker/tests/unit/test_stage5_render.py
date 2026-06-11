@@ -175,6 +175,16 @@ class TestBuildSmoothFilter:
         with pytest.raises(JobError):
             build_smooth_filter([_split_region(0.0, 5.0, 0.2, 0.8)], 1000, 1000, 25.0, None)
 
+    def test_fontsdir_in_subtitles_filter(self) -> None:
+        region = _fill_region(0.0, 5.0, [0.5])
+        fc = build_smooth_filter([region], 1920, 1080, 25.0, "c.ass", fontsdir="../../fonts")
+        assert "subtitles=c.ass:fontsdir=../../fonts" in fc
+
+    def test_no_fontsdir_plain_subtitles(self) -> None:
+        region = _fill_region(0.0, 5.0, [0.5])
+        fc = build_smooth_filter([region], 1920, 1080, 25.0, "c.ass")
+        assert "subtitles=c.ass[outv]" in fc
+
     def test_fill_fill_fit_fill_all_concat(self) -> None:
         # все переходы — concat (жёсткий cut), нет xfade
         regions = [

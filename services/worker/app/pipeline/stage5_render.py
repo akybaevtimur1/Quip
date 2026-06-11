@@ -19,6 +19,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 import time
 from dataclasses import dataclass
@@ -65,6 +66,28 @@ def build_fill_crop_expr(
         if t_boundary > 0:
             expr = f"if(lt(t\\,{t_boundary:.3f})\\,{pairs[i][1]}\\,{expr})"
     return expr
+
+
+# services/worker/fonts — те же TTF, что у превью (apps/web/public/libass/fonts)
+_FONTS_DIR = Path(__file__).resolve().parents[2] / "fonts"
+
+
+def _fontsdir_rel(data_dir: Path) -> str | None:
+    """Относительный (от cwd ffmpeg) путь к шрифтам проекта; None если папки нет."""
+    if not _FONTS_DIR.is_dir():
+        return None
+    rel: str = os.path.relpath(_FONTS_DIR, data_dir)
+    return rel.replace("\\", "/")
+
+
+def _subtitles_filter(ass_name: str, fontsdir: str | None) -> str:
+    """Фильтр прожига субтитров; fontsdir = шрифты проекта (Montserrat/Unbounded/Rubik),
+    ОДИНАКОВЫЕ с libass.wasm-превью (apps/web/public/libass/fonts) — WYSIWYG-контракт.
+    Путь относительный (от cwd ffmpeg = data_dir) — без двоеточий, не нужно экранировать.
+    """
+    if fontsdir:
+        return f"subtitles={ass_name}:fontsdir={fontsdir}"
+    return f"subtitles={ass_name}"
 
 
 def _piecewise_x_expr(pairs: list[tuple[float, int]]) -> str:
@@ -174,6 +197,7 @@ def build_smooth_filter(
     out_w: int = 1080,
     out_h: int = 1920,
     blur: int = 20,
+    fontsdir: str | None = None,
 ) -> str:
     """filter_complex Engine A: split → per-region trim+crop_expr/fit → chain → [subtitles].
 
@@ -201,11 +225,13 @@ def build_smooth_filter(
         )
 
     if n == 1:
-        parts.append(f"[s0]subtitles={ass_name}[outv]" if ass_name else "[s0]null[outv]")
+        parts.append(
+            f"[s0]{_subtitles_filter(ass_name, fontsdir)}[outv]" if ass_name else "[s0]null[outv]"
+        )
     else:
         if ass_name:
             parts.extend(_chain_video_segs([f"s{i}" for i in range(n)], "cv"))
-            parts.append(f"[cv]subtitles={ass_name}[outv]")
+            parts.append(f"[cv]{_subtitles_filter(ass_name, fontsdir)}[outv]")
         else:
             parts.extend(_chain_video_segs([f"s{i}" for i in range(n)], "outv"))
     return "".join(parts)
@@ -388,7 +414,9 @@ def render_clip(
             data_dir,
         )
     else:  # Engine A (default)
-        fc = build_smooth_filter(regions, src_w, src_h, fps, ass_name)
+        fc = build_smooth_filter(
+            regions, src_w, src_h, fps, ass_name, fontsdir=_fontsdir_rel(data_dir)
+        )
         cmd = build_single_pass_cmd(source_name, aligned_start, dur, fc, out_name)
         _run_ffmpeg(cmd, data_dir)
 
@@ -450,6 +478,7 @@ def build_timeline_filter(
     out_w: int = 1080,
     out_h: int = 1920,
     blur: int = 20,
+    fontsdir: str | None = None,
 ) -> str:
     """filter_complex для мульти-интервального рендера (спека §6). PURE.
 
@@ -478,11 +507,15 @@ def build_timeline_filter(
 
     sv_labels = [f"sv{i}" for i in range(n)]
     if n == 1:
-        parts.append(f"[sv0]subtitles={ass_name}[outv];" if ass_name else "[sv0]null[outv];")
+        parts.append(
+            f"[sv0]{_subtitles_filter(ass_name, fontsdir)}[outv];"
+            if ass_name
+            else "[sv0]null[outv];"
+        )
     else:
         if ass_name:
             parts.extend(_chain_video_segs(sv_labels, "cv"))
-            parts.append(f"[cv]subtitles={ass_name}[outv];")
+            parts.append(f"[cv]{_subtitles_filter(ass_name, fontsdir)}[outv];")
         else:
             parts.extend(_chain_video_segs(sv_labels, "outv"))
             parts[-1] = parts[-1].rstrip(";") + ";"  # ensure trailing semicolon before audio
@@ -541,7 +574,9 @@ def render_timeline(
         )
 
     segments = flatten_timeline(intervals, regions_per_interval, fps)
-    fc = build_timeline_filter(segments, src_w, src_h, fps, ass_name)
+    fc = build_timeline_filter(
+        segments, src_w, src_h, fps, ass_name, fontsdir=_fontsdir_rel(data_dir)
+    )
     t0 = time.perf_counter()
     _run_ffmpeg(build_timeline_cmd(source_name, fc, out_name), data_dir)
     if not (data_dir / out_name).exists():

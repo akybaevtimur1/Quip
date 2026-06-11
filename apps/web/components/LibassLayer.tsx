@@ -57,7 +57,12 @@ export function LibassLayer({ videoRef, assText, sourceStart, onError }: LibassL
           subContent: assRef.current,
           workerUrl: "/libass/subtitles-octopus-worker.js",
           legacyWorkerUrl: "/libass/subtitles-octopus-worker-legacy.js",
-          fonts: ["/libass/fonts/Montserrat.ttf"],
+          // тот же набор, что у ffmpeg-экспорта (services/worker/fonts) — WYSIWYG
+          fonts: [
+            "/libass/fonts/Montserrat.ttf",
+            "/libass/fonts/Unbounded.ttf",
+            "/libass/fonts/Rubik.ttf",
+          ],
           timeOffset: -sourceStart,
           onError: () => onErrorRef.current?.(),
         });
