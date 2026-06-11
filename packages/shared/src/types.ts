@@ -23,6 +23,8 @@ export interface ClipFlowContract {
   CaptionReply?: CaptionReply;
   CaptionStyle?: CaptionStyle;
   CaptionTrack?: CaptionTrack;
+  Chapter?: Chapter;
+  ChaptersData?: ChaptersData;
   Clip?: Clip;
   ClipEdit?: ClipEdit;
   ClipOut?: ClipOut;
@@ -54,6 +56,7 @@ export interface CaptionPreset {
  * Караоке-подсветка активного слова. None в треке = караоке выключено.
  */
 export interface HighlightStyle {
+  animation?: "none" | "karaoke_fill" | "pop" | "bounce";
   box?: boolean;
   color?: string;
   scale?: number;
@@ -90,6 +93,22 @@ export interface CaptionTrack {
   highlight?: HighlightStyle | null;
   replies?: CaptionReply[];
   style: CaptionStyle;
+}
+/**
+ * Глава AI-карты видео (источник-время, секунды). Главы покрывают видео непрерывно.
+ */
+export interface Chapter {
+  end: number;
+  start: number;
+  summary: string;
+}
+/**
+ * Статус+результат генерации AI-карты (кэш data/<job>/chapters.json).
+ */
+export interface ChaptersData {
+  chapters?: Chapter[];
+  error?: string | null;
+  status: "pending" | "done" | "failed";
 }
 /**
  * Внутреннее представление готового клипа (пути к артефактам + экономика).
@@ -139,6 +158,7 @@ export interface ClipEdit {
  */
 export interface CropOverride {
   center?: number | null;
+  center_b?: number | null;
   mode: string;
   source_end: number;
   source_start: number;

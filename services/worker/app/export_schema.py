@@ -22,6 +22,8 @@ from app.models import (
     CaptionReply,
     CaptionStyle,
     CaptionTrack,
+    Chapter,
+    ChaptersData,
     Clip,
     ClipEdit,
     ClipOut,
@@ -62,6 +64,9 @@ _MODELS: list[type[BaseModel]] = [
     # Timeline editor (v2)
     TimelineSegment,
     TimelineData,
+    # AI-карта видео (v3)
+    Chapter,
+    ChaptersData,
 ]
 
 # app/export_schema.py → parents: [0]=app [1]=worker [2]=services [3]=<repo root>

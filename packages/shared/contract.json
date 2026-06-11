@@ -153,6 +153,61 @@
       ],
       "type": "object"
     },
+    "Chapter": {
+      "description": "Глава AI-карты видео (источник-время, секунды). Главы покрывают видео непрерывно.",
+      "properties": {
+        "end": {
+          "type": "number"
+        },
+        "start": {
+          "type": "number"
+        },
+        "summary": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "start",
+        "end",
+        "title",
+        "summary"
+      ],
+      "type": "object"
+    },
+    "ChaptersData": {
+      "description": "Статус+результат генерации AI-карты (кэш data/<job>/chapters.json).",
+      "properties": {
+        "chapters": {
+          "items": {
+            "$ref": "#/$defs/Chapter"
+          },
+          "type": "array"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "status": {
+          "enum": [
+            "pending",
+            "done",
+            "failed"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "type": "object"
+    },
     "Clip": {
       "description": "Внутреннее представление готового клипа (пути к артефактам + экономика).",
       "properties": {
@@ -317,6 +372,17 @@
           ],
           "default": null
         },
+        "center_b": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "mode": {
           "type": "string"
         },
@@ -365,6 +431,16 @@
     "HighlightStyle": {
       "description": "Караоке-подсветка активного слова. None в треке = караоке выключено.",
       "properties": {
+        "animation": {
+          "default": "karaoke_fill",
+          "enum": [
+            "none",
+            "karaoke_fill",
+            "pop",
+            "bounce"
+          ],
+          "type": "string"
+        },
         "box": {
           "default": false,
           "type": "boolean"
@@ -660,6 +736,12 @@
     },
     "CaptionTrack": {
       "$ref": "#/$defs/CaptionTrack"
+    },
+    "Chapter": {
+      "$ref": "#/$defs/Chapter"
+    },
+    "ChaptersData": {
+      "$ref": "#/$defs/ChaptersData"
     },
     "Clip": {
       "$ref": "#/$defs/Clip"

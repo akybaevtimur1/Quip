@@ -192,6 +192,7 @@ export function CaptionOverlay({
       color: highlightProp?.color ?? "#FFE000",
       scale: highlightProp?.scale ?? 1.0,
       box: highlightProp?.box ?? false,
+      animation: highlightProp?.animation ?? "karaoke_fill",
     }),
     [highlightProp],
   );

@@ -15,6 +15,7 @@
 """
 
 from enum import StrEnum
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -159,8 +160,9 @@ class CropOverride(BaseModel):
 
     source_start: float
     source_end: float
-    mode: str  # "fill" | "fit"
-    center: float | None = None  # центр кропа [0..1] для fill; None = центр кадра
+    mode: str  # "fill" | "fit" | "split"
+    center: float | None = None  # центр кропа [0..1] для fill / верхней половины split
+    center_b: float | None = None  # второй центр [0..1] для mode="split" (нижняя половина)
 
 
 class CaptionStyle(BaseModel):
@@ -186,6 +188,7 @@ class HighlightStyle(BaseModel):
     color: str = "#FFE000"
     scale: float = 1.0  # 1.0 = без увеличения активного слова
     box: bool = False  # True = активное слово в залитой плашке; False = перекраска текста
+    animation: Literal["none", "karaoke_fill", "pop", "bounce"] = "karaoke_fill"
 
 
 class CaptionReply(BaseModel):
@@ -248,3 +251,23 @@ class TimelineData(BaseModel):
     duration: float  # длительность source, секунды
     segments: list[TimelineSegment]
     words: list[Word]
+
+
+# ─────────────────────────── AI-карта видео (редактор v3) ───────────────────────────
+
+
+class Chapter(BaseModel):
+    """Глава AI-карты видео (источник-время, секунды). Главы покрывают видео непрерывно."""
+
+    start: float
+    end: float
+    title: str  # короткое название момента (язык транскрипта)
+    summary: str  # 1-2 предложения, что происходит
+
+
+class ChaptersData(BaseModel):
+    """Статус+результат генерации AI-карты (кэш data/<job>/chapters.json)."""
+
+    status: Literal["pending", "done", "failed"]
+    chapters: list[Chapter] = Field(default_factory=list)
+    error: str | None = None  # причина при status="failed" (правило №8 — не глотаем)
