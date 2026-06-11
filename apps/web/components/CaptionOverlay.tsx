@@ -89,6 +89,40 @@ function buildPages(words: Word[], clipStart: number): Page[] {
 }
 
 /**
+ * Каноническая группировка из edit-state: reply[i] позиционно покрывает
+ * words[offset .. offset+word_refs.length] (зеркало ClipEditor.captionGroups +
+ * backend compile_ass). page.replyIndex = i (индекс в массиве replies) → правка
+ * из оверлея (onCaptionsChange(replyIndex, …)) попадает в показанную реплику.
+ * Скрытые/пустые реплики НЕ дают страницы (как `continue` в бэке), но всё равно
+ * сдвигают offset на свою длину — иначе позиционное соответствие слов поедет.
+ */
+function buildPagesFromReplies(
+  replies: CaptionReply[],
+  words: Word[],
+  clipStart: number,
+): Page[] {
+  const pages: Page[] = [];
+  let offset = 0;
+  const toMs = (w: Word) => Math.max(0, (w.start - clipStart) * 1000);
+  const teMs = (w: Word) => Math.max(0, (w.end - clipStart) * 1000);
+  for (let i = 0; i < replies.length; i++) {
+    const reply = replies[i];
+    const count = reply.word_refs.length;
+    const group = words.slice(offset, offset + count);
+    offset += count;
+    // скрытые/пустые реплики не рисуем (но offset уже сдвинут выше)
+    if (reply.hidden || count === 0 || group.length === 0) continue;
+    pages.push({
+      startMs: toMs(group[0]),
+      endMs: teMs(group[group.length - 1]),
+      tokens: group.map((w) => ({ text: w.text, fromMs: toMs(w), toMs: teMs(w) })),
+      replyIndex: i,
+    });
+  }
+  return pages;
+}
+
+/**
  * Жирный контур через многослойный text-shadow (text-stroke в Safari режет тонко).
  * Радиус контура масштабируем от высоты контейнера (как и размер шрифта).
  */
@@ -162,7 +196,15 @@ export function CaptionOverlay({
     [highlightProp],
   );
 
-  const pages = useMemo(() => buildPages(words, clipStart), [words, clipStart]);
+  // replies задан и непуст → каноническая группировка из edit-state (page i ↔
+  // replies[i]); иначе → локальная buildPages (грид без edit-state).
+  const pages = useMemo(
+    () =>
+      replies && replies.length > 0
+        ? buildPagesFromReplies(replies, words, clipStart)
+        : buildPages(words, clipStart),
+    [replies, words, clipStart],
+  );
 
   const [pageIdx, setPageIdx] = useState(-1);
   const [tokenIdx, setTokenIdx] = useState(-1);
@@ -304,7 +346,10 @@ export function CaptionOverlay({
   const commitEdit = () => {
     if (editIdx === null) return;
     const trimmed = draft.trim();
-    const original = pages[editIdx]?.tokens.map((t) => t.text).join(" ") ?? "";
+    // редактируется ВСЕГДА активная страница (textarea рендерится только для
+    // isEditingThis = active page), поэтому оригинал = её слова. editIdx —
+    // это replyIndex, НЕ позиция в pages[] → индексировать pages[editIdx] нельзя.
+    const original = page.tokens.map((t) => t.text).join(" ");
     // пустой или равный оригиналу → снять override (null)
     onCaptionsChange?.(editIdx, trimmed && trimmed !== original ? trimmed : null);
     setEditIdx(null);

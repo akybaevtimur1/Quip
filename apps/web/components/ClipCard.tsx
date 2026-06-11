@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { clipRange } from "@/lib/format";
 import type { ClipOut } from "@/lib/types";
 import { CaptionOverlay } from "./CaptionOverlay";
-import ClipEditor from "./ClipEditor";
+import ClipEditorModal from "./ClipEditorModal";
 import { ReasonChip } from "./ReasonChip";
 
 const WORKER_BASE = process.env.NEXT_PUBLIC_WORKER_URL ?? "";
@@ -31,8 +31,6 @@ export function ClipCard({
   const [renderDone, setRenderDone] = useState(false);
   const [showCaptions, setShowCaptions] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  // editReplies: synced from ClipEditor so the overlay shows edited caption text in realtime
-  const [editReplies, setEditReplies] = useState<import("@/lib/types").CaptionReply[] | null>(null);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -58,13 +56,7 @@ export function ClipCard({
     setTimeout(() => setRenderDone(false), 4000);
   };
 
-  const handleToggleEditor = () => {
-    const next = !showEditor;
-    setShowEditor(next);
-    // Auto-enable CC when editor opens so burned-in ASS is covered by overlay
-    if (next && clip.words.length > 0) setShowCaptions(true);
-    if (!next) setEditReplies(null);
-  };
+  const handleToggleEditor = () => setShowEditor((v) => !v);
 
   return (
     <article
@@ -95,12 +87,7 @@ export function ClipCard({
           }
         />
         {showCaptions && clip.words.length > 0 && (
-          <CaptionOverlay
-            words={clip.words}
-            clipStart={clip.start}
-            videoRef={videoRef}
-            replies={editReplies}
-          />
+          <CaptionOverlay words={clip.words} clipStart={clip.start} videoRef={videoRef} />
         )}
         <span className="absolute left-2 top-2">
           <ReasonChip type={clip.type} />
@@ -193,16 +180,15 @@ export function ClipCard({
         </div>
       </div>
 
-      {/* ── inline editor ── */}
+      {/* ── modal editor ── */}
       {showEditor && (
-        <div className="rounded-b-2xl border-t border-line bg-surface overflow-hidden">
-          <ClipEditor
-            jobId={jobId}
-            clipId={clip.id}
-            onRenderDone={handleRenderDone}
-            onRepliesChange={setEditReplies}
-          />
-        </div>
+        <ClipEditorModal
+          jobId={jobId}
+          clipId={clip.id}
+          clip={clip}
+          onClose={() => setShowEditor(false)}
+          onRenderDone={handleRenderDone}
+        />
       )}
     </article>
   );
