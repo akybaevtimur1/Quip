@@ -281,11 +281,15 @@ export function TimelineEditor({ data, interval, onIntervalChange }: TimelineEdi
             );
           })}
 
-          {/* блок шортса */}
+          {/* блок шортса (minWidth — чтобы был хват даже на длинном источнике) */}
           <div
             onPointerDown={onPointerDown("move")}
-            className="absolute top-0 bottom-0 cursor-grab rounded-md border-2 border-accent bg-accent/15 active:cursor-grabbing"
-            style={{ left: pct(segStart), width: `${((segEnd - segStart) / duration) * 100}%` }}
+            className="absolute top-0 bottom-0 cursor-grab touch-none rounded-md border-2 border-accent bg-accent/25 active:cursor-grabbing"
+            style={{
+              left: pct(segStart),
+              width: `${((segEnd - segStart) / duration) * 100}%`,
+              minWidth: "3rem",
+            }}
           >
             {/* грип левый */}
             <div

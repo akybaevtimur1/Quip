@@ -358,19 +358,28 @@ export function CaptionOverlay({
   const cancelEdit = () => setEditIdx(null);
 
   return (
-    <div ref={wrapRef} className="absolute inset-0 overflow-hidden" aria-hidden={!editing}>
+    <div
+      ref={wrapRef}
+      className="pointer-events-none absolute inset-0 overflow-hidden"
+      aria-hidden={!editing}
+    >
       <div
         className="absolute left-1/2 -translate-x-1/2 text-center"
         style={{
           bottom: `${bottomPx}px`,
           width: `${MAX_WIDTH_FRAC * 100}%`,
-          pointerEvents: editing ? "auto" : "none",
+          // полоса НЕ перехватывает клики (иначе блокирует видео/контролы);
+          // кликабельны только тулбар и сам блок субтитра ниже (в editing).
+          pointerEvents: "none",
           userSelect: editing ? "auto" : "none",
         }}
       >
         {/* мини-тулбар (режим правки) */}
         {editing && !isEditingThis && (
-          <div className="mb-2 flex items-center justify-center gap-1">
+          <div
+            className="mb-2 flex items-center justify-center gap-1"
+            style={{ pointerEvents: "auto" }}
+          >
             <ToolbarBtn title="Текст" onClick={startEdit}>
               ✎
             </ToolbarBtn>
@@ -407,6 +416,8 @@ export function CaptionOverlay({
             borderRadius: style.box_radius ? `${style.box_radius * scale}px` : undefined,
             padding: style.box_color != null ? `${4 * scale}px ${12 * scale}px` : undefined,
             cursor: editing && !isEditingThis ? "text" : "default",
+            // только сам блок текста кликабелен в editing (остальное видео — нет)
+            pointerEvents: editing ? "auto" : "none",
           }}
         >
           {isEditingThis ? (
