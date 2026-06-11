@@ -1,7 +1,7 @@
 "use client";
 
-import { Check, Download, Pencil, X } from "lucide-react";
-import { useRef, useState } from "react";
+import { Check, Download, Maximize2, Minimize2, Pencil, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { clipRange } from "@/lib/format";
 import type { ClipOut } from "@/lib/types";
 import { CaptionOverlay } from "./CaptionOverlay";
@@ -30,7 +30,25 @@ export function ClipCard({
   const [showEditor, setShowEditor] = useState(false);
   const [renderDone, setRenderDone] = useState(false);
   const [showCaptions, setShowCaptions] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
   const videoRef = useRef<HTMLVideoElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Track fullscreen state so overlay remains synced.
+  useEffect(() => {
+    const onFsChange = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener("fullscreenchange", onFsChange);
+    return () => document.removeEventListener("fullscreenchange", onFsChange);
+  }, []);
+
+  const toggleFullscreen = () => {
+    if (document.fullscreenElement) {
+      document.exitFullscreen();
+    } else {
+      containerRef.current?.requestFullscreen();
+    }
+  };
 
   const handleRenderDone = (url: string) => {
     setVideoSrc(url);
@@ -45,7 +63,11 @@ export function ClipCard({
       }`}
     >
       {/* ── video ── */}
-      <div className="relative overflow-hidden rounded-t-2xl bg-surface-2">
+      <div
+        ref={containerRef}
+        className="relative overflow-hidden rounded-t-2xl bg-surface-2"
+        style={isFullscreen ? { background: "#000", display: "flex", alignItems: "center", justifyContent: "center" } : {}}
+      >
         <video
           ref={videoRef}
           key={videoSrc}
@@ -53,7 +75,14 @@ export function ClipCard({
           controls
           preload="metadata"
           playsInline
-          className="aspect-[9/16] w-full bg-black object-contain"
+          // Remove native fullscreen button — we supply our own that fullscreens the container
+          // so the caption overlay stays visible.
+          controlsList="nofullscreen"
+          className={
+            isFullscreen
+              ? "h-full max-h-screen w-auto bg-black object-contain"
+              : "aspect-[9/16] w-full bg-black object-contain"
+          }
         />
         {showCaptions && clip.words.length > 0 && (
           <CaptionOverlay
@@ -65,6 +94,17 @@ export function ClipCard({
         <span className="absolute left-2 top-2">
           <ReasonChip type={clip.type} />
         </span>
+
+        {/* Fullscreen toggle — fullscreens the container so the overlay travels with it */}
+        <button
+          type="button"
+          onClick={toggleFullscreen}
+          title={isFullscreen ? "Выйти из полного экрана" : "Полный экран"}
+          className="absolute bottom-14 right-10 rounded-md p-1 bg-black/60 text-white/70 hover:text-white transition"
+        >
+          {isFullscreen ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
+        </button>
+
         {/* CC toggle */}
         {clip.words.length > 0 && (
           <button
@@ -80,6 +120,7 @@ export function ClipCard({
             CC
           </button>
         )}
+
         {/* render-done flash */}
         {renderDone && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/60 animate-pulse pointer-events-none">
@@ -88,6 +129,7 @@ export function ClipCard({
             </span>
           </div>
         )}
+
         {/* select button */}
         <button
           type="button"

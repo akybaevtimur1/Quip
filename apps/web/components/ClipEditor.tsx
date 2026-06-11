@@ -94,8 +94,15 @@ export default function ClipEditor({ jobId, clipId, onRenderDone }: ClipEditorPr
       setSelected(new Set());
       setPhase("ready");
     } catch (e) {
-      setError(String(e));
-      setPhase("ready");
+      const msg = String(e);
+      // Version conflict: auto-reload state so user can simply retry.
+      if (msg.includes("conflict") || msg.includes("409")) {
+        setError("Данные обновились — попробуй ещё раз");
+        setLoadKey((k) => k + 1);
+      } else {
+        setError(msg);
+        setPhase("ready");
+      }
     }
   };
 
@@ -115,8 +122,15 @@ export default function ClipEditor({ jobId, clipId, onRenderDone }: ClipEditorPr
       setSelected(new Set());
       setPhase("ready");
     } catch (e) {
-      setError(String(e));
-      setPhase("ready");
+      const msg = String(e);
+      // Version conflict: auto-reload state so user can simply retry.
+      if (msg.includes("conflict") || msg.includes("409")) {
+        setError("Данные обновились — попробуй ещё раз");
+        setLoadKey((k) => k + 1);
+      } else {
+        setError(msg);
+        setPhase("ready");
+      }
     }
   };
 
