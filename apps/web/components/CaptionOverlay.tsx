@@ -6,6 +6,10 @@ import type { Word } from "@/lib/types";
 const WORDS_PER_PAGE = 5;
 const SENT_END = /[.!?…,]/;
 
+// Accent color for the active-word highlight box.
+// Change this one constant to restyle all caption overlays.
+const HIGHLIGHT_COLOR = "#ff5a3d"; // coral (matches brand --color-accent)
+
 interface Page {
   startMs: number;
   endMs: number;
@@ -59,25 +63,40 @@ export function CaptionOverlay({ words, clipStart, videoRef }: Props) {
 
       let pi = -1;
       for (let i = 0; i < pages.length; i++) {
-        if (ms >= pages[i].startMs && ms <= pages[i].endMs) { pi = i; break; }
+        if (ms >= pages[i].startMs && ms <= pages[i].endMs) {
+          pi = i;
+          break;
+        }
       }
 
       let ti = -1;
       if (pi >= 0) {
         const toks = pages[pi].tokens;
         for (let j = 0; j < toks.length; j++) {
-          if (ms >= toks[j].fromMs && ms <= toks[j].toMs) { ti = j; break; }
+          if (ms >= toks[j].fromMs && ms <= toks[j].toMs) {
+            ti = j;
+            break;
+          }
         }
-        // if between words, keep previous token highlighted
+        // if between words keep the last highlighted token visible
         if (ti === -1 && ms > pages[pi].startMs) {
           for (let j = toks.length - 1; j >= 0; j--) {
-            if (ms > toks[j].fromMs) { ti = j; break; }
+            if (ms > toks[j].fromMs) {
+              ti = j;
+              break;
+            }
           }
         }
       }
 
-      if (pi !== prevPage.current) { setPageIdx(pi); prevPage.current = pi; }
-      if (ti !== prevToken.current) { setTokenIdx(ti); prevToken.current = ti; }
+      if (pi !== prevPage.current) {
+        setPageIdx(pi);
+        prevPage.current = pi;
+      }
+      if (ti !== prevToken.current) {
+        setTokenIdx(ti);
+        prevToken.current = ti;
+      }
 
       rafRef.current = requestAnimationFrame(tick);
     };
@@ -91,31 +110,32 @@ export function CaptionOverlay({ words, clipStart, videoRef }: Props) {
 
   return (
     <div
-      className="absolute bottom-14 left-0 right-0 px-4 text-center pointer-events-none select-none"
+      className="absolute bottom-14 left-0 right-0 px-3 text-center pointer-events-none select-none"
       aria-hidden
     >
+      {/* Drop shadow behind the whole line for readability on any background */}
       <span
-        className="font-display text-[22px] font-black uppercase leading-snug"
-        style={{
-          textShadow:
-            "1px 1px 0 #000,-1px -1px 0 #000,1px -1px 0 #000,-1px 1px 0 #000,0 3px 10px rgba(0,0,0,0.9)",
-        }}
+        className="inline-flex flex-wrap justify-center gap-x-[0.3em] gap-y-1 font-display font-black uppercase"
+        style={{ fontSize: "clamp(18px, 4.5vw, 26px)", lineHeight: 1.3 }}
       >
         {page.tokens.map((tok, i) => {
           const active = i === tokenIdx;
           return (
-            <span key={i} style={{ display: "inline-block", paddingInline: "0.18em" }}>
-              <span
-                style={{
-                  display: "inline-block",
-                  transition: "color 60ms ease, transform 60ms ease",
-                  color: active ? "#ff5a3d" : "#ffffff",
-                  transform: active ? "scale(1.12)" : "scale(1)",
-                  transformOrigin: "bottom center",
-                }}
-              >
-                {tok.text}
-              </span>
+            <span
+              key={i}
+              style={{
+                display: "inline-block",
+                color: active ? "#000" : "#fff",
+                background: active ? HIGHLIGHT_COLOR : "transparent",
+                borderRadius: "5px",
+                padding: active ? "0 7px 1px" : "0 1px",
+                transition: "background 80ms ease, color 80ms ease",
+                textShadow: active
+                  ? "none"
+                  : "1px 1px 0 #000,-1px -1px 0 #000,1px -1px 0 #000,-1px 1px 0 #000,0 2px 8px rgba(0,0,0,0.85)",
+              }}
+            >
+              {tok.text}
             </span>
           );
         })}
