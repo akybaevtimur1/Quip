@@ -54,6 +54,9 @@ palettes_preview.png
 ui_*.png
 .playwright-mcp/
 
+# ── Brainstorming visual-companion мокапы (локальные, не коммитим) ──
+.superpowers/
+
 # ── Логи (включая чужие debug.log от Electron/Chromium) ──
 *.log
 
