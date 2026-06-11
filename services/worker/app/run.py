@@ -19,7 +19,7 @@ from pathlib import Path
 
 from app.config import get_settings
 from app.errors import JobError
-from app.models import ClipOut, Job, JobStatus, Metrics, Segment, SourceKind, Transcript, Word
+from app.models import ClipOut, Job, JobStatus, Metrics, Segment, Transcript, Word
 from app.pipeline.stage0_import import SourceMeta, import_youtube
 from app.pipeline.stage1_transcribe import DEEPGRAM_NOVA_USD_PER_MIN, transcribe_to_file
 from app.pipeline.stage2_select import select_segments
@@ -205,7 +205,7 @@ def run_pipeline(
         status=JobStatus.done,
         stage=JobStatus.done,
         progress=100,
-        source_kind=SourceKind.youtube,
+        source_kind=meta.source,
         clips=clips,
         metrics=Metrics(cost_usd=total_usd, duration_sec=meta.duration, elapsed_sec=total_sec),
     )

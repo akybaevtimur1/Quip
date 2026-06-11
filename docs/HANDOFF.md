@@ -62,6 +62,7 @@ Deepgram + Gemini суммарно. Терпимо для MVP-демо.
 
 ### Что ТОЧНО работает для MVP
 ✅ YouTube URL → 3–10 вертикальных 9:16-клипов с субтитрами (EN/RU авто-язык)
+✅ Загрузка файла с компа (POST /jobs/upload, multipart) → тот же пайплайн (2026-06-11)
 ✅ Прогресс-бар по стадиям (queued→downloading→transcribing→selecting→rendering→done)
 ✅ CC оверлей (TikTok-анимация, кнопка CC; покрывает burned-in субтитры)
 ✅ Полный экран с CC (fullscreen кнопка на карточке)
@@ -112,6 +113,19 @@ FastAPI / uv, пакет `app`), `packages/shared` (TS-типы, codegen из `a
 - seg_B (300–420с): 15 склеек, 15 регионов, **14 границ — все Δ=0** ✅
 - seg_C (600–720с): 26 склеек, 24 региона, **23 границы — все Δ=0** ✅
 - **ИТОГО: 64 границы, max Δ = 0 кадров** → флеш физически невозможен.
+
+### ✅ Загрузка файла с компа (2026-06-11)
+
+Воркер раньше принимал только YouTube-URL. Добавлен путь upload (демо-видение фаундера
+«грузишь видос»):
+- `POST /jobs/upload` (multipart, FastAPI `UploadFile`) — стримит файл чанками в
+  `data/<job_id>/upload.<ext>`, затем фон-таск `run_upload_job`.
+- `stage0_import.import_upload` — remux/transcode в `source.mp4` (`-c copy`, фолбэк h264/aac) →
+  `source.wav` → ffprobe → `meta.json`. Готовит ТЕ ЖЕ артефакты, что и YouTube-путь, поэтому
+  `run_pipeline(source_url=None)` видит их как кэш Stage 0 → ноль изменений в стадиях 1-5.
+- Фронт: `SourceForm` — drag&drop + выбор файла (≤500МБ, `video/*`); `createUploadJob` (FormData).
+- `run.py`: `source_kind=meta.source` (был хардкод youtube). +`python-multipart` в депы.
+- +2 unit-теста (endpoint через TestClient, фон-таск замокан). `just check` зелёный, 229 тестов.
 
 ### ✅ Editor Core MVP (2026-06-09)
 

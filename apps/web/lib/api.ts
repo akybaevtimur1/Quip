@@ -19,6 +19,19 @@ export async function createJob(input: CreateJobInput): Promise<{ id: string }> 
   return res.json();
 }
 
+export async function createUploadJob(
+  file: File,
+  maxClips?: number,
+): Promise<{ id: string }> {
+  const form = new FormData();
+  form.append("file", file);
+  if (maxClips != null) form.append("max_clips", String(maxClips));
+  // НЕ задаём Content-Type вручную — браузер сам выставит multipart boundary.
+  const res = await fetch(`${BASE}/jobs/upload`, { method: "POST", body: form });
+  if (!res.ok) throw new Error(`createUploadJob failed: ${res.status}`);
+  return res.json();
+}
+
 export async function getJob(id: string): Promise<Job> {
   const res = await fetch(`${BASE}/jobs/${id}`, { cache: "no-store" });
   if (!res.ok) throw new Error(`getJob failed: ${res.status}`);

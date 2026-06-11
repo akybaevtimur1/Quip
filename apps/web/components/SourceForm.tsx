@@ -1,33 +1,60 @@
 "use client";
 
-import { Link2, Loader2, Minus, Plus, Scissors } from "lucide-react";
-import { useState } from "react";
+import { Link2, Loader2, Minus, Plus, Scissors, Upload, X } from "lucide-react";
+import { useRef, useState } from "react";
 
 const MIN_CLIPS = 1;
 const MAX_CLIPS = 10;
 const DEFAULT_CLIPS = 6;
+const MAX_UPLOAD_MB = 500;
 
 export function SourceForm({
   onSubmit,
+  onSubmitFile,
   busy,
 }: {
   onSubmit: (url: string, maxClips: number) => void;
+  onSubmitFile: (file: File, maxClips: number) => void;
   busy: boolean;
 }) {
   const [url, setUrl] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+  const [fileError, setFileError] = useState<string | null>(null);
   const [count, setCount] = useState(DEFAULT_CLIPS);
-  const valid = /youtu\.?be/i.test(url) && url.trim().length > 12;
+  const [dragging, setDragging] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
 
+  const urlValid = /youtu\.?be/i.test(url) && url.trim().length > 12;
+  const canSubmit = !busy && (file != null || urlValid);
   const clamp = (n: number) => Math.max(MIN_CLIPS, Math.min(MAX_CLIPS, n));
 
+  function pickFile(f: File | null) {
+    setFileError(null);
+    if (!f) {
+      setFile(null);
+      return;
+    }
+    if (!f.type.startsWith("video/")) {
+      setFileError("Нужен видеофайл");
+      return;
+    }
+    if (f.size > MAX_UPLOAD_MB * 1024 * 1024) {
+      setFileError(`Файл больше ${MAX_UPLOAD_MB} МБ`);
+      return;
+    }
+    setFile(f);
+    setUrl(""); // выбран файл → URL очищаем (файл приоритетнее)
+  }
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!canSubmit) return;
+    if (file) onSubmitFile(file, count);
+    else onSubmit(url.trim(), count);
+  }
+
   return (
-    <form
-      onSubmit={(e) => {
-        e.preventDefault();
-        if (valid && !busy) onSubmit(url.trim(), count);
-      }}
-      className="w-full max-w-xl"
-    >
+    <form onSubmit={handleSubmit} className="w-full max-w-xl">
       <div className="flex flex-col gap-3 sm:flex-row">
         <div className="relative flex-1">
           <Link2 className="pointer-events-none absolute left-3 top-1/2 size-5 -translate-y-1/2 text-muted" />
@@ -37,24 +64,71 @@ export function SourceForm({
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             placeholder="Вставь ссылку на YouTube-видео"
-            disabled={busy}
+            disabled={busy || file != null}
             aria-label="Ссылка на YouTube-видео"
             className="h-12 w-full rounded-xl border border-line bg-surface pl-10 pr-3 text-ink placeholder:text-muted outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/40 disabled:opacity-50"
           />
         </div>
         <button
           type="submit"
-          disabled={!valid || busy}
+          disabled={!canSubmit}
           className="inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-accent px-5 font-semibold text-white transition hover:bg-accent-2 focus:outline-none focus:ring-2 focus:ring-accent/50 disabled:cursor-not-allowed disabled:opacity-40"
         >
-          {busy ? (
-            <Loader2 className="size-5 animate-spin" />
-          ) : (
-            <Scissors className="size-5" />
-          )}
+          {busy ? <Loader2 className="size-5 animate-spin" /> : <Scissors className="size-5" />}
           {busy ? "Запуск…" : "Нарезать"}
         </button>
       </div>
+
+      {/* Загрузка файла: drop-zone или плашка выбранного файла */}
+      {file == null ? (
+        <div
+          onClick={() => !busy && inputRef.current?.click()}
+          onDragOver={(e) => {
+            e.preventDefault();
+            if (!busy) setDragging(true);
+          }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDragging(false);
+            if (!busy) pickFile(e.dataTransfer.files?.[0] ?? null);
+          }}
+          role="button"
+          tabIndex={0}
+          aria-label="Загрузить видеофайл"
+          className={`mt-3 flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed px-4 py-3 text-sm text-muted transition hover:border-accent ${
+            dragging ? "border-accent bg-accent/5" : "border-line bg-surface"
+          } ${busy ? "pointer-events-none opacity-50" : ""}`}
+        >
+          <Upload className="size-4" />
+          Перетащи видео сюда или <span className="font-medium text-ink">выбери файл</span>
+        </div>
+      ) : (
+        <div className="mt-3 flex items-center justify-between gap-2 rounded-xl border border-line bg-surface px-4 py-3">
+          <span className="flex items-center gap-2 truncate text-sm text-ink">
+            <Upload className="size-4 shrink-0 text-accent" />
+            <span className="truncate">{file.name}</span>
+          </span>
+          <button
+            type="button"
+            onClick={() => pickFile(null)}
+            disabled={busy}
+            aria-label="Убрать файл"
+            className="inline-flex size-7 shrink-0 items-center justify-center rounded-lg text-muted transition hover:bg-surface-2 hover:text-ink focus:outline-none focus:ring-2 focus:ring-accent/40 disabled:opacity-30"
+          >
+            <X className="size-4" />
+          </button>
+        </div>
+      )}
+      <input
+        ref={inputRef}
+        type="file"
+        accept="video/*"
+        hidden
+        onChange={(e) => pickFile(e.target.files?.[0] ?? null)}
+      />
+      {fileError ? <p className="mt-1 pl-1 text-sm text-accent">{fileError}</p> : null}
+
       <div className="mt-3 flex items-center gap-3 pl-1">
         <span className="text-sm text-muted">Сколько клипов:</span>
         <div className="inline-flex items-center gap-2 rounded-xl border border-line bg-surface p-1">
@@ -83,7 +157,7 @@ export function SourceForm({
         <span className="text-xs text-muted">ИИ предложит — лишние снимешь сам</span>
       </div>
       <p className="mt-2 pl-1 text-sm text-muted">
-        Один спикер, до 90 минут. Загрузка файла — позже.
+        Один спикер, до 90 минут. YouTube-ссылка или файл с компа.
       </p>
     </form>
   );

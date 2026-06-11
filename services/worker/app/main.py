@@ -10,9 +10,10 @@ from __future__ import annotations
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
-from fastapi import BackgroundTasks, FastAPI, HTTPException
+from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -24,7 +25,9 @@ from app.editor.ops import add_section, apply_extend, apply_trim, set_crop_overr
 from app.editor.store import EditConflict
 from app.models import CaptionPreset, CaptionStyle, CaptionTrack, CropOverride, HighlightStyle
 from app.run import DATA_ROOT
-from app.tasks import render_clip_edit_job, run_pipeline_job
+from app.tasks import render_clip_edit_job, run_pipeline_job, run_upload_job
+
+_UPLOAD_CHUNK = 1024 * 1024  # 1 МБ потоковой записи (не держим весь файл в памяти)
 
 
 @asynccontextmanager
@@ -65,6 +68,31 @@ def create_job(body: CreateJobBody, bg: BackgroundTasks) -> dict[str, Any]:
     job_id = f"job_{uuid.uuid4().hex[:12]}"
     db.insert_job(job_id, body.source_type, body.source_ref)
     bg.add_task(run_pipeline_job, job_id, body.source_type, body.source_ref, body.max_clips)
+    return {"id": job_id, "status": "queued", "stage": "queued", "progress": 0}
+
+
+@app.post("/jobs/upload", status_code=202)
+async def create_upload_job(
+    bg: BackgroundTasks,
+    file: UploadFile = File(...),
+    max_clips: int | None = Form(default=None, ge=1, le=10),
+) -> dict[str, Any]:
+    """Создать задачу из ЗАГРУЖЕННОГО файла: стримим на диск → фон-импорт → пайплайн.
+
+    Файл пишется чанками в data/<job_id>/upload.<ext> (не держим в памяти); затем
+    run_upload_job готовит source.mp4/wav/meta и гоняет тот же пайплайн, что и URL-путь.
+    """
+    job_id = f"job_{uuid.uuid4().hex[:12]}"
+    out = DATA_ROOT / job_id
+    out.mkdir(parents=True, exist_ok=True)
+    filename = file.filename or "upload.mp4"
+    suffix = Path(filename).suffix.lower() or ".mp4"
+    upload_path = out / f"upload{suffix}"
+    with upload_path.open("wb") as fh:
+        while chunk := await file.read(_UPLOAD_CHUNK):
+            fh.write(chunk)
+    db.insert_job(job_id, "upload", filename)
+    bg.add_task(run_upload_job, job_id, str(upload_path), filename, max_clips)
     return {"id": job_id, "status": "queued", "stage": "queued", "progress": 0}
 
 

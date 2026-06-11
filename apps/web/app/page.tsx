@@ -6,7 +6,7 @@ import { ClipGrid } from "@/components/ClipGrid";
 import { ErrorPanel } from "@/components/ErrorPanel";
 import { JobProgress } from "@/components/JobProgress";
 import { SourceForm } from "@/components/SourceForm";
-import { createJob } from "@/lib/api";
+import { createJob, createUploadJob } from "@/lib/api";
 import { useJob } from "@/lib/useJob";
 
 export default function Home() {
@@ -28,6 +28,19 @@ export default function Home() {
       start(id);
     } catch (e) {
       setSubmitError(e instanceof Error ? e.message : "Не удалось создать задачу");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function handleSubmitFile(file: File, maxClips: number) {
+    setSubmitError(null);
+    setSubmitting(true);
+    try {
+      const { id } = await createUploadJob(file, maxClips);
+      start(id);
+    } catch (e) {
+      setSubmitError(e instanceof Error ? e.message : "Не удалось загрузить файл");
     } finally {
       setSubmitting(false);
     }
@@ -72,10 +85,15 @@ export default function Home() {
               Длинное видео → <span className="text-accent">вертикальные клипы</span>
             </h1>
             <p className="mt-4 max-w-md text-muted">
-              Вставь ссылку — ИИ найдёт лучшие моменты, обрежет в 9:16 и прожжёт субтитры.
+              Вставь ссылку или загрузи файл — ИИ найдёт лучшие моменты, обрежет в 9:16 и
+              прожжёт субтитры.
             </p>
             <div className="mt-8 flex justify-center">
-              <SourceForm onSubmit={handleSubmit} busy={submitting} />
+              <SourceForm
+                onSubmit={handleSubmit}
+                onSubmitFile={handleSubmitFile}
+                busy={submitting}
+              />
             </div>
           </div>
         ) : null}

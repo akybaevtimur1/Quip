@@ -240,3 +240,63 @@ def import_youtube(
     _check_limits(meta)
     (out_dir / "meta.json").write_text(meta.model_dump_json(indent=2), encoding="utf-8")
     return meta
+
+
+def _ensure_mp4(src: Path, mp4: Path) -> None:
+    """Загруженный файл → source.mp4. Быстрый remux (-c copy); при несовместимости кодеков
+    с mp4-контейнером — честный ре-энкод (план §B2). JobError, если ffmpeg нет/оба сбоят.
+
+    Это НЕ тихий фолбэк (правило №8): первый шаг — оптимизация скорости; при ненулевом коде
+    мы явно логируем причину переходом на ре-энкод, а ошибки ре-энкода поднимаются JobError.
+    """
+    try:
+        proc = subprocess.run(
+            ["ffmpeg", "-y", "-i", str(src), "-c", "copy", "-movflags", "+faststart", str(mp4)],
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError as e:
+        raise JobError(_STAGE, f"не найден ffmpeg: {e}") from e
+    if proc.returncode == 0 and mp4.exists():
+        return
+    # remux -c copy не прошёл (кодек несовместим с mp4) → ре-энкод в h264/aac
+    _run(
+        [
+            "ffmpeg",
+            "-y",
+            "-i",
+            str(src),
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-crf",
+            "20",
+            "-c:a",
+            "aac",
+            "-movflags",
+            "+faststart",
+            str(mp4),
+        ]  # fmt: skip
+    )
+    if not mp4.exists():
+        raise JobError(_STAGE, f"ffmpeg не создал {mp4}")
+
+
+def import_upload(src: Path, out_dir: Path, *, job_id: str, title: str) -> SourceMeta:
+    """Полный Stage 0 для загруженного файла: → source.mp4 → audio → probe → meta.json.
+
+    src — путь к загруженному файлу (любой контейнер). Готовит те же артефакты, что и
+    import_youtube, поэтому downstream-пайплайн (run_pipeline) видит их как кэш и не качает.
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
+    if not src.exists():
+        raise JobError(_STAGE, f"нет загруженного файла: {src}")
+    mp4 = out_dir / "source.mp4"
+    _ensure_mp4(src, mp4)
+    extract_audio(mp4, out_dir / "source.wav")
+    probe = probe_video(mp4)
+    meta = build_source_meta(probe, job_id=job_id, source=SourceKind.upload, url=None, title=title)
+    _check_limits(meta)
+    (out_dir / "meta.json").write_text(meta.model_dump_json(indent=2), encoding="utf-8")
+    return meta

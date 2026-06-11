@@ -82,3 +82,28 @@ def run_pipeline_job(
         db.set_failed(job_id, str(e))
     except Exception as e:  # noqa: BLE001 — фон-таск: любое падение → статус failed, не молча
         db.set_failed(job_id, f"unexpected: {e}")
+
+
+def run_upload_job(job_id: str, upload_path: str, title: str, max_clips: int | None = None) -> None:
+    """Фон-таск для загруженного файла: импорт файла → тот же run_pipeline (без скачивания).
+
+    import_upload готовит source.mp4/wav/meta.json → run_pipeline(source_url=None) видит их
+    как кэш Stage 0 и сразу идёт на транскрипцию. Статус в БД (правило №8 — падение → failed).
+    """
+    from pathlib import Path
+
+    from app.pipeline.stage0_import import import_upload
+    from app.run import DATA_ROOT
+
+    def on_status(status: JobStatus, progress: int) -> None:
+        db.update_status(job_id, status.value, progress)
+
+    try:
+        db.update_status(job_id, JobStatus.downloading.value, 8)
+        import_upload(Path(upload_path), DATA_ROOT / job_id, job_id=job_id, title=title)
+        job = run_pipeline(job_id, source_url=None, on_status=on_status, max_clips=max_clips)
+        db.set_done(job_id, job)
+    except JobError as e:
+        db.set_failed(job_id, str(e))
+    except Exception as e:  # noqa: BLE001 — фон-таск: любое падение → статус failed, не молча
+        db.set_failed(job_id, f"unexpected: {e}")
