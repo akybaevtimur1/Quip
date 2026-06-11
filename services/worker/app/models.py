@@ -185,6 +185,7 @@ class HighlightStyle(BaseModel):
 
     color: str = "#FFE000"
     scale: float = 1.0  # 1.0 = без увеличения активного слова
+    box: bool = False  # True = активное слово в залитой плашке; False = перекраска текста
 
 
 class CaptionReply(BaseModel):
@@ -221,3 +222,29 @@ class CaptionPreset(BaseModel):
     name: str
     style: CaptionStyle
     highlight: HighlightStyle | None = None
+
+
+# ─────────────────────────── TIMELINE-модели (редактор v2) ───────────────────────────
+
+
+class TimelineSegment(BaseModel):
+    """Кандидат-момент ИИ на таймлайне (маркер). `clip_id`=None, если момент не стал клипом."""
+
+    clip_id: str | None = None
+    start: float  # сек в координатах source
+    end: float
+    type: ClipType
+    score: float = Field(ge=0, le=1)
+    reason: str
+
+
+class TimelineData(BaseModel):
+    """Данные таймлайн-редактора: длительность + ВСЕ кандидаты ИИ + пословный транскрипт.
+
+    Собирается из готовых segments.json + transcript.json (без новых ИИ-вызовов).
+    `words` — для hover-подсказок «что тут происходит».
+    """
+
+    duration: float  # длительность source, секунды
+    segments: list[TimelineSegment]
+    words: list[Word]

@@ -32,6 +32,8 @@ from app.models import (
     Metrics,
     Segment,
     SourceInterval,
+    TimelineData,
+    TimelineSegment,
     Transcript,
     Word,
 )
@@ -57,6 +59,9 @@ _MODELS: list[type[BaseModel]] = [
     CaptionTrack,
     ClipEdit,
     CaptionPreset,
+    # Timeline editor (v2)
+    TimelineSegment,
+    TimelineData,
 ]
 
 # app/export_schema.py → parents: [0]=app [1]=worker [2]=services [3]=<repo root>

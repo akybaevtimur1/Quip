@@ -36,6 +36,8 @@ export interface ClipFlowContract {
   Segment?: Segment;
   SourceInterval?: SourceInterval;
   SourceKind?: SourceKind;
+  TimelineData?: TimelineData;
+  TimelineSegment?: TimelineSegment;
   Transcript?: Transcript;
   Word?: Word;
 }
@@ -52,6 +54,7 @@ export interface CaptionPreset {
  * Караоке-подсветка активного слова. None в треке = караоке выключено.
  */
 export interface HighlightStyle {
+  box?: boolean;
   color?: string;
   scale?: number;
 }
@@ -194,6 +197,28 @@ export interface Metrics {
   cost_usd: number;
   duration_sec: number;
   elapsed_sec: number;
+}
+/**
+ * Данные таймлайн-редактора: длительность + ВСЕ кандидаты ИИ + пословный транскрипт.
+ *
+ * Собирается из готовых segments.json + transcript.json (без новых ИИ-вызовов).
+ * `words` — для hover-подсказок «что тут происходит».
+ */
+export interface TimelineData {
+  duration: number;
+  segments: TimelineSegment[];
+  words: Word[];
+}
+/**
+ * Кандидат-момент ИИ на таймлайне (маркер). `clip_id`=None, если момент не стал клипом.
+ */
+export interface TimelineSegment {
+  clip_id?: string | null;
+  end: number;
+  reason: string;
+  score: number;
+  start: number;
+  type: ClipType;
 }
 /**
  * Нормализованный транскрипт. `words` отсортированы по `start`.

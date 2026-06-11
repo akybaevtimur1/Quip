@@ -365,6 +365,10 @@
     "HighlightStyle": {
       "description": "Караоке-подсветка активного слова. None в треке = караоке выключено.",
       "properties": {
+        "box": {
+          "default": false,
+          "type": "boolean"
+        },
         "color": {
           "default": "#FFE000",
           "type": "string"
@@ -521,6 +525,73 @@
       ],
       "type": "string"
     },
+    "TimelineData": {
+      "description": "Данные таймлайн-редактора: длительность + ВСЕ кандидаты ИИ + пословный транскрипт.\n\nСобирается из готовых segments.json + transcript.json (без новых ИИ-вызовов).\n`words` — для hover-подсказок «что тут происходит».",
+      "properties": {
+        "duration": {
+          "type": "number"
+        },
+        "segments": {
+          "items": {
+            "$ref": "#/$defs/TimelineSegment"
+          },
+          "type": "array"
+        },
+        "words": {
+          "items": {
+            "$ref": "#/$defs/Word"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "duration",
+        "segments",
+        "words"
+      ],
+      "type": "object"
+    },
+    "TimelineSegment": {
+      "description": "Кандидат-момент ИИ на таймлайне (маркер). `clip_id`=None, если момент не стал клипом.",
+      "properties": {
+        "clip_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "end": {
+          "type": "number"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "score": {
+          "maximum": 1,
+          "minimum": 0,
+          "type": "number"
+        },
+        "start": {
+          "type": "number"
+        },
+        "type": {
+          "$ref": "#/$defs/ClipType"
+        }
+      },
+      "required": [
+        "start",
+        "end",
+        "type",
+        "score",
+        "reason"
+      ],
+      "type": "object"
+    },
     "Transcript": {
       "description": "Нормализованный транскрипт. `words` отсортированы по `start`.",
       "properties": {
@@ -628,6 +699,12 @@
     },
     "SourceKind": {
       "$ref": "#/$defs/SourceKind"
+    },
+    "TimelineData": {
+      "$ref": "#/$defs/TimelineData"
+    },
+    "TimelineSegment": {
+      "$ref": "#/$defs/TimelineSegment"
     },
     "Transcript": {
       "$ref": "#/$defs/Transcript"

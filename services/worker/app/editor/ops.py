@@ -77,6 +77,55 @@ def apply_extend(
     return _with_intervals(edit, intervals, words)
 
 
+def clamp_interval(
+    source_start: float,
+    source_end: float,
+    *,
+    duration: float,
+    min_sec: float,
+    max_sec: float,
+) -> tuple[float, float]:
+    """PURE. Загнать [start,end] в [0,duration] и в длину [min_sec,max_sec].
+
+    Используется таймлайном (двигать/resize шортс). Если источник короче min_sec —
+    окно = весь источник. Гарантирует start<end и валидную длину.
+    """
+    s = max(0.0, min(float(source_start), duration))
+    e = max(0.0, min(float(source_end), duration))
+    if e <= s:
+        e = s
+    length = e - s
+    if length < min_sec:
+        e = s + min_sec
+        if e > duration:
+            e = duration
+            s = max(0.0, e - min_sec)
+    elif length > max_sec:
+        e = s + max_sec
+    return s, e
+
+
+def set_interval(
+    edit: ClipEdit,
+    source_start: float,
+    source_end: float,
+    words: list[Word],
+    *,
+    duration: float,
+    min_sec: float,
+    max_sec: float,
+) -> ClipEdit:
+    """Заменить интервалы клипа ОДНИМ окном [start,end] (двигать/resize на таймлайне).
+
+    Границы клампятся (clamp_interval). Trim-дырки сбрасываются (блок на таймлайне = один
+    непрерывный кусок; вырезание слов делается ПОСЛЕ позиционирования). Реплики пересобираются.
+    """
+    s, e = clamp_interval(
+        source_start, source_end, duration=duration, min_sec=min_sec, max_sec=max_sec
+    )
+    return _with_intervals(edit, [SourceInterval(source_start=s, source_end=e)], words)
+
+
 def set_crop_override(edit: ClipEdit, override: CropOverride) -> ClipEdit:
     """Replace any overlapping crop overrides with the new one."""
     kept = [

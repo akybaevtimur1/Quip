@@ -10,6 +10,8 @@ export type {
   CropOverride,
   HighlightStyle,
   SourceInterval,
+  TimelineData,
+  TimelineSegment,
 } from "@clipflow/shared";
 
 // UI state-машина страницы.
