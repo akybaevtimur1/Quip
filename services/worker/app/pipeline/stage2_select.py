@@ -136,11 +136,11 @@ def postprocess(
             continue
         if typ not in valid_types:
             continue
-        si = snap_start_index(words, si)
-        ei = snap_end_index(words, ei)
         try:
+            si = snap_start_index(words, si)
+            ei = snap_end_index(words, ei)
             start, end = indices_to_times(words, si, ei)
-        except JobError:
+        except (JobError, IndexError):
             continue
         if not (min_sec <= end - start <= max_sec):
             continue
