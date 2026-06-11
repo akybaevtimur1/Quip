@@ -221,17 +221,20 @@ def build_user_prompt(title: str, transcript: Transcript, indexed: str, max_clip
     )
 
 
-def select_segments(
-    transcript: Transcript,
-    title: str,
+def call_gemini_structured(
+    user_prompt: str,
     *,
-    max_clips: int | None = None,
+    system_prompt: str,
+    response_schema: type[BaseModel],
+    stage: str = _STAGE,
     usage_sink: dict[str, int] | None = None,
-) -> list[Segment]:
-    """Gemini structured output → сырые сегменты → постобработка → list[Segment].
+) -> str:
+    """Вызов Gemini structured output с ретраями → сырой JSON-текст ответа.
 
-    max_clips (опц.) — запрошенное юзером число клипов (UI-степпер); None → дефолт из настроек.
-    usage_sink (опц.) заполняется токенами (prompt/output/thoughts) для лога стоимости.
+    Общая обвязка для select_segments и generate_chapters (editor v3):
+    ретраи транзиентных ошибок (free-tier 429/503), backoff capped 30с;
+    primary устойчиво падает → fallback-модели (разная нагрузка).
+    usage_sink (опц.) заполняется токенами prompt/output/thoughts для лога стоимости.
     """
     from google import genai
     from google.genai import types
@@ -239,21 +242,16 @@ def select_segments(
     s = get_settings()
     key = s.gemini_api_key
     if key is None:
-        raise JobError(_STAGE, "нет GEMINI_API_KEY (LLM_PROVIDER=gemini)")
+        raise JobError(stage, "нет GEMINI_API_KEY (LLM_PROVIDER=gemini)")
 
-    n_clips = resolve_max_clips(max_clips, s.max_clips)
     client = genai.Client(api_key=key)
-    indexed = build_indexed_transcript(transcript.words)
-    user_prompt = build_user_prompt(title, transcript, indexed, n_clips)
     cfg = types.GenerateContentConfig(
-        system_instruction=load_system_prompt(),
+        system_instruction=system_prompt,
         response_mime_type="application/json",
-        response_schema=_LlmSelection,
+        response_schema=response_schema,
         max_output_tokens=s.llm_max_output_tokens,
     )
 
-    # Ретраи транзиентных ошибок (free-tier 429/503). Backoff capped 30с.
-    # Если primary-модель устойчиво 503 → пробуем fallback-модели (разная нагрузка).
     resp: Any = None
     last_err: Exception | None = None
 
@@ -284,7 +282,7 @@ def select_segments(
                 break
 
     if resp is None:
-        raise JobError(_STAGE, f"Gemini недоступен после всех попыток: {last_err}")
+        raise JobError(stage, f"Gemini недоступен после всех попыток: {last_err}")
 
     if usage_sink is not None and resp.usage_metadata is not None:
         um = resp.usage_metadata
@@ -294,7 +292,34 @@ def select_segments(
 
     text = resp.text
     if not text:
-        raise JobError(_STAGE, "Gemini вернул пустой ответ")
+        raise JobError(stage, "Gemini вернул пустой ответ")
+    return str(text)
+
+
+def select_segments(
+    transcript: Transcript,
+    title: str,
+    *,
+    max_clips: int | None = None,
+    usage_sink: dict[str, int] | None = None,
+) -> list[Segment]:
+    """Gemini structured output → сырые сегменты → постобработка → list[Segment].
+
+    max_clips (опц.) — запрошенное юзером число клипов (UI-степпер); None → дефолт из настроек.
+    usage_sink (опц.) заполняется токенами (prompt/output/thoughts) для лога стоимости.
+    """
+    s = get_settings()
+    n_clips = resolve_max_clips(max_clips, s.max_clips)
+    indexed = build_indexed_transcript(transcript.words)
+    user_prompt = build_user_prompt(title, transcript, indexed, n_clips)
+
+    text = call_gemini_structured(
+        user_prompt,
+        system_prompt=load_system_prompt(),
+        response_schema=_LlmSelection,
+        stage=_STAGE,
+        usage_sink=usage_sink,
+    )
     try:
         raw = json.loads(text).get("segments", [])
     except json.JSONDecodeError as e:

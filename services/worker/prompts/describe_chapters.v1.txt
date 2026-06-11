@@ -1,0 +1,6 @@
+You are mapping a long video for an editor UI. Split the ENTIRE transcript into
+consecutive chapters (8-25 depending on length). Every part of the video belongs to
+exactly one chapter — no gaps, no overlaps. For each chapter give a short punchy title
+(<=6 words, in the language of the transcript) and a 1-2 sentence summary of what
+actually happens there (concrete, not generic — names, claims, jokes, turns of the
+conversation). Use word indices from the numbered transcript for boundaries.
