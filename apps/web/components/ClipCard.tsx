@@ -31,6 +31,8 @@ export function ClipCard({
   const [renderDone, setRenderDone] = useState(false);
   const [showCaptions, setShowCaptions] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  // editReplies: synced from ClipEditor so the overlay shows edited caption text in realtime
+  const [editReplies, setEditReplies] = useState<import("@/lib/types").CaptionReply[] | null>(null);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -54,6 +56,14 @@ export function ClipCard({
     setVideoSrc(url);
     setRenderDone(true);
     setTimeout(() => setRenderDone(false), 4000);
+  };
+
+  const handleToggleEditor = () => {
+    const next = !showEditor;
+    setShowEditor(next);
+    // Auto-enable CC when editor opens so burned-in ASS is covered by overlay
+    if (next && clip.words.length > 0) setShowCaptions(true);
+    if (!next) setEditReplies(null);
   };
 
   return (
@@ -89,6 +99,7 @@ export function ClipCard({
             words={clip.words}
             clipStart={clip.start}
             videoRef={videoRef}
+            replies={editReplies}
           />
         )}
         <span className="absolute left-2 top-2">
@@ -169,7 +180,7 @@ export function ClipCard({
           </a>
           <button
             type="button"
-            onClick={() => setShowEditor((v) => !v)}
+            onClick={handleToggleEditor}
             className={`inline-flex items-center justify-center gap-1.5 rounded-xl border px-3 py-2 text-sm font-semibold transition focus:outline-none ${
               showEditor
                 ? "border-accent/60 bg-accent/10 text-accent"
@@ -189,6 +200,7 @@ export function ClipCard({
             jobId={jobId}
             clipId={clip.id}
             onRenderDone={handleRenderDone}
+            onRepliesChange={setEditReplies}
           />
         </div>
       )}

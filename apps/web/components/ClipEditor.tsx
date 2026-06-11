@@ -1,16 +1,17 @@
 "use client";
 
-import { CheckCircle, Film, Loader2, Scissors } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { CheckCircle, Film, Loader2, Scissors, Type } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   extendClip,
   getClipAnalysis,
   getClipEdit,
   getRenderStatus,
+  patchClipEdit,
   startRenderClip,
   trimClip,
 } from "@/lib/api";
-import type { ClipEdit, Word } from "@/lib/types";
+import type { CaptionReply, ClipEdit, Word } from "@/lib/types";
 
 const WORKER_BASE = process.env.NEXT_PUBLIC_WORKER_URL ?? "";
 
@@ -23,11 +24,13 @@ interface ClipEditorProps {
   jobId: string;
   clipId: string;
   onRenderDone: (newVideoUrl: string) => void;
+  // called whenever edit state changes so ClipCard can sync the CC overlay
+  onRepliesChange?: (replies: CaptionReply[] | null) => void;
 }
 
 type Phase = "loading" | "ready" | "saving" | "rendering" | "done" | "error";
 
-export default function ClipEditor({ jobId, clipId, onRenderDone }: ClipEditorProps) {
+export default function ClipEditor({ jobId, clipId, onRenderDone, onRepliesChange }: ClipEditorProps) {
   const [phase, setPhase] = useState<Phase>("loading");
   const [error, setError] = useState<string | null>(null);
   const [edit, setEdit] = useState<ClipEdit | null>(null);
@@ -38,6 +41,10 @@ export default function ClipEditor({ jobId, clipId, onRenderDone }: ClipEditorPr
   const [renderElapsed, setRenderElapsed] = useState(0);
   const [loadKey, setLoadKey] = useState(0);
 
+  // Subtitle editing: maps reply index → draft text
+  const [captionEdits, setCaptionEdits] = useState<Record<number, string>>({});
+  const [savingCaptions, setSavingCaptions] = useState(false);
+
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -46,12 +53,18 @@ export default function ClipEditor({ jobId, clipId, onRenderDone }: ClipEditorPr
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
   }, []);
 
+  // Notify parent whenever replies change (for CC overlay sync)
+  useEffect(() => {
+    onRepliesChange?.(edit?.captions.replies ?? null);
+  }, [edit, onRepliesChange]);
+
   useEffect(() => {
     let cancelled = false;
     async function fetchData() {
       setPhase("loading");
       setError(null);
       setSelected(new Set());
+      setCaptionEdits({});
       try {
         const [editData, analysisData] = await Promise.all([
           getClipEdit(jobId, clipId),
@@ -72,12 +85,33 @@ export default function ClipEditor({ jobId, clipId, onRenderDone }: ClipEditorPr
     return () => { cancelled = true; stopPoll(); };
   }, [jobId, clipId, loadKey, stopPoll]);
 
+  // Build caption display groups using positional mapping:
+  // reply[i] covers analysis_words[offset .. offset + len(word_refs)]
+  const captionGroups = useMemo(() => {
+    if (!edit?.captions.replies || words.length === 0) return [];
+    let offset = 0;
+    return edit.captions.replies.map((reply) => {
+      const count = reply.word_refs.length;
+      const group = words.slice(offset, offset + count);
+      offset += count;
+      return {
+        reply,
+        defaultText: group.map((w) => w.text).join(" "),
+      };
+    });
+  }, [edit, words]);
+
   const toggleWord = (pos: number) => {
     setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(pos)) next.delete(pos); else next.add(pos);
       return next;
     });
+  };
+
+  const handleConflict = () => {
+    setError("Данные обновились — попробуй ещё раз");
+    setLoadKey((k) => k + 1);
   };
 
   const handleTrim = async () => {
@@ -92,17 +126,12 @@ export default function ClipEditor({ jobId, clipId, onRenderDone }: ClipEditorPr
       setWords(analysisData.words);
       setGlobalIndices((newEdit.captions.replies ?? []).flatMap((r) => r.word_refs));
       setSelected(new Set());
+      setCaptionEdits({});
       setPhase("ready");
     } catch (e) {
       const msg = String(e);
-      // Version conflict: auto-reload state so user can simply retry.
-      if (msg.includes("conflict") || msg.includes("409")) {
-        setError("Данные обновились — попробуй ещё раз");
-        setLoadKey((k) => k + 1);
-      } else {
-        setError(msg);
-        setPhase("ready");
-      }
+      if (msg.includes("conflict") || msg.includes("409")) handleConflict();
+      else { setError(msg); setPhase("ready"); }
     }
   };
 
@@ -120,17 +149,39 @@ export default function ClipEditor({ jobId, clipId, onRenderDone }: ClipEditorPr
       setWords(analysisData.words);
       setGlobalIndices((newEdit.captions.replies ?? []).flatMap((r) => r.word_refs));
       setSelected(new Set());
+      setCaptionEdits({});
       setPhase("ready");
     } catch (e) {
       const msg = String(e);
-      // Version conflict: auto-reload state so user can simply retry.
-      if (msg.includes("conflict") || msg.includes("409")) {
-        setError("Данные обновились — попробуй ещё раз");
-        setLoadKey((k) => k + 1);
-      } else {
-        setError(msg);
-        setPhase("ready");
-      }
+      if (msg.includes("conflict") || msg.includes("409")) handleConflict();
+      else { setError(msg); setPhase("ready"); }
+    }
+  };
+
+  const handleSaveCaptions = async () => {
+    if (!edit || Object.keys(captionEdits).length === 0) return;
+    setSavingCaptions(true);
+    setError(null);
+    try {
+      const updatedReplies = (edit.captions.replies ?? []).map((reply, i): CaptionReply => ({
+        ...reply,
+        // captionEdits[i] = user typed something; empty string means clear override
+        text_override: captionEdits[i] !== undefined
+          ? (captionEdits[i].trim() || null)
+          : reply.text_override,
+      }));
+      const newEdit = await patchClipEdit(jobId, clipId, edit.version ?? 1, {
+        ...edit.captions,
+        replies: updatedReplies,
+      });
+      setEdit(newEdit);
+      setCaptionEdits({});
+    } catch (e) {
+      const msg = String(e);
+      if (msg.includes("conflict") || msg.includes("409")) handleConflict();
+      else setError(msg);
+    } finally {
+      setSavingCaptions(false);
     }
   };
 
@@ -147,9 +198,7 @@ export default function ClipEditor({ jobId, clipId, onRenderDone }: ClipEditorPr
       setPhase("ready");
       return;
     }
-    // elapsed timer
     timerRef.current = setInterval(() => setRenderElapsed((s) => s + 1), 1000);
-    // status poll
     pollRef.current = setInterval(async () => {
       try {
         const st = await getRenderStatus(jobId, clipId);
@@ -166,7 +215,6 @@ export default function ClipEditor({ jobId, clipId, onRenderDone }: ClipEditorPr
     }, 2000);
   };
 
-  // ── loading skeleton ──
   if (phase === "loading") {
     return (
       <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted">
@@ -176,7 +224,6 @@ export default function ClipEditor({ jobId, clipId, onRenderDone }: ClipEditorPr
     );
   }
 
-  // ── fatal error (no data at all) ──
   if (phase === "error" && !edit) {
     return (
       <div className="space-y-2 py-4 text-center text-sm">
@@ -194,10 +241,9 @@ export default function ClipEditor({ jobId, clipId, onRenderDone }: ClipEditorPr
   const totalSec = edit
     ? edit.source_intervals.reduce((s, iv) => s + (iv.source_end - iv.source_start), 0)
     : 0;
-  const busy = phase === "saving" || phase === "rendering";
-  const cutCount = edit
-    ? edit.source_intervals.length - 1
-    : 0;
+  const busy = phase === "saving" || phase === "rendering" || savingCaptions;
+  const cutCount = edit ? edit.source_intervals.length - 1 : 0;
+  const dirtyCapCount = Object.keys(captionEdits).length;
 
   return (
     <div className="divide-y divide-line">
@@ -225,11 +271,100 @@ export default function ClipEditor({ jobId, clipId, onRenderDone }: ClipEditorPr
         </div>
       )}
 
-      {/* ── STEP 1: CUT WORDS ── */}
+      {/* ── STEP 1: SUBTITLES ── */}
+      <div className="px-4 py-3 space-y-2">
+        <div className="flex items-center justify-between">
+          <p className="text-xs font-semibold text-muted uppercase tracking-wider flex items-center gap-1.5">
+            <Type className="size-3" />
+            1 · Субтитры
+          </p>
+          {dirtyCapCount > 0 && (
+            <span className="text-xs text-accent">{dirtyCapCount} изменено</span>
+          )}
+        </div>
+
+        <div className="max-h-56 overflow-y-auto space-y-1 rounded-xl border border-line bg-surface p-2">
+          {captionGroups.length === 0 && (
+            <span className="block text-xs text-muted py-1 px-1">Нет субтитров</span>
+          )}
+          {captionGroups.map(({ reply, defaultText }, i) => {
+            const isDirty = captionEdits[i] !== undefined;
+            const hasOverride = reply.text_override != null;
+            const displayValue = isDirty
+              ? captionEdits[i]
+              : (reply.text_override ?? defaultText);
+            return (
+              <div
+                key={i}
+                className={`flex items-center gap-1.5 rounded-lg border px-2 py-1.5 transition ${
+                  isDirty
+                    ? "border-accent/40 bg-accent/5"
+                    : hasOverride
+                    ? "border-yellow-500/30 bg-yellow-500/5"
+                    : "border-transparent bg-surface-2"
+                }`}
+              >
+                <span className="shrink-0 text-[10px] font-mono text-muted w-5 text-right">{i + 1}</span>
+                <input
+                  type="text"
+                  value={displayValue}
+                  onChange={(e) =>
+                    setCaptionEdits((prev) => ({ ...prev, [i]: e.target.value }))
+                  }
+                  disabled={busy}
+                  className="min-w-0 flex-1 bg-transparent text-xs font-semibold uppercase text-ink outline-none disabled:opacity-50 placeholder:text-muted"
+                  placeholder={defaultText.toUpperCase()}
+                />
+                {(isDirty || hasOverride) && (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    title="Сбросить к оригиналу"
+                    onClick={() => {
+                      if (isDirty) {
+                        setCaptionEdits((prev) => {
+                          const next = { ...prev };
+                          delete next[i];
+                          return next;
+                        });
+                      } else {
+                        // clear persisted override
+                        setCaptionEdits((prev) => ({ ...prev, [i]: "" }));
+                      }
+                    }}
+                    className="shrink-0 text-[10px] text-muted hover:text-red-400 transition"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {dirtyCapCount > 0 && (
+          <button
+            disabled={busy}
+            onClick={handleSaveCaptions}
+            className="flex w-full items-center justify-center gap-2 rounded-xl border border-accent/50 bg-accent/10 py-2 text-sm font-semibold text-accent transition hover:bg-accent/20 disabled:opacity-30"
+          >
+            {savingCaptions
+              ? <><Loader2 className="size-4 animate-spin" /> Сохраняю…</>
+              : `Сохранить правки субтитров (${dirtyCapCount})`}
+          </button>
+        )}
+
+        <p className="text-xs text-muted">
+          Отредактируй текст → «Сохранить» → нажми «Рендерить» чтобы прожечь в видео.
+          После рендера — отключи CC.
+        </p>
+      </div>
+
+      {/* ── STEP 2: CUT WORDS ── */}
       <div className="px-4 py-3 space-y-2">
         <div className="flex items-center justify-between">
           <p className="text-xs font-semibold text-muted uppercase tracking-wider">
-            1 · Выбери слова для вырезания
+            2 · Вырезать слова
           </p>
           {selected.size > 0 && (
             <button
@@ -241,7 +376,6 @@ export default function ClipEditor({ jobId, clipId, onRenderDone }: ClipEditorPr
           )}
         </div>
 
-        {/* words grid */}
         <div className="flex flex-wrap gap-1 max-h-44 overflow-y-auto rounded-xl border border-line bg-surface p-2">
           {words.map((w, i) => (
             <button
@@ -253,7 +387,7 @@ export default function ClipEditor({ jobId, clipId, onRenderDone }: ClipEditorPr
                 "rounded-md px-2 py-1 text-xs transition-all select-none",
                 selected.has(i)
                   ? "bg-red-500/20 text-red-400 line-through ring-1 ring-red-500/40"
-                  : "bg-surface-2 text-ink hover:bg-surface-2 hover:ring-1 hover:ring-line",
+                  : "bg-surface-2 text-ink hover:ring-1 hover:ring-line",
               ].join(" ")}
             >
               {w.text}
@@ -265,13 +399,9 @@ export default function ClipEditor({ jobId, clipId, onRenderDone }: ClipEditorPr
         </div>
 
         {selected.size > 0 ? (
-          <p className="text-xs text-red-400">
-            {selected.size} слов будет вырезано из клипа
-          </p>
+          <p className="text-xs text-red-400">{selected.size} слов будет вырезано из клипа</p>
         ) : (
-          <p className="text-xs text-muted">
-            Нажми на слово чтобы отметить его. Можно выбрать несколько подряд.
-          </p>
+          <p className="text-xs text-muted">Нажми на слово чтобы отметить его.</p>
         )}
 
         <button
@@ -287,10 +417,10 @@ export default function ClipEditor({ jobId, clipId, onRenderDone }: ClipEditorPr
         </button>
       </div>
 
-      {/* ── STEP 2: EXTEND ── */}
+      {/* ── STEP 3: EXTEND ── */}
       <div className="px-4 py-3 space-y-2">
         <p className="text-xs font-semibold text-muted uppercase tracking-wider">
-          2 · Продлить конец клипа
+          3 · Продлить конец клипа
         </p>
         <div className="flex gap-2">
           {[3, 5, 10, 15].map((s) => (
@@ -325,10 +455,10 @@ export default function ClipEditor({ jobId, clipId, onRenderDone }: ClipEditorPr
         </div>
       </div>
 
-      {/* ── STEP 3: RE-RENDER ── */}
+      {/* ── STEP 4: RE-RENDER ── */}
       <div className="px-4 py-3 space-y-2">
         <p className="text-xs font-semibold text-muted uppercase tracking-wider">
-          3 · Рендер с правками
+          4 · Рендер с правками
         </p>
 
         {phase === "done" ? (
@@ -346,8 +476,13 @@ export default function ClipEditor({ jobId, clipId, onRenderDone }: ClipEditorPr
           </div>
         ) : (
           <>
+            {dirtyCapCount > 0 && (
+              <p className="text-xs text-yellow-400">
+                ⚠ Есть несохранённые правки субтитров — сохрани их перед рендером.
+              </p>
+            )}
             <p className="text-xs text-muted">
-              Нажми — клип перерендерится с твоими вырезками. Видео сверху обновится автоматически.
+              Нажми — клип перерендерится с твоими вырезками и субтитрами. Видео сверху обновится автоматически.
             </p>
             <button
               disabled={busy}

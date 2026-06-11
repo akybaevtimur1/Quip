@@ -3,6 +3,7 @@
 export type { Clip, ClipOut, ClipType, Job, JobStatus, Metrics, SourceKind, Word } from "@clipflow/shared";
 export type {
   CaptionPreset,
+  CaptionReply,
   CaptionStyle,
   CaptionTrack,
   ClipEdit,

@@ -1,4 +1,4 @@
-import type { CaptionPreset, ClipEdit, Job, Word } from "./types";
+import type { CaptionPreset, CaptionTrack, ClipEdit, Job, Word } from "./types";
 
 // База воркера: реальный worker через env, иначе встроенный мок (/api/mock).
 const BASE = process.env.NEXT_PUBLIC_WORKER_URL ?? "/api/mock";
@@ -91,6 +91,22 @@ export async function getRenderStatus(
     cache: "no-store",
   });
   if (!res.ok) throw new Error(`getRenderStatus failed: ${res.status}`);
+  return res.json();
+}
+
+export async function patchClipEdit(
+  jobId: string,
+  clipId: string,
+  version: number,
+  captions: CaptionTrack,
+): Promise<ClipEdit> {
+  const res = await fetch(`${BASE}/jobs/${jobId}/clips/${clipId}/edit`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ version, captions }),
+  });
+  if (res.status === 409) throw new Error("Edit conflict — reload and retry");
+  if (!res.ok) throw new Error(`patchClipEdit failed: ${res.status}`);
   return res.json();
 }
 
