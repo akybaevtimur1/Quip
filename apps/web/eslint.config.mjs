@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Статика (в т.ч. вендоренный libass-воркер ~4.7МБ — eslint на нём падает по памяти).
+    "public/**",
   ]),
 ]);
 

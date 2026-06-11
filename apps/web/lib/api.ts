@@ -61,6 +61,13 @@ export async function setClipInterval(
   return res.json();
 }
 
+export async function getClipAss(jobId: string, clipId: string): Promise<string> {
+  // ASS субтитров текущего edit-state — для libass.wasm превью (тот же ASS, что жжёт ffmpeg).
+  const res = await fetch(`${BASE}/jobs/${jobId}/clips/${clipId}/ass`, { cache: "no-store" });
+  if (!res.ok) throw new Error(`getClipAss failed: ${res.status}`);
+  return res.text();
+}
+
 export async function getClipEdit(jobId: string, clipId: string): Promise<ClipEdit> {
   const res = await fetch(`${BASE}/jobs/${jobId}/clips/${clipId}/edit`, { cache: "no-store" });
   if (!res.ok) throw new Error(`getClipEdit failed: ${res.status}`);

@@ -13,7 +13,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -22,9 +22,11 @@ from app import __version__, db
 from app.config import get_settings
 from app.editor import presets as presets_mod
 from app.editor import store
+from app.editor.captions_v2 import compile_ass
 from app.editor.ops import add_section, apply_extend, apply_trim, set_crop_override, set_interval
 from app.editor.store import EditConflict
 from app.editor.timeline import build_timeline_data
+from app.editor.timemap import ClipTimeMap
 from app.models import (
     CaptionPreset,
     CaptionStyle,
@@ -197,6 +199,23 @@ def get_clip_edit(job_id: str, clip_id: str) -> dict[str, Any]:
         return store.ensure_edit(job_id, clip_id).model_dump()
     except (FileNotFoundError, KeyError) as e:
         raise HTTPException(status_code=404, detail="clip/segment not found") from e
+
+
+@app.get("/jobs/{job_id}/clips/{clip_id}/ass")
+def get_clip_ass(job_id: str, clip_id: str) -> Response:
+    """ASS субтитров текущего edit-state (для libass-превью в браузере).
+
+    Тот же компилятор, что и финальный экспорт (captions_v2.compile_ass) → превью
+    субтитров через libass.wasm = экспорт пиксель-в-пиксель. Тайминги в КЛИП-времени.
+    """
+    try:
+        edit = store.ensure_edit(job_id, clip_id)
+    except (FileNotFoundError, KeyError) as e:
+        raise HTTPException(status_code=404, detail="clip/segment not found") from e
+    words = store.load_transcript_words(job_id)
+    cmap = ClipTimeMap(edit.source_intervals)
+    ass = compile_ass(edit.captions, words, cmap)
+    return Response(content=ass, media_type="text/plain; charset=utf-8")
 
 
 @app.patch("/jobs/{job_id}/clips/{clip_id}/edit")

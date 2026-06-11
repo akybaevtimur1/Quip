@@ -77,3 +77,19 @@ def test_preset_save_and_apply(monkeypatch, tmp_path):
     )
     assert r.status_code == 200
     assert r.json()["captions"]["style"]["color"] == "#00FF00"
+
+
+def test_get_ass_returns_valid_ass(monkeypatch, tmp_path):
+    client, job = _client(monkeypatch, tmp_path)
+    r = client.get(f"/jobs/{job}/clips/clip_01/ass")
+    assert r.status_code == 200
+    body = r.text
+    assert "[Script Info]" in body
+    assert "[Events]" in body
+    assert "PlayResX: 1080" in body  # 9:16-холст
+
+
+def test_get_ass_404_for_missing_clip(monkeypatch, tmp_path):
+    client, job = _client(monkeypatch, tmp_path)
+    r = client.get(f"/jobs/{job}/clips/clip_09/ass")
+    assert r.status_code == 404
