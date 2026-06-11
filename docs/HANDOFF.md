@@ -63,6 +63,12 @@ Deepgram + Gemini суммарно. Терпимо для MVP-демо.
 ### Что ТОЧНО работает для MVP
 ✅ YouTube URL → 3–10 вертикальных 9:16-клипов с субтитрами (EN/RU авто-язык)
 ✅ Загрузка файла с компа (POST /jobs/upload, multipart) → тот же пайплайн (2026-06-11)
+✅ Надёжное YouTube-скачивание: yt-dlp 2026.6.9 + PO-token провайдер (Docker :4416) — §8
+✅ Редактор клипа = МОДАЛКА (✕/Esc/клик-вне): широкий таймлайн (двигать/resize шортс
+   руками), галерея стилей субтитров A–D, вырезание слов, рендер (2026-06-12)
+✅ Живое WYSIWYG-превью субтитров (libass.wasm, OSS): субтитры в превью = экспорт
+   пиксель-в-пиксель; видео = источник на моменте (двигаешь блок → едет) (2026-06-12)
+✅ Deep-link задачи: http://localhost:3000/?job=<id> (открыть готовую задачу)
 ✅ Прогресс-бар по стадиям (queued→downloading→transcribing→selecting→rendering→done)
 ✅ CC оверлей (TikTok-анимация, кнопка CC; покрывает burned-in субтитры)
 ✅ Полный экран с CC (fullscreen кнопка на карточке)
@@ -126,6 +132,34 @@ FastAPI / uv, пакет `app`), `packages/shared` (TS-типы, codegen из `a
 - Фронт: `SourceForm` — drag&drop + выбор файла (≤500МБ, `video/*`); `createUploadJob` (FormData).
 - `run.py`: `source_kind=meta.source` (был хардкод youtube). +`python-multipart` в депы.
 - +2 unit-теста (endpoint через TestClient, фон-таск замокан). `just check` зелёный, 229 тестов.
+
+### ✅ Editor v2 — модалка + таймлайн + пресеты + libass-превью (2026-06-12)
+
+Спеки: `docs/superpowers/specs/2026-06-11-editor-v2-design.md` (модалка/таймлайн/пресеты) +
+`docs/superpowers/specs/2026-06-12-wysiwyg-libass-preview-design.md` (libass; §8 = Approach B Revideo).
+
+**Бэкенд:**
+- `GET /jobs/{job}/clips/{clip}/timeline` → `TimelineData` (длительность + ВСЕ ИИ-сегменты + слова).
+- `POST .../edit/set-interval` → `set_interval` (двигать/resize шортс, optimistic-lock 409).
+- `GET .../clips/{clip}/ass` → ASS текущего edit-state (тот же `captions_v2.compile_ass`, что экспорт).
+- Сид-пресеты A–D (`app/editor/preset_seeds.py`), в `GET /presets`. Дефолт `preset_a`.
+- Экспорт (`tasks.render_clip_edit_job`) теперь жжёт субтитры выбранного стиля (раньше НЕ жёг).
+
+**Фронт (модалка `ClipEditorModal.tsx`):**
+- Открывается по «Редактировать» (`ClipCard`), полноэкранная (✕/Esc/клик-вне). Старый инлайн-редактор удалён.
+- ЛЕВО: видео = `media/{job}/source.mp4` (object-cover, перемотка на интервал + луп) + субтитры
+  рисует **libass.wasm** (`LibassLayer.tsx`, SubtitlesOctopus, MIT) из `/ass` (timeOffset=-sourceStart).
+  Правка субтитра кликом по активной реплике → PATCH → refetch ASS. Галерея пресетов `PresetStrip`.
+  Фолбэк на CSS-`CaptionOverlay`, если libass не поднялся.
+- ПРАВО: широкий `TimelineEditor` (drag/resize блока, ИИ-маркеры, hover-транскрипт) + вырезание слов + рендер.
+- libass-ассеты: `apps/web/public/libass/` (worker+wasm+legacy+Montserrat.ttf). `eslint` игнорит `public/**`.
+
+**Кнобы/грабли:**
+- ⚠️ Видео в превью = ИСТОЧНИК (object-cover центр), кроп 9:16 приблизительный; ТОЧНЫЙ reframe-кроп —
+  только на финальном рендере (ffmpeg). Точный live-кроп = Approach B (Revideo, отложен).
+- ⚠️ Визуальную корректность libass (рисует/обновляется) проверяет фаундер глазами — автотестом не верифицируется.
+- ⚠️ source.mp4 у comedy01 = 328МБ; seek через HTTP range (StaticFiles умеет). Большие источники грузятся дольше.
+- Тест без Gemini: `http://localhost:3000/?job=comedy01` (посеяно `tmp/seed_cached_job.py`).
 
 ### ✅ Editor Core MVP (2026-06-09)
 
