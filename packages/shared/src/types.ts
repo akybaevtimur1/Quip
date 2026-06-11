@@ -101,6 +101,7 @@ export interface Chapter {
   end: number;
   start: number;
   summary: string;
+  title: string;
 }
 /**
  * Статус+результат генерации AI-карты (кэш data/<job>/chapters.json).

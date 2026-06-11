@@ -26,13 +26,13 @@ import type {
 import { CaptionOverlay } from "../CaptionOverlay";
 import { resolveUrl } from "../ClipCard";
 import { LibassLayer } from "../LibassLayer";
-import TimelineEditor from "../TimelineEditor";
 import { CaptionsTab } from "./CaptionsTab";
 import { EditorHeader, type RenderState } from "./EditorHeader";
 import { FrameTab } from "./FrameTab";
 import { PreviewPlayer } from "./PreviewPlayer";
 import { buildReplyRanges, clampMargin, originalReplyText } from "./replyUtils";
 import { StyleTab } from "./StyleTab";
+import TimelineV2 from "./TimelineV2";
 
 // ────────────────────────────────────────────────────────────────────────────
 // ClipEditorScreen — страница-редактор клипа (/edit/[jobId]/[clipId]).
@@ -706,7 +706,7 @@ export default function ClipEditorScreen({
       {/* ── НИЗ: таймлайн всего видео ── */}
       <footer className="shrink-0 border-t border-line bg-surface px-4 py-3">
         {timeline && edit ? (
-          <TimelineEditor
+          <TimelineV2
             jobId={jobId}
             clipId={clipId}
             version={edit.version ?? 1}

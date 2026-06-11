@@ -31,3 +31,13 @@ def test_highlight_animation_default() -> None:
 def test_highlight_animation_values() -> None:
     for anim in ("none", "karaoke_fill", "pop", "bounce"):
         assert HighlightStyle(animation=anim).animation == anim
+
+
+def test_contract_keeps_field_named_title() -> None:
+    """_strip_titles чистит метаданные, но НЕ поле модели с именем "title" (Chapter.title)."""
+    from app.export_schema import build_contract
+
+    contract = build_contract()
+    chapter_props = contract["$defs"]["Chapter"]["properties"]
+    assert "title" in chapter_props
+    assert chapter_props["title"]["type"] == "string"

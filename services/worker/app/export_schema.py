@@ -73,17 +73,21 @@ _MODELS: list[type[BaseModel]] = [
 CONTRACT_PATH = Path(__file__).resolve().parents[3] / "packages" / "shared" / "contract.json"
 
 
-def _strip_titles(node: Any) -> None:
-    """Рекурсивно удалить ключи "title".
+def _strip_titles(node: Any, *, in_properties: bool = False) -> None:
+    """Рекурсивно удалить МЕТАДАННЫЕ-ключи "title".
 
     Pydantic вешает title на каждое поле; json2ts из-за этого плодит мусорные
     алиасы (``export type H = number``) и коллизии имён. Без title поля инлайнятся
     (``end: number``), а имена интерфейсов берутся из ключей $defs.
+
+    ⚠️ ВАЖНО: внутри словаря "properties" ключи — это ИМЕНА ПОЛЕЙ модели; поле,
+    которое называется "title" (Chapter.title), удалять нельзя — это не метаданные.
     """
     if isinstance(node, dict):
-        node.pop("title", None)
-        for v in node.values():
-            _strip_titles(v)
+        if not in_properties:
+            node.pop("title", None)
+        for k, v in node.items():
+            _strip_titles(v, in_properties=(k == "properties"))
     elif isinstance(node, list):
         for v in node:
             _strip_titles(v)
