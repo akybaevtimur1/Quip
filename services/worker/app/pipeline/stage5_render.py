@@ -67,6 +67,87 @@ def build_fill_crop_expr(
     return expr
 
 
+def _piecewise_x_expr(pairs: list[tuple[float, int]]) -> str:
+    """Список (t_rel, x) → вложенный if()-expr (запятые экранированы для filtergraph). PURE."""
+    pairs = sorted(pairs)
+    if len(pairs) == 1:
+        return str(pairs[0][1])
+    expr = str(pairs[-1][1])
+    for i in range(len(pairs) - 2, -1, -1):
+        t_boundary = pairs[i + 1][0]
+        if t_boundary > 0:
+            expr = f"if(lt(t\\,{t_boundary:.3f})\\,{pairs[i][1]}\\,{expr})"
+    return expr
+
+
+def build_split_crop_expr(
+    points: tuple[TrackPoint, ...], t0_offset: float, src_w: int, crop_w: int
+) -> str:
+    """Piecewise X-expr для split-половины: кроп произвольной ширины crop_w вокруг cx. PURE."""
+    if not points:
+        raise JobError(_STAGE, "split-регион без траектории (build_split_crop_expr)")
+    pairs: list[tuple[float, int]] = []
+    for p in points:
+        t_rel = max(0.0, round(p.t - t0_offset, 3))
+        cx = min(1.0, max(0.0, p.cx if p.cx is not None else 0.5))
+        x = max(0, min(round(cx * src_w - crop_w / 2), src_w - crop_w))
+        pairs.append((t_rel, x))
+    return _piecewise_x_expr(pairs)
+
+
+def _region_chain(
+    i: int,
+    mode: str,
+    points: tuple[TrackPoint, ...],
+    points_b: tuple[TrackPoint, ...],
+    t0_offset: float,
+    src_w: int,
+    src_h: int,
+    *,
+    out_w: int,
+    out_h: int,
+    blur: int,
+) -> str:
+    """Фильтр-чейн одного региона (между trim и setsar): fit | fill | split. PURE.
+
+    Лейблы внутри чейна уникализированы индексом региона i (урок R1c: глобальные
+    [bg][fg] коллидировали на 2+ fit-регионах).
+    split: верх/низ по {out_w}×{out_h/2}, кроп каждой половины = src_h*(out_w/(out_h/2))
+    по ширине (full-bleed, без рамок), vstack.
+    """
+    if mode == "fit":
+        return (
+            f"split=2[bg{i}][fg{i}];"
+            f"[bg{i}]scale={out_w}:{out_h}:force_original_aspect_ratio=increase,"
+            f"crop={out_w}:{out_h},gblur=sigma={blur}[bgb{i}];"
+            f"[fg{i}]scale={out_w}:{out_h}:force_original_aspect_ratio=decrease[fgb{i}];"
+            f"[bgb{i}][fgb{i}]overlay=(W-w)/2:(H-h)/2"
+        )
+    if mode == "split":
+        if not points or not points_b:
+            raise JobError(_STAGE, f"split-регион #{i} без двух траекторий")
+        half_h = out_h // 2
+        crop_w = round(src_h * out_w / half_h / 2) * 2  # чётная ширина (yuv420p)
+        if crop_w > src_w:
+            raise JobError(
+                _STAGE,
+                f"source {src_w}x{src_h} уже, чем split-половина ({crop_w}px) — split невозможен",
+            )
+        xa = build_split_crop_expr(points, t0_offset, src_w, crop_w)
+        xb = build_split_crop_expr(points_b, t0_offset, src_w, crop_w)
+        return (
+            f"split=2[pa{i}][pb{i}];"
+            f"[pa{i}]crop={crop_w}:{src_h}:{xa}:0,scale={out_w}:{half_h}:flags=lanczos[pha{i}];"
+            f"[pb{i}]crop={crop_w}:{src_h}:{xb}:0,scale={out_w}:{half_h}:flags=lanczos[phb{i}];"
+            f"[pha{i}][phb{i}]vstack=inputs=2"
+        )
+    if not points:
+        raise JobError(_STAGE, f"fill-регион #{i} без траектории")
+    crop_w = round(src_h * 9 / 16)
+    x_expr = build_fill_crop_expr(points, t0_offset, src_w, src_h)
+    return f"crop={crop_w}:{src_h}:{x_expr}:0,scale={out_w}:{out_h}:flags=lanczos"
+
+
 def _chain_video_segs(seg_labels: list[str], final_label: str) -> list[str]:
     """Chain N≥2 видео-сегментов попарным concat (жёсткий cut на границе шота). PURE.
 
@@ -106,25 +187,15 @@ def build_smooth_filter(
     if not regions:
         raise JobError(_STAGE, "smooth-фильтр требует ≥1 регион")
     n = len(regions)
-    crop_w = round(src_h * 9 / 16)
     heads = "".join(f"[a{i}]" for i in range(n))
     parts = [f"[0:v]setpts=PTS-STARTPTS,split={n}{heads};"]
     for i, r in enumerate(regions):
         f0 = round(r.t0 * fps)
         f1 = round(r.t1 * fps)
-        if r.mode == "fit":
-            seg = (
-                f"split=2[bg{i}][fg{i}];"
-                f"[bg{i}]scale={out_w}:{out_h}:force_original_aspect_ratio=increase,"
-                f"crop={out_w}:{out_h},gblur=sigma={blur}[bgb{i}];"
-                f"[fg{i}]scale={out_w}:{out_h}:force_original_aspect_ratio=decrease[fgb{i}];"
-                f"[bgb{i}][fgb{i}]overlay=(W-w)/2:(H-h)/2"
-            )
-        else:
-            if not r.points:
-                raise JobError(_STAGE, f"fill-регион #{i} без траектории")
-            x_expr = build_fill_crop_expr(r.points, r.t0, src_w, src_h)
-            seg = f"crop={crop_w}:{src_h}:{x_expr}:0,scale={out_w}:{out_h}:flags=lanczos"
+        seg = _region_chain(
+            i, r.mode, r.points, r.points_b, r.t0, src_w, src_h,
+            out_w=out_w, out_h=out_h, blur=blur,
+        )  # fmt: skip
         parts.append(
             f"[a{i}]trim=start_frame={f0}:end_frame={f1},setpts=PTS-STARTPTS,{seg},setsar=1[s{i}];"
         )
@@ -340,6 +411,7 @@ class TimelineSegment:
     mode: str
     points: tuple[TrackPoint, ...]
     region_t0: float  # interval-relative старт региона (offset для crop-expr)
+    points_b: tuple[TrackPoint, ...] = ()  # split: траектория второго спикера
 
 
 def flatten_timeline(
@@ -362,6 +434,7 @@ def flatten_timeline(
                     mode=r.mode,
                     points=r.points,
                     region_t0=r.t0,
+                    points_b=r.points_b,
                 )
             )
     return segs
@@ -387,24 +460,14 @@ def build_timeline_filter(
     if not segments:
         raise JobError(_STAGE, "build_timeline_filter: пустой таймлайн")
     n = len(segments)
-    crop_w = round(src_h * 9 / 16)
     vheads = "".join(f"[v{i}]" for i in range(n))
     aheads = "".join(f"[a{i}]" for i in range(n))
     parts = [f"[0:v]split={n}{vheads};[0:a]asplit={n}{aheads};"]
     for i, s in enumerate(segments):
-        if s.mode == "fit":
-            seg = (
-                f"split=2[bg{i}][fg{i}];"
-                f"[bg{i}]scale={out_w}:{out_h}:force_original_aspect_ratio=increase,"
-                f"crop={out_w}:{out_h},gblur=sigma={blur}[bgb{i}];"
-                f"[fg{i}]scale={out_w}:{out_h}:force_original_aspect_ratio=decrease[fgb{i}];"
-                f"[bgb{i}][fgb{i}]overlay=(W-w)/2:(H-h)/2"
-            )
-        else:
-            if not s.points:
-                raise JobError(_STAGE, f"fill-сегмент #{i} без траектории")
-            x_expr = build_fill_crop_expr(s.points, s.region_t0, src_w, src_h)
-            seg = f"crop={crop_w}:{src_h}:{x_expr}:0,scale={out_w}:{out_h}:flags=lanczos"
+        seg = _region_chain(
+            i, s.mode, s.points, s.points_b, s.region_t0, src_w, src_h,
+            out_w=out_w, out_h=out_h, blur=blur,
+        )  # fmt: skip
         parts.append(
             f"[v{i}]trim=start_frame={s.src_f0}:end_frame={s.src_f1},"
             f"setpts=PTS-STARTPTS,{seg},setsar=1[sv{i}];"

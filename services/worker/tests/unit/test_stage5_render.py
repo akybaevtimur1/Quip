@@ -30,6 +30,16 @@ def _fit_region(t0: float, t1: float) -> TrackRegion:
     return TrackRegion(t0=t0, t1=t1, mode="fit", points=())
 
 
+def _split_region(t0: float, t1: float, cx_a: float, cx_b: float) -> TrackRegion:
+    return TrackRegion(
+        t0=t0,
+        t1=t1,
+        mode="split",
+        points=(TrackPoint(t=t0, mode="split", cx=cx_a),),
+        points_b=(TrackPoint(t=t0, mode="split", cx=cx_b),),
+    )
+
+
 # ─────────────────────── TestBuildFillCropExpr ───────────────────────
 
 
@@ -137,6 +147,33 @@ class TestBuildSmoothFilter:
         fc = build_smooth_filter(regions, 1920, 1080, 30.0, "c.ass")
         assert "xfade" not in fc
         assert "concat=n=2:v=1:a=0" in fc
+
+    def test_split_region_has_vstack_two_crops(self) -> None:
+        region = _split_region(0.0, 5.0, 0.2, 0.8)
+        fc = build_smooth_filter([region], 1920, 1080, 25.0, None)
+        assert "vstack=inputs=2" in fc
+        assert fc.count("crop=") >= 2
+        assert "scale=1080:960" in fc  # каждая половина 1080×960
+        assert "setsar=1" in fc
+
+    def test_split_labels_unique_two_regions(self) -> None:
+        # 2 split-региона → лейблы половин не коллидируют (урок R1c про [bg][fg])
+        regions = [_split_region(0.0, 3.0, 0.2, 0.8), _split_region(3.0, 6.0, 0.3, 0.7)]
+        fc = build_smooth_filter(regions, 1920, 1080, 25.0, "c.ass")
+        assert "[pa0]" in fc and "[pa1]" in fc
+        assert "[pb0]" in fc and "[pb1]" in fc
+
+    def test_split_without_points_b_raises(self) -> None:
+        bad = TrackRegion(
+            t0=0.0, t1=5.0, mode="split", points=(TrackPoint(t=0.0, mode="split", cx=0.5),)
+        )
+        with pytest.raises(JobError):
+            build_smooth_filter([bad], 1920, 1080, 25.0, None)
+
+    def test_split_too_narrow_source_raises(self) -> None:
+        # ширина кропа половины = src_h*1.125; для квадратного источника 1000×1000 → 1125 > 1000
+        with pytest.raises(JobError):
+            build_smooth_filter([_split_region(0.0, 5.0, 0.2, 0.8)], 1000, 1000, 25.0, None)
 
     def test_fill_fill_fit_fill_all_concat(self) -> None:
         # все переходы — concat (жёсткий cut), нет xfade

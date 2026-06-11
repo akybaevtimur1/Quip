@@ -43,6 +43,34 @@ def test_filter_two_segments_fill_then_fit():
     assert "[bg1]" in fc and "[fg1]" in fc  # fit-лейблы уникальны по индексу сегмента
 
 
+def test_flatten_preserves_points_b():
+    intervals = [SourceInterval(source_start=10.0, source_end=12.0)]
+    split = TrackRegion(
+        t0=0.0,
+        t1=2.0,
+        mode="split",
+        points=(TrackPoint(t=0.0, mode="split", cx=0.2),),
+        points_b=(TrackPoint(t=0.0, mode="split", cx=0.8),),
+    )
+    segs = flatten_timeline(intervals, [[split]], FPS)
+    assert segs[0].mode == "split"
+    assert segs[0].points_b and segs[0].points_b[0].cx == 0.8
+
+
+def test_filter_split_segment_vstack():
+    intervals = [SourceInterval(source_start=10.0, source_end=12.0)]
+    split = TrackRegion(
+        t0=0.0,
+        t1=2.0,
+        mode="split",
+        points=(TrackPoint(t=0.0, mode="split", cx=0.2),),
+        points_b=(TrackPoint(t=0.0, mode="split", cx=0.8),),
+    )
+    fc = build_timeline_filter(flatten_timeline(intervals, [[split]], FPS), SRC_W, SRC_H, FPS, None)
+    assert "vstack=inputs=2" in fc
+    assert "scale=1080:960" in fc
+
+
 def test_timeline_cmd_full_input_no_ss():
     cmd = build_timeline_cmd("source.mp4", "FILTER", "clips/clip_01.mp4")
     assert "-ss" not in cmd  # полный вход (не пред-слайс)
