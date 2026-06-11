@@ -1,4 +1,16 @@
-import type { ClipOut, Job, JobStatus } from "@/lib/types";
+import type { ClipOut, Job, JobStatus, Word } from "@/lib/types";
+
+function mockWords(text: string, startSec: number, endSec: number): Word[] {
+  const tokens = text.split(/\s+/).filter(Boolean);
+  const total = endSec - startSec;
+  const dur = total / tokens.length;
+  return tokens.map((t, i) => ({
+    text: t,
+    start: startSec + i * dur,
+    end: startSec + (i + 0.8) * dur,
+    confidence: 0.95,
+  }));
+}
 
 // Прогресс по времени с момента создания (id кодирует старт в base36).
 const STAGES: { until: number; status: JobStatus; progress: number }[] = [
@@ -22,7 +34,10 @@ const MOCK_CLIPS: ClipOut[] = [
     video_url: "/mock/clip_01.mp4",
     thumbnail_url: null,
     transcript: "Mafia, townsperson, angel. Mike, this seems kinda discriminatory against second amendment…",
-    words: [],
+    words: mockWords(
+      "Mafia townsperson angel Mike this seems kinda discriminatory against second amendment rights",
+      170.8, 191.6,
+    ),
   },
   {
     id: "clip_05",
@@ -36,7 +51,10 @@ const MOCK_CLIPS: ClipOut[] = [
     video_url: "/mock/clip_05.mp4",
     thumbnail_url: null,
     transcript: "Moxie was kicked into a vat of piranhas, and the mafia win. Yeah. Let's go…",
-    words: [],
+    words: mockWords(
+      "Moxie was kicked into a vat of piranhas and the mafia win Yeah lets go mafia wins again",
+      1895.1, 1937.7,
+    ),
   },
 ];
 

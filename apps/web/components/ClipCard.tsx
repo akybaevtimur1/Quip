@@ -1,9 +1,10 @@
 "use client";
 
 import { Check, Download, Pencil, X } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { clipRange } from "@/lib/format";
 import type { ClipOut } from "@/lib/types";
+import { CaptionOverlay } from "./CaptionOverlay";
 import ClipEditor from "./ClipEditor";
 import { ReasonChip } from "./ReasonChip";
 
@@ -28,6 +29,8 @@ export function ClipCard({
   const [videoSrc, setVideoSrc] = useState(() => resolveUrl(clip.video_url));
   const [showEditor, setShowEditor] = useState(false);
   const [renderDone, setRenderDone] = useState(false);
+  const [showCaptions, setShowCaptions] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   const handleRenderDone = (url: string) => {
     setVideoSrc(url);
@@ -44,6 +47,7 @@ export function ClipCard({
       {/* ── video ── */}
       <div className="relative overflow-hidden rounded-t-2xl bg-surface-2">
         <video
+          ref={videoRef}
           key={videoSrc}
           src={videoSrc}
           controls
@@ -51,9 +55,31 @@ export function ClipCard({
           playsInline
           className="aspect-[9/16] w-full bg-black object-contain"
         />
+        {showCaptions && clip.words.length > 0 && (
+          <CaptionOverlay
+            words={clip.words}
+            clipStart={clip.start}
+            videoRef={videoRef}
+          />
+        )}
         <span className="absolute left-2 top-2">
           <ReasonChip type={clip.type} />
         </span>
+        {/* CC toggle */}
+        {clip.words.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setShowCaptions((v) => !v)}
+            title={showCaptions ? "Скрыть анимированные субтитры" : "Показать анимированные субтитры"}
+            className={`absolute bottom-14 right-2 rounded-md px-2 py-0.5 text-[11px] font-bold transition ${
+              showCaptions
+                ? "bg-accent text-white"
+                : "bg-black/60 text-white/70 hover:text-white"
+            }`}
+          >
+            CC
+          </button>
+        )}
         {/* render-done flash */}
         {renderDone && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/60 animate-pulse pointer-events-none">
