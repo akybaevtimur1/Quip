@@ -1,4 +1,4 @@
-from app.editor.captions_v2 import _ass_color, compile_ass
+from app.editor.captions_v2 import _ass_color, compile_ass, word_animation_tags
 from app.editor.timemap import ClipTimeMap
 from app.models import (
     CaptionReply,
@@ -65,6 +65,54 @@ def test_compile_ass_hidden_skipped():
     )
     ass = compile_ass(track, words, _cmap())
     assert "Dialogue:" not in ass
+
+
+def test_word_animation_pop_offsets_from_line_start():
+    # \t отсчитывается от начала СТРОКИ → теги получают оффсет слова
+    assert (
+        word_animation_tags("pop", 0) == r"\t(0,120,\fscx115\fscy115)\t(120,240,\fscx100\fscy100)"
+    )
+    assert (
+        word_animation_tags("pop", 500)
+        == r"\t(500,620,\fscx115\fscy115)\t(620,740,\fscx100\fscy100)"
+    )
+
+
+def test_word_animation_bounce():
+    assert word_animation_tags("bounce", 200) == r"\t(200,280,\fscy118)\t(280,360,\fscy100)"
+
+
+def test_word_animation_none_and_karaoke_empty():
+    assert word_animation_tags("none", 0) == ""
+    assert word_animation_tags("karaoke_fill", 0) == ""
+
+
+def test_compile_ass_pop_emits_transforms_per_word():
+    words = [_w("Раз", 0.0, 0.4), _w("два", 0.4, 0.8)]
+    track = CaptionTrack(
+        style=CaptionStyle(),
+        highlight=HighlightStyle(animation="pop"),
+        replies=[CaptionReply(word_refs=[0, 1])],
+    )
+    ass = compile_ass(track, words, _cmap())
+    assert ass.count("\\k") == 2  # караоке-заливка остаётся
+    assert ass.count("\\t(") == 4  # по 2 transform-тега на слово
+    assert "\\t(400,520" in ass  # второе слово анимируется на СВОЁМ оффсете
+
+
+def test_compile_ass_animation_none_disables_karaoke_fill():
+    # none = статичная фраза: без \k вся строка рисуется PrimaryColour →
+    # primary обязан быть цветом ТЕКСТА (st.color), не highlight-цветом.
+    words = [_w("a", 0.0, 0.4), _w("b", 0.4, 0.8)]
+    track = CaptionTrack(
+        style=CaptionStyle(color="#FFFFFF"),
+        highlight=HighlightStyle(color="#FF0000", animation="none"),
+        replies=[CaptionReply(word_refs=[0, 1])],
+    )
+    ass = compile_ass(track, words, _cmap())
+    assert "\\k" not in ass
+    style_line = next(ln for ln in ass.splitlines() if ln.startswith("Style: Default,"))
+    assert style_line.split(",")[3] == "&H00FFFFFF"  # PrimaryColour = цвет текста
 
 
 def test_compile_ass_box_sets_border_style_3():

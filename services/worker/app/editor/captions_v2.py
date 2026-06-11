@@ -19,29 +19,59 @@ def _ass_color(hex_color: str, alpha_byte: int = 0) -> str:
     return f"&H{alpha_byte:02X}{bb}{gg}{rr}".upper()
 
 
+def word_animation_tags(animation: str, offset_ms: int) -> str:
+    """ASS-теги анимации активного слова (рендерятся ИДЕНТИЧНО libass.wasm и ffmpeg).
+
+    \\t отсчитывается от начала СТРОКИ → offset_ms = момент начала слова в строке.
+    pop: вспышка масштаба 115% и обратно; bounce: вертикальный подскок.
+    none/karaoke_fill → пусто (заливку даёт \\k).
+    """
+    if animation == "pop":
+        return (
+            f"\\t({offset_ms},{offset_ms + 120},\\fscx115\\fscy115)"
+            f"\\t({offset_ms + 120},{offset_ms + 240},\\fscx100\\fscy100)"
+        )
+    if animation == "bounce":
+        return (
+            f"\\t({offset_ms},{offset_ms + 80},\\fscy118)"
+            f"\\t({offset_ms + 80},{offset_ms + 160},\\fscy100)"
+        )
+    return ""
+
+
+def _karaoke_word(word_text: str, w: Word, line_start: float, animation: str) -> str:
+    """Одно слово караоке-строки: {\\k<дур><анимация>}ТЕКСТ."""
+    k = round((w.end - w.start) * 100)
+    anim = word_animation_tags(animation, round((w.start - line_start) * 1000))
+    return f"{{\\k{k}{anim}}}{word_text}"
+
+
 def _reply_text(
     reply: CaptionReply, rwords: list[Word], uppercase: bool, hl: HighlightStyle | None
 ) -> str:
     def up(s: str) -> str:
         return s.upper() if uppercase else s
 
+    anim = hl.animation if hl else "none"
+    line_start = rwords[0].start
     if reply.text_override is not None:
         ov = reply.text_override.split()
         if hl and len(ov) == len(rwords):
             return " ".join(
-                f"{{\\k{round((w.end - w.start) * 100)}}}{up(o)}"
-                for o, w in zip(ov, rwords, strict=True)
+                _karaoke_word(up(o), w, line_start, anim) for o, w in zip(ov, rwords, strict=True)
             )
         return up(reply.text_override)
     if hl:
-        return " ".join(f"{{\\k{round((w.end - w.start) * 100)}}}{up(w.text)}" for w in rwords)
+        return " ".join(_karaoke_word(up(w.text), w, line_start, anim) for w in rwords)
     return " ".join(up(w.text) for w in rwords)
 
 
 def compile_ass(track: CaptionTrack, words: list[Word], cmap: ClipTimeMap) -> str:
     """CaptionTrack + слова + тайм-маппинг → полный ASS-текст (тайминги в КЛИП-времени)."""
     st = track.style
-    hl = track.highlight
+    # animation="none" = статичная фраза: караоке выключается ЦЕЛИКОМ (без \k вся
+    # строка рисуется PrimaryColour → он обязан остаться цветом текста, не подсветки).
+    hl = track.highlight if (track.highlight and track.highlight.animation != "none") else None
     primary = _ass_color(hl.color) if hl else _ass_color(st.color)  # активный/залитый
     secondary = _ass_color(st.color)  # ещё не проговорённый
     outline = _ass_color(st.outline_color)
