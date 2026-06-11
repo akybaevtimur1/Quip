@@ -16,10 +16,7 @@ def render_clip_edit_job(job_id: str, clip_id: str) -> None:
     """Собрать mp4 из текущего ClipEdit (фон). Статус рендера → clip_edits (правило №8)."""
     from app.config import get_settings
     from app.editor import store
-    from app.editor.captions_v2 import write_caption_ass
     from app.editor.reframe_cache import analyze_source_range, resolve_regions
-    from app.editor.timemap import ClipTimeMap
-    from app.models import Transcript
     from app.pipeline.stage0_import import SourceMeta
     from app.pipeline.stage5_render import render_timeline
     from app.run import DATA_ROOT
@@ -31,7 +28,6 @@ def render_clip_edit_job(job_id: str, clip_id: str) -> None:
         if edit is None:
             raise JobError("render", f"нет edit для {clip_id}")
         meta = SourceMeta.model_validate_json((out / "meta.json").read_text(encoding="utf-8"))
-        transcript = Transcript.model_validate_json((out / "transcript.json").read_text("utf-8"))
         analysis_dir = out / "analysis"
         raw = [
             analyze_source_range(
@@ -55,14 +51,11 @@ def render_clip_edit_job(job_id: str, clip_id: str) -> None:
             mode_setting=s.reframe_mode,
             wide_ratio=s.reframe_wide_ratio,
         )
-        cmap = ClipTimeMap(edit.source_intervals)
-        write_caption_ass(edit.captions, transcript.words, cmap, out / f"captions_{clip_id}.ass")
         render_timeline(
             out,
             "source.mp4",
             edit.source_intervals,
             regions,
-            f"captions_{clip_id}.ass",
             f"clips/{clip_id}.mp4",
             src_w=meta.width,
             src_h=meta.height,

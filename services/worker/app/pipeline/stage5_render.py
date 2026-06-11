@@ -88,19 +88,20 @@ def build_smooth_filter(
     src_w: int,
     src_h: int,
     fps: float,
-    ass_name: str,
+    ass_name: str | None = None,
     *,
     out_w: int = 1080,
     out_h: int = 1920,
     blur: int = 20,
 ) -> str:
-    """filter_complex Engine A: split → per-region trim+crop_expr/fit → chain → subtitles.
+    """filter_complex Engine A: split → per-region trim+crop_expr/fit → chain → [subtitles].
 
     fill-регион: crop=W:H:EXPR:0 (piecewise-const expr следит за лицом).
     fit-регион: blur-overlay (весь кадр + рамки, b-roll широко).
     Все переходы: жёсткий cut (pairwise concat). xfade удалён — граница = реальная
     склейка источника, поэтому hard-cut невидим.
     setsar=1 на каждом (concat требует одинаковый SAR). Аудио НЕ трогаем.
+    ass_name=None → субтитры НЕ жжём (CC overlay в браузере).
     """
     if not regions:
         raise JobError(_STAGE, "smooth-фильтр требует ≥1 регион")
@@ -129,10 +130,13 @@ def build_smooth_filter(
         )
 
     if n == 1:
-        parts.append(f"[s0]subtitles={ass_name}[outv]")
+        parts.append(f"[s0]subtitles={ass_name}[outv]" if ass_name else "[s0]null[outv]")
     else:
-        parts.extend(_chain_video_segs([f"s{i}" for i in range(n)], "cv"))
-        parts.append(f"[cv]subtitles={ass_name}[outv]")
+        if ass_name:
+            parts.extend(_chain_video_segs([f"s{i}" for i in range(n)], "cv"))
+            parts.append(f"[cv]subtitles={ass_name}[outv]")
+        else:
+            parts.extend(_chain_video_segs([f"s{i}" for i in range(n)], "outv"))
     return "".join(parts)
 
 
@@ -195,7 +199,7 @@ def render_frame_by_frame(
     src_w: int,
     src_h: int,
     fps: float,
-    ass_name: str,
+    ass_name: str | None,
     out_name: str,
     data_dir: Path,
     *,
@@ -224,7 +228,7 @@ def render_frame_by_frame(
         "-s", f"{out_w}x{out_h}", "-r", str(fps), "-i", "pipe:0",
         "-ss", str(aligned_start), "-t", str(dur), "-i", str(source),
         "-map", "0:v:0", "-map", "1:a:0?",
-        "-vf", f"subtitles={ass_name}",
+        *(["-vf", f"subtitles={ass_name}"] if ass_name else []),
         "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
         "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart",
         out_name,
@@ -276,9 +280,9 @@ def render_clip(
     data_dir: Path,
     source_name: str,
     seg_start: float,
-    ass_name: str,
     out_name: str,
     *,
+    ass_name: str | None = None,
     regions: list[TrackRegion],
     src_w: int,
     src_h: int,
@@ -368,7 +372,7 @@ def build_timeline_filter(
     src_w: int,
     src_h: int,
     fps: float,
-    ass_name: str,
+    ass_name: str | None = None,
     *,
     out_w: int = 1080,
     out_h: int = 1920,
@@ -411,10 +415,14 @@ def build_timeline_filter(
 
     sv_labels = [f"sv{i}" for i in range(n)]
     if n == 1:
-        parts.append(f"[sv0]subtitles={ass_name}[outv];")
+        parts.append(f"[sv0]subtitles={ass_name}[outv];" if ass_name else "[sv0]null[outv];")
     else:
-        parts.extend(_chain_video_segs(sv_labels, "cv"))
-        parts.append(f"[cv]subtitles={ass_name}[outv];")
+        if ass_name:
+            parts.extend(_chain_video_segs(sv_labels, "cv"))
+            parts.append(f"[cv]subtitles={ass_name}[outv];")
+        else:
+            parts.extend(_chain_video_segs(sv_labels, "outv"))
+            parts[-1] = parts[-1].rstrip(";") + ";"  # ensure trailing semicolon before audio
 
     sa = "".join(f"[sa{i}]" for i in range(n))
     parts.append(f"{sa}concat=n={n}:v=0:a=1[outa]")
@@ -438,9 +446,9 @@ def render_timeline(
     source_name: str,
     intervals: list[SourceInterval],
     regions_per_interval: list[list[TrackRegion]],
-    ass_name: str,
     out_name: str,
     *,
+    ass_name: str | None = None,
     src_w: int,
     src_h: int,
     fps: float,
@@ -460,8 +468,8 @@ def render_timeline(
             data_dir,
             source_name,
             intervals[0].source_start,
-            ass_name,
             out_name,
+            ass_name=ass_name,
             regions=regions_per_interval[0],
             src_w=src_w,
             src_h=src_h,

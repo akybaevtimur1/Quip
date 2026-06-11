@@ -24,7 +24,7 @@ from app.pipeline.stage0_import import SourceMeta, import_youtube
 from app.pipeline.stage1_transcribe import DEEPGRAM_NOVA_USD_PER_MIN, transcribe_to_file
 from app.pipeline.stage2_select import select_segments
 from app.pipeline.stage3_reframe import reframe_segment
-from app.pipeline.stage4_captions import words_in_segment, write_captions_ass
+from app.pipeline.stage4_captions import words_in_segment
 from app.pipeline.stage5_render import render_clip
 from app.transcript_cache import audio_sha, cache_key, evict, get_cached, put_cached
 
@@ -165,10 +165,9 @@ def run_pipeline(
             scene_threshold=s.reframe_scene_threshold,
         )  # fmt: skip
         reframe_t += time.perf_counter() - t0
-        write_captions_ass(transcript.words, seg.start, seg.end, out / f"captions_{clip_id}.ass")
         lat = render_clip(
             out, "source.mp4", seg.start,
-            f"captions_{clip_id}.ass", f"clips/{clip_id}.mp4",
+            f"clips/{clip_id}.mp4",
             regions=regions, src_w=meta.width, src_h=meta.height, fps=meta.fps,
             engine=s.reframe_engine,
         )  # fmt: skip
