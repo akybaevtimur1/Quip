@@ -1,8 +1,9 @@
 "use client";
 
-import { Check, Download, Maximize2, Minimize2, Pencil } from "lucide-react";
+import { Check, Maximize2, Minimize2, Pencil } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
+import { ExportMenu } from "@/components/ExportMenu";
 import { clipRange } from "@/lib/format";
 import type { ClipOut } from "@/lib/types";
 import { CaptionOverlay } from "./CaptionOverlay";
@@ -138,14 +139,16 @@ export function ClipCard({
 
         {/* actions */}
         <div className="flex gap-2 pt-1">
-          <a
-            href={videoSrc}
-            download
-            className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-line bg-surface-2 px-3 py-2 text-sm font-semibold text-ink transition hover:border-accent/50 hover:text-accent focus:outline-none"
-          >
-            <Download className="size-4" />
-            Скачать
-          </a>
+          {/* Меню экспорта (с субтитрами / без / .srt) — открывается ВВЕРХ, чтобы не
+              перекрываться соседними карточками грида. */}
+          <ExportMenu
+            jobId={jobId}
+            clipId={clip.id}
+            subtitledUrl={videoSrc}
+            align="left"
+            placement="up"
+            className="flex-1"
+          />
           {/* Страница-редактор: возврат через «← Все клипы» (/?job=) или Back —
               грид восстанавливается deep-link'ом, ничего не теряется. */}
           <Link

@@ -1,8 +1,9 @@
 "use client";
 
-import { ArrowLeft, CheckCircle, ChevronLeft, ChevronRight, Download, Film, Loader2 } from "lucide-react";
+import { ArrowLeft, CheckCircle, ChevronLeft, ChevronRight, Film, Loader2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { ExportMenu } from "@/components/ExportMenu";
 
 // ── Хедер страницы редактора ──
 // «← Все клипы» ведёт на /?job=<id> (deep-link главной восстанавливает грид —
@@ -118,19 +119,7 @@ export function EditorHeader({
             <span className="absolute -right-1 -top-1 size-2.5 rounded-full bg-amber-400" />
           )}
         </button>
-        <a
-          href={downloadUrl ?? undefined}
-          download
-          aria-disabled={!downloadUrl}
-          className={`inline-flex items-center gap-1.5 rounded-lg border border-line px-4 py-1.5 text-sm font-semibold transition focus:outline-none ${
-            downloadUrl
-              ? "text-ink hover:border-accent/50 hover:text-accent"
-              : "pointer-events-none text-muted opacity-40"
-          }`}
-        >
-          <Download className="size-4" />
-          Скачать
-        </a>
+        <ExportMenu jobId={jobId} clipId={clipId} subtitledUrl={downloadUrl} align="right" />
       </div>
     </header>
   );
