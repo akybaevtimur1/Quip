@@ -459,7 +459,10 @@
             "pop",
             "bounce",
             "punch",
-            "fade"
+            "fade",
+            "spring",
+            "blur_in",
+            "color_sweep"
           ],
           "type": "string"
         },

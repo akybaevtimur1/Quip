@@ -28,15 +28,17 @@ def _ass_color_tag(hex_color: str) -> str:
     return f"&H{h[4:6]}{h[2:4]}{h[0:2]}&".upper()
 
 
-def word_animation_tags(animation: str, offset_ms: int) -> str:
+def word_animation_tags(animation: str, offset_ms: int, *, accent: str = "", base: str = "") -> str:
     """ASS-теги анимации активного слова (рендерятся ИДЕНТИЧНО libass.wasm и ffmpeg).
 
     \\t отсчитывается от начала СТРОКИ → offset_ms = момент начала слова в строке.
-    ⚠️ ТОЛЬКО вертикальный масштаб (\\fscy): \\fscx меняет ШИРИНУ строки → libass
-    перепереносит строку на каждом кадре анимации (слово «перепрыгивает» на вторую
-    строку и обратно — фидбек фаундера «субтитры дёргаются»). \\fscy растёт от
-    базлайна вверх и ширину не трогает → раскладка стабильна.
-    pop: быстрая вспышка вверх; bounce: подскок с овершутом.
+    ⚠️ Layout-нейтральные теги ТОЛЬКО (\\fscy/\\blur/\\alpha/\\1c): \\fscx/\\fsp/размер
+    меняют ШИРИНУ строки → libass перепереносит её на каждом кадре (слово «прыгает» —
+    фидбек фаундера). Вертикальный масштаб/блюр/альфа/цвет ширину не трогают → раскладка
+    стабильна (подтверждено спайком anim_spike).
+    accent/base — инлайн-цвета (_ass_color_tag) для color_sweep: вспышка accent → base.
+    pop/punch/spring: \\fscy-флеши разной упругости; bounce: подскок; fade: проявление;
+    blur_in: фокус из размытия; color_sweep: цвет-волна по словам.
     none/karaoke_fill → пусто (заливку даёт \\k).
     """
     if animation == "pop":
@@ -60,11 +62,34 @@ def word_animation_tags(animation: str, offset_ms: int) -> str:
         # пословный reveal: слово невидимо до своего момента, затем проявляется
         # (alpha FF→00). Не трогает раскладку → реврапа нет.
         return f"\\alpha&HFF&\\t({offset_ms},{offset_ms + 180},\\alpha&H00&)"
+    o = offset_ms
+    if animation == "spring":
+        # упругая пружина с овершутом ТОЛЬКО по Y (40→128→92→105→100) — явно «живее» pop
+        return (
+            f"\\fscy40\\t({o},{o + 110},\\fscy128)\\t({o + 110},{o + 200},\\fscy92)"
+            f"\\t({o + 200},{o + 280},\\fscy105)\\t({o + 280},{o + 340},\\fscy100)"
+        )
+    if animation == "blur_in":
+        # слово появляется размытым+притушённым → резкий фокус (\blur пост-растровый,
+        # раскладку не трогает). Каждое слово само ставит \blur/\alpha → без утечки.
+        return f"\\blur18\\alpha&H60&\\t({o},{o + 220},\\blur0\\alpha&H00&)"
+    if animation == "color_sweep":
+        # цвет-волна: слово вспыхивает accent → возврат в base. Ширину не меняет.
+        if not (accent and base):
+            return ""
+        return f"\\1c{accent}\\t({o},{o + 260},\\1c{base})"
     return ""
 
 
 def _karaoke_word(
-    word_text: str, w: Word, line_start: float, animation: str, *, color: str | None = None
+    word_text: str,
+    w: Word,
+    line_start: float,
+    animation: str,
+    *,
+    color: str | None = None,
+    accent: str = "",
+    base: str = "",
 ) -> str:
     """Одно слово караоке-строки: {\\k<дур>[\\1c<цвет>][\\fscy100<анимация>]}ТЕКСТ.
 
@@ -79,7 +104,9 @@ def _karaoke_word(
     без emphasis байт-в-байт прежнее).
     """
     k = round((w.end - w.start) * 100)
-    anim = word_animation_tags(animation, round((w.start - line_start) * 1000))
+    anim = word_animation_tags(
+        animation, round((w.start - line_start) * 1000), accent=accent, base=base
+    )
     reset = "\\fscy100" if anim else ""
     col = f"\\1c{color}" if color else ""
     return f"{{\\k{k}{col}{reset}{anim}}}{word_text}"
@@ -94,6 +121,8 @@ def _reply_text(
     emphasis_color: str | None = None,
     emph_positions: frozenset[int] = frozenset(),
     primary: str = "",
+    accent: str = "",
+    base: str = "",
 ) -> str:
     """Текст реплики для Dialogue. emphasis_color+emph_positions красят «ударные» слова
     (по позиции в рамках реплики) в emphasis_color; остальные — в primary. primary —
@@ -110,7 +139,7 @@ def _reply_text(
     def kw(text: str, w: Word, j: int) -> str:
         # emphasis активен → \1c на КАЖДОМ слове (ударное→акцент, иначе→primary; без утечки)
         color = (emphasis_color if j in emph_positions else primary) if active else None
-        return _karaoke_word(text, w, line_start, anim, color=color)
+        return _karaoke_word(text, w, line_start, anim, color=color, accent=accent, base=base)
 
     if reply.text_override is not None:
         ov = reply.text_override.split()
@@ -144,6 +173,7 @@ def compile_ass(track: CaptionTrack, words: list[Word], cmap: ClipTimeMap) -> st
     # «Ударные» слова: инлайн \1c-теги (6-hex). primary_tag = канонический цвет слова.
     emph_tag = _ass_color_tag(st.emphasis_color) if st.emphasis_color else None
     primary_tag = _ass_color_tag(hl.color) if hl else _ass_color_tag(st.color)
+    base_tag = _ass_color_tag(st.color)  # цвет текста — куда возвращается color_sweep
     outline = _ass_color(st.outline_color)
     if st.box_color:
         back = _ass_color(st.box_color, round((1.0 - st.box_opacity) * 255))
@@ -193,6 +223,8 @@ def compile_ass(track: CaptionTrack, words: list[Word], cmap: ClipTimeMap) -> st
             emphasis_color=emph_tag,
             emph_positions=emph_positions,
             primary=primary_tag,
+            accent=primary_tag,
+            base=base_tag,
         )
         lines.append(
             f"Dialogue: 0,{format_ass_time(start_c)},{format_ass_time(end_c)},Default,,0,0,,{text}"

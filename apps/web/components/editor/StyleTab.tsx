@@ -15,6 +15,9 @@ export const CAPTION_FONTS = ["Montserrat", "Unbounded", "Rubik"];
 
 const ANIMATIONS: { value: NonNullable<HighlightStyle["animation"]>; label: string }[] = [
   { value: "karaoke_fill", label: "Караоке (заливка)" },
+  { value: "color_sweep", label: "Цвет-волна (по словам)" },
+  { value: "blur_in", label: "Фокус (из размытия)" },
+  { value: "spring", label: "Пружина (овершут)" },
   { value: "pop", label: "Pop (вспышка слова)" },
   { value: "punch", label: "Punch (сильный удар)" },
   { value: "bounce", label: "Bounce (подскок)" },

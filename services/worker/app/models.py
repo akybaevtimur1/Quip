@@ -191,7 +191,17 @@ class HighlightStyle(BaseModel):
     color: str = "#FFE000"
     scale: float = 1.0  # 1.0 = без увеличения активного слова
     box: bool = False  # True = активное слово в залитой плашке; False = перекраска текста
-    animation: Literal["none", "karaoke_fill", "pop", "bounce", "punch", "fade"] = "karaoke_fill"
+    animation: Literal[
+        "none",
+        "karaoke_fill",
+        "pop",
+        "bounce",
+        "punch",
+        "fade",
+        "spring",
+        "blur_in",
+        "color_sweep",
+    ] = "karaoke_fill"
 
 
 class CaptionReply(BaseModel):

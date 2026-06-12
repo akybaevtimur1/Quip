@@ -103,10 +103,29 @@ def test_word_animation_fade():
     assert word_animation_tags("fade", 300) == r"\alpha&HFF&\t(300,480,\alpha&H00&)"
 
 
+def test_word_animation_spring():
+    assert word_animation_tags("spring", 0) == (
+        r"\fscy40\t(0,110,\fscy128)\t(110,200,\fscy92)\t(200,280,\fscy105)\t(280,340,\fscy100)"
+    )
+
+
+def test_word_animation_blur_in():
+    assert word_animation_tags("blur_in", 0) == r"\blur18\alpha&H60&\t(0,220,\blur0\alpha&H00&)"
+
+
+def test_word_animation_color_sweep_needs_colors():
+    # без accent/base — пусто (нечего свайпить)
+    assert word_animation_tags("color_sweep", 0) == ""
+    # с цветами — вспышка accent → возврат в base
+    got = word_animation_tags("color_sweep", 0, accent="&H0000FF&", base="&HFFFFFF&")
+    assert got == r"\1c&H0000FF&\t(0,260,\1c&HFFFFFF&)"
+
+
 def test_new_animations_never_scale_horizontally():
-    # \fscx меняет ширину → реврап. punch/fade не должны его трогать.
-    for anim in ("punch", "fade"):
-        assert "\\fscx" not in word_animation_tags(anim, 0)
+    # \fscx/\fsp меняют ширину → реврап. Новые анимации не должны их трогать.
+    for anim in ("punch", "fade", "spring", "blur_in", "color_sweep"):
+        tags = word_animation_tags(anim, 0, accent="&H0000FF&", base="&HFFFFFF&")
+        assert "\\fscx" not in tags and "\\fsp" not in tags
 
 
 def test_compile_ass_pop_emits_transforms_per_word():
