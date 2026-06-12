@@ -552,3 +552,29 @@ accurate) и форк `if reframe_speaker:` — два отдельных пут
 `httpx.post()` с дефолтным write_timeout=5с не успевает загрузить. Нужно `write=None` (без таймаута)
 или `httpx.Client(timeout=httpx.Timeout(connect=10, write=None, read=300, pool=10))` в stage1.
 Это фикс на следующую сессию (DoD dod01 обойдён прямым reframe-тестом без транскрипции).
+
+### Ночь лаунч-MVP (ветка `feat/mvp-launch`), 2026-06-13 — scope T1–T6 (LAUNCH_BRIEF)
+Автономная ночь: довести ядро до продаваемого MVP. Отвёл `feat/mvp-launch` от HEAD main.
+
+- **T1/T2 — хук (топ-текст) + богатый reasoning. СДЕЛАНО** (коммиты `0aa94c6`, `c6a4368`).
+  Объяснимость = наш отличитель vs Vizard. **Решение хранения хука: `CaptionTrack.hook:
+  HookOverlay`** (бриф разрешал top-overlay в CaptionTrack) — даёт ОГРОМНУЮ экономию: хук
+  компилится в ТОТ ЖЕ ASS, что субтитры → `compile_ass(track)` читает `track.hook` →
+  автоматом в libass-превью (`/ass`) И ffmpeg-экспорте (`render_edit_to_file` →
+  `write_caption_ass`), БЕЗ новых эндпоинтов/threading; фронтовый `patchCaptions` (PATCH
+  всего captions) уже персистит хук; `apply_preset` сохраняет hook (трогает только style/
+  highlight). PURE `build_hook_event` (TDD) = ASS top-event (alignment 8, окно весь клип|
+  первые N сек, бренд-плашка). Gemini-схема `_LlmSegment` + промпт расширены `hook`/
+  `why_works`; `postprocess` пробрасывает (старый raw → None, обратная совместимость).
+  Модель: `HookOverlay` + `Segment/ClipOut.hook/why_works` (опц. → старый кэш валиден),
+  `just types`. Фронт: таб «Хук» (текст/вкл/весь-клип|первые-N), `ClipCard` структурный
+  reasoning (хук + «Почему сработает» + уверенность), мок-роут демонстрирует.
+  **Грабля (найдена реальным рендером):** libass `BorderStyle=3` (opaque box) заливает
+  плашку цветом **OutlineColour**, НЕ BackColour → `box_color` в OutlineColour (с альфой).
+  **DoD:** `tmp/dod_hook.py` — реальный ffmpeg-mp4: хук «ВОТ ПОЧЕМУ ВСЕ МОЛЧАТ» коралл-
+  плашка сверху, субтитры снизу, не пересекаются (`tmp/hook_dod_frame.png`, послан фаундеру).
+  `just check` зелёный, +25 тестов (test_hook.py + postprocess passthrough).
+  ⚠️ `clip_kind` из брифа НЕ добавлял отдельным полем — у нас уже `type: ClipType`
+  (hook/emotional_peak/complete_thought/strong_quote) = clip_kind; не плодлю таксономию.
+  ⚠️ Локально НЕТ кэша comedy01/sample01 (data/ gitignored, не синхронизирован) → DoD на
+  синтетическом тёмном источнике (изолирует именно прожиг хука; шрифт/ASS/ffmpeg реальные).
