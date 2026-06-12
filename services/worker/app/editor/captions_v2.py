@@ -249,8 +249,20 @@ def _reply_text(
     return " ".join(parts)
 
 
-def compile_ass(track: CaptionTrack, words: list[Word], cmap: ClipTimeMap) -> str:
-    """CaptionTrack + слова + тайм-маппинг → полный ASS-текст (тайминги в КЛИП-времени)."""
+def compile_ass(
+    track: CaptionTrack,
+    words: list[Word],
+    cmap: ClipTimeMap,
+    *,
+    play_w: int = 1080,
+    play_h: int = 1920,
+) -> str:
+    """CaptionTrack + слова + тайм-маппинг → полный ASS-текст (тайминги в КЛИП-времени).
+
+    play_w/play_h (T5) = PlayRes ASS = РАЗМЕРЫ ВЫХОДА (out_w×out_h аспекта). ОБЯЗАНЫ
+    совпадать с output-аспектом: иначе libass анаморфно растянет субтитры (PlayRes-
+    аспект ≠ кадр-аспект). Превью (libass.wasm) и экспорт (ffmpeg) берут ОДИН ASS → WYSIWYG.
+    """
     st = track.style
     # animation="none" = статичная фраза: караоке выключается ЦЕЛИКОМ (без \k вся
     # строка рисуется PrimaryColour → он обязан остаться цветом текста, не подсветки).
@@ -270,7 +282,7 @@ def compile_ass(track: CaptionTrack, words: list[Word], cmap: ClipTimeMap) -> st
         border_style = 1
 
     script_info = (
-        "[Script Info]\nScriptType: v4.00+\nPlayResX: 1080\nPlayResY: 1920\n"
+        f"[Script Info]\nScriptType: v4.00+\nPlayResX: {play_w}\nPlayResY: {play_h}\n"
         "WrapStyle: 0\nScaledBorderAndShadow: yes\n"
     )
     styles = (
@@ -335,10 +347,16 @@ def compile_ass(track: CaptionTrack, words: list[Word], cmap: ClipTimeMap) -> st
 
 
 def write_caption_ass(
-    track: CaptionTrack, words: list[Word], cmap: ClipTimeMap, out_path: Path
+    track: CaptionTrack,
+    words: list[Word],
+    cmap: ClipTimeMap,
+    out_path: Path,
+    *,
+    play_w: int = 1080,
+    play_h: int = 1920,
 ) -> str:
     """Скомпилировать и записать ASS-файл. Возвращает ASS-текст."""
-    ass = compile_ass(track, words, cmap)
+    ass = compile_ass(track, words, cmap, play_w=play_w, play_h=play_h)
     out_path.write_text(ass, encoding="utf-8")
     return ass
 

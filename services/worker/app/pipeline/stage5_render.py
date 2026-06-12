@@ -35,26 +35,73 @@ if TYPE_CHECKING:
 
 _STAGE = "render"
 
+# ─────────────────────────── T5: соотношения сторон ───────────────────────────
+
+# Выходные размеры на соотношение (все чётные → yuv420p). ASS PlayRes = эти же размеры
+# (иначе libass анаморфно растянет субтитры), см. compile_ass(play_w, play_h).
+_ASPECT_DIMS: dict[str, tuple[int, int]] = {
+    "9:16": (1080, 1920),
+    "1:1": (1080, 1080),
+    "4:5": (1080, 1350),
+    "16:9": (1920, 1080),
+}
+
+
+def aspect_to_dims(aspect: str) -> tuple[int, int]:
+    """Соотношение сторон → (out_w, out_h). Неизвестное → 9:16 (дефолт). PURE."""
+    return _ASPECT_DIMS.get(aspect, (1080, 1920))
+
+
+def fill_crop_dims(src_w: int, src_h: int, out_w: int, out_h: int) -> tuple[int, int]:
+    """Размеры fill-кропа целевого аспекта из источника (наибольшее окно, чётные). PURE.
+
+    target ≤ source-аспект → ограничено ВЫСОТОЙ (портрет/квадрат на ландшафте): полная
+    высота, узкая ширина — горизонтальное слежение за говорящим.
+    target > source-аспект → ограничено ШИРИНОЙ (ландшафтный выход): полная ширина,
+    вертикальный центр-кроп (слежения нет — весь кадр и так в кадре).
+    """
+    target = out_w / out_h
+    if target <= src_w / src_h:
+        crop_h = src_h
+        crop_w = round(src_h * target)
+    else:
+        crop_w = src_w
+        crop_h = round(src_w / target)
+    crop_w -= crop_w % 2
+    crop_h -= crop_h % 2
+    return min(crop_w, src_w), min(crop_h, src_h)
+
 
 # ─────────────────────────── Engine A: pure-builders ───────────────────────────
 
 
 def build_fill_crop_expr(
-    points: tuple[TrackPoint, ...], t0_offset: float, src_w: int, src_h: int
+    points: tuple[TrackPoint, ...],
+    t0_offset: float,
+    src_w: int,
+    src_h: int,
+    *,
+    crop_w: int | None = None,
 ) -> str:
     """Piecewise-constant if()-выражение для ffmpeg crop X-координаты (Engine A).
 
     t в выражении — PTS-STARTPTS (0-based после trim), t_rel = point.t - t0_offset.
     Запятые экранируются \\, для filtergraph. Последний x — else-ветка (дефолт от t0).
     Пример: if(lt(t\\,0.200)\\,312\\,if(lt(t\\,0.400)\\,315\\,320))
+    crop_w (T5): ширина кропа целевого аспекта; None → 9:16 (compute_crop_window, дефолт).
     """
     if not points:
         raise JobError(_STAGE, "fill-регион без траектории (build_fill_crop_expr)")
     pairs: list[tuple[float, int]] = []
     for p in points:
         t_rel = max(0.0, round(p.t - t0_offset, 3))
-        c = compute_crop_window(src_w, src_h, p.cx if p.cx is not None else 0.5, t=0.0)
-        pairs.append((t_rel, c.x))
+        cx = p.cx if p.cx is not None else 0.5
+        if crop_w is None:
+            x = compute_crop_window(src_w, src_h, cx, t=0.0).x
+        else:
+            cxc = min(1.0, max(0.0, cx))
+            x = max(0, min(round(cxc * src_w - crop_w / 2), src_w - crop_w))
+        pairs.append((t_rel, x))
     pairs.sort()
     if len(pairs) == 1:
         return str(pairs[0][1])
@@ -166,9 +213,14 @@ def _region_chain(
         )
     if not points:
         raise JobError(_STAGE, f"fill-регион #{i} без траектории")
-    crop_w = round(src_h * 9 / 16)
-    x_expr = build_fill_crop_expr(points, t0_offset, src_w, src_h)
-    return f"crop={crop_w}:{src_h}:{x_expr}:0,scale={out_w}:{out_h}:flags=lanczos"
+    # T5: размеры кропа целевого аспекта (out_w:out_h), не жёсткое 9:16
+    crop_w, crop_h = fill_crop_dims(src_w, src_h, out_w, out_h)
+    if crop_w >= src_w:
+        # ландшафтный выход (16:9): полная ширина, вертикальный центр-кроп, без слежения
+        y = (src_h - crop_h) // 2
+        return f"crop={crop_w}:{crop_h}:0:{y},scale={out_w}:{out_h}:flags=lanczos"
+    x_expr = build_fill_crop_expr(points, t0_offset, src_w, src_h, crop_w=crop_w)
+    return f"crop={crop_w}:{crop_h}:{x_expr}:0,scale={out_w}:{out_h}:flags=lanczos"
 
 
 def _chain_video_segs(seg_labels: list[str], final_label: str) -> list[str]:
@@ -385,11 +437,15 @@ def render_clip(
     src_h: int,
     fps: float,
     engine: str = "A",
+    out_w: int = 1080,
+    out_h: int = 1920,
 ) -> float:
     """ОДИН проход рендера клипа (V2): Engine A (ffmpeg expr) или B (cv2 pipe).
 
     Аудио непрерывным потоком (нет подлагов); старт выровнен на границу кадра.
     engine='A' (default) — быстрый ffmpeg; engine='B' — точная per-frame линейная интерп.
+    out_w/out_h (T5) — размеры выхода соотношения сторон (9:16 дефолт). Временная сетка
+    (trim по кадрам) от аспекта НЕ зависит — Δ=0 инвариант цел.
     Возвращает латентность рендера (с). JobError при сбое.
     """
     if not regions:
@@ -412,11 +468,14 @@ def render_clip(
             ass_name,
             out_name,
             data_dir,
+            out_w=out_w,
+            out_h=out_h,
         )
     else:  # Engine A (default)
         fc = build_smooth_filter(
-            regions, src_w, src_h, fps, ass_name, fontsdir=_fontsdir_rel(data_dir)
-        )
+            regions, src_w, src_h, fps, ass_name, out_w=out_w, out_h=out_h,
+            fontsdir=_fontsdir_rel(data_dir),
+        )  # fmt: skip
         cmd = build_single_pass_cmd(source_name, aligned_start, dur, fc, out_name)
         _run_ffmpeg(cmd, data_dir)
 
@@ -549,11 +608,14 @@ def render_timeline(
     src_h: int,
     fps: float,
     engine: str = "A",
+    out_w: int = 1080,
+    out_h: int = 1920,
 ) -> float:
     """Рендер mp4 из edit-state (спека §6). Возвращает латентность (с). JobError при сбое.
 
     1 интервал → делегирует в render_clip (проверенный путь, непрерывное аудио).
     >1 интервал → мульти-интервальный concat (Engine A; бесшовное аудио внутри filtergraph).
+    out_w/out_h (T5) — размеры выхода соотношения сторон (9:16 дефолт).
     """
     if not intervals:
         raise JobError(_STAGE, "render_timeline: нет интервалов")
@@ -571,12 +633,15 @@ def render_timeline(
             src_h=src_h,
             fps=fps,
             engine=engine,
+            out_w=out_w,
+            out_h=out_h,
         )
 
     segments = flatten_timeline(intervals, regions_per_interval, fps)
     fc = build_timeline_filter(
-        segments, src_w, src_h, fps, ass_name, fontsdir=_fontsdir_rel(data_dir)
-    )
+        segments, src_w, src_h, fps, ass_name, out_w=out_w, out_h=out_h,
+        fontsdir=_fontsdir_rel(data_dir),
+    )  # fmt: skip
     t0 = time.perf_counter()
     _run_ffmpeg(build_timeline_cmd(source_name, fc, out_name), data_dir)
     if not (data_dir / out_name).exists():

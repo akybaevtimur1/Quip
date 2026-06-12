@@ -25,7 +25,7 @@ def render_edit_to_file(job_id: str, clip_id: str, *, with_subtitles: bool, out_
     from app.editor.reframe_cache import analyze_source_range, resolve_regions
     from app.editor.timemap import ClipTimeMap
     from app.pipeline.stage0_import import SourceMeta
-    from app.pipeline.stage5_render import render_timeline
+    from app.pipeline.stage5_render import aspect_to_dims, render_timeline
     from app.run import DATA_ROOT
 
     s = get_settings()
@@ -34,16 +34,20 @@ def render_edit_to_file(job_id: str, clip_id: str, *, with_subtitles: bool, out_
     if edit is None:
         raise JobError("render", f"нет edit для {clip_id}")
     meta = SourceMeta.model_validate_json((out / "meta.json").read_text(encoding="utf-8"))
+    out_w, out_h = aspect_to_dims(edit.aspect)  # T5: размеры выхода соотношения сторон
 
     ass_rel: str | None = None
     if with_subtitles:
         # Субтитры выбранного пресета (edit.captions.style/highlight) → ASS-прожиг.
+        # compile_ass сам пропускает нижние реплики при captions.burn=False (T4 #8), но
+        # СОХРАНЯЕТ хук → ASS пишем всегда (пустой no-op безвреден).
+        # PlayRes ASS = размеры выхода (out_w×out_h) → libass не растягивает субтитры (T5).
         words = store.load_transcript_words(job_id)
         cmap = ClipTimeMap(edit.source_intervals)
         ass_rel = f"clips/{clip_id}.ass"
         ass_path = out / ass_rel
         ass_path.parent.mkdir(parents=True, exist_ok=True)
-        write_caption_ass(edit.captions, words, cmap, ass_path)
+        write_caption_ass(edit.captions, words, cmap, ass_path, play_w=out_w, play_h=out_h)
 
     analysis_dir = out / "analysis"
     raw = [
@@ -80,6 +84,8 @@ def render_edit_to_file(job_id: str, clip_id: str, *, with_subtitles: bool, out_
         src_h=meta.height,
         fps=meta.fps,
         engine=s.reframe_engine,
+        out_w=out_w,
+        out_h=out_h,
     )
 
 

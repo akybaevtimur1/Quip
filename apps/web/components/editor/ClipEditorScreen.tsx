@@ -3,6 +3,7 @@
 import { Captions, Crop, Loader2, Palette, Type } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  type Aspect,
   applyPreset,
   getClipAnalysis,
   getClipAss,
@@ -11,6 +12,7 @@ import {
   getRenderStatus,
   getTimeline,
   patchClipEdit,
+  setClipAspect,
   setClipInterval,
   setCropOverride,
   startRenderClip,
@@ -445,6 +447,23 @@ export default function ClipEditorScreen({
     [edit, jobId, clipId, outerStart, outerEnd, failOr409],
   );
 
+  // ── соотношение сторон (T5): меняет выход + PlayRes ASS → рефетчим ASS ──
+  const handleAspectChange = useCallback(
+    async (aspect: Aspect) => {
+      if (!edit || edit.aspect === aspect) return;
+      setError(null);
+      try {
+        const newEdit = await setClipAspect(jobId, clipId, edit.version ?? 1, aspect);
+        setEdit(newEdit);
+        setDirty(true);
+        await refreshAss(); // PlayRes изменился → libass перерисует в новом аспекте
+      } catch (e) {
+        failOr409(e);
+      }
+    },
+    [edit, jobId, clipId, refreshAss, failOr409],
+  );
+
   // ── рендер ──
   const handleRender = useCallback(async () => {
     if (!edit) return;
@@ -611,6 +630,12 @@ export default function ClipEditorScreen({
     return null;
   }, [edit, outerStart, outerEnd, rawRegions, origStart, nowSec]);
 
+  // T5: аспект превью-контейнера (литералы → Tailwind JIT их видит)
+  const aspectClass =
+    { "9:16": "aspect-[9/16]", "1:1": "aspect-[1/1]", "4:5": "aspect-[4/5]", "16:9": "aspect-[16/9]" }[
+      edit?.aspect ?? "9:16"
+    ] ?? "aspect-[9/16]";
+
   const busy = phase === "saving" || renderState.kind === "rendering";
   const totalSec = edit
     ? edit.source_intervals.reduce((s, iv) => s + (iv.source_end - iv.source_start), 0)
@@ -679,7 +704,7 @@ export default function ClipEditorScreen({
               контента → h-full зацикливается и схлопывается в 0 — даём явную высоту. */}
           <div className="flex min-h-0 items-start justify-center">
             <div className="h-[58vh] max-h-full lg:h-full">
-              <div className="mx-auto aspect-[9/16] h-full max-h-full">
+              <div className={`mx-auto ${aspectClass} h-full max-h-full`}>
                 <PreviewPlayer
                   src={sourceSrc}
                   outerStart={outerStart}
@@ -831,6 +856,7 @@ export default function ClipEditorScreen({
                   outerEnd={outerEnd}
                   busy={busy}
                   onApply={handleFrameApply}
+                  onAspectChange={handleAspectChange}
                 />
               )}
             </div>

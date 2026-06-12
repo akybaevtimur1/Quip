@@ -44,6 +44,7 @@ from app.models import (
     HighlightStyle,
     Segment,
 )
+from app.pipeline.stage5_render import aspect_to_dims
 from app.run import DATA_ROOT
 from app.tasks import (
     render_clip_edit_job,
@@ -256,7 +257,8 @@ def get_clip_ass(job_id: str, clip_id: str) -> Response:
         raise HTTPException(status_code=404, detail="clip/segment not found") from e
     words = store.load_transcript_words(job_id)
     cmap = ClipTimeMap(edit.source_intervals)
-    ass = compile_ass(edit.captions, words, cmap)
+    pw, ph = aspect_to_dims(edit.aspect)  # T5: PlayRes = размеры выхода аспекта
+    ass = compile_ass(edit.captions, words, cmap, play_w=pw, play_h=ph)
     return Response(content=ass, media_type="text/plain; charset=utf-8")
 
 
@@ -350,6 +352,21 @@ def op_crop(job_id: str, clip_id: str, body: CropBody) -> dict[str, Any]:
         center_b=body.center_b,
     )
     return _save_or_409(job_id, clip_id, set_crop_override(edit, ov), body.version)
+
+
+class AspectBody(BaseModel):
+    version: int
+    aspect: Literal["9:16", "1:1", "4:5", "16:9"]
+
+
+@app.post("/jobs/{job_id}/clips/{clip_id}/edit/aspect")
+def op_set_aspect(job_id: str, clip_id: str, body: AspectBody) -> dict[str, Any]:
+    """Сменить соотношение сторон клипа (T5). Меняет только выход — reframe-регионы (cx)
+    переносятся, временная кадровая сетка не трогается (Δ=0 инвариант цел)."""
+    edit = _load_or_404(job_id, clip_id)
+    return _save_or_409(
+        job_id, clip_id, edit.model_copy(update={"aspect": body.aspect}), body.version
+    )
 
 
 @app.post("/jobs/{job_id}/clips/{clip_id}/edit/set-interval")

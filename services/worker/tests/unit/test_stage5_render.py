@@ -13,10 +13,68 @@ from app.pipeline.stage3_reframe import TrackPoint, TrackRegion
 from app.pipeline.stage5_render import (
     _chain_video_segs,
     _interp_cx,
+    aspect_to_dims,
     build_fill_crop_expr,
     build_single_pass_cmd,
     build_smooth_filter,
+    fill_crop_dims,
 )
+
+# ─────────────────────── T5: соотношения сторон ───────────────────────
+
+
+class TestAspectToDims:
+    def test_known_aspects(self) -> None:
+        assert aspect_to_dims("9:16") == (1080, 1920)
+        assert aspect_to_dims("1:1") == (1080, 1080)
+        assert aspect_to_dims("4:5") == (1080, 1350)
+        assert aspect_to_dims("16:9") == (1920, 1080)
+
+    def test_unknown_defaults_to_9_16(self) -> None:
+        assert aspect_to_dims("bogus") == (1080, 1920)
+
+
+class TestFillCropDims:
+    def test_9_16_height_limited(self) -> None:
+        # дефолт идентичен старому round(src_h*9/16): 1080*1080/1920 = 607.5 → 608 (чётное)
+        assert fill_crop_dims(1920, 1080, 1080, 1920) == (608, 1080)
+
+    def test_square_full_height(self) -> None:
+        assert fill_crop_dims(1920, 1080, 1080, 1080) == (1080, 1080)
+
+    def test_4_5_height_limited(self) -> None:
+        # 4:5 → crop_w = round(1080*4/5) = 864, высота полная
+        assert fill_crop_dims(1920, 1080, 1080, 1350) == (864, 1080)
+
+    def test_16_9_full_frame(self) -> None:
+        # target aspect == source aspect → весь кадр
+        assert fill_crop_dims(1920, 1080, 1920, 1080) == (1920, 1080)
+
+    def test_dims_are_even(self) -> None:
+        cw, ch = fill_crop_dims(1921, 1081, 1080, 1920)
+        assert cw % 2 == 0 and ch % 2 == 0
+
+
+class TestBuildSmoothFilterAspect:
+    def test_square_output_crop_and_scale(self) -> None:
+        region = _fill_region(0.0, 5.0, [0.5])
+        fc = build_smooth_filter([region], 1920, 1080, 24.0, "c.ass", out_w=1080, out_h=1080)
+        assert "crop=1080:1080:" in fc
+        assert "scale=1080:1080:flags=lanczos" in fc
+
+    def test_four_five_output(self) -> None:
+        region = _fill_region(0.0, 5.0, [0.5])
+        fc = build_smooth_filter([region], 1920, 1080, 24.0, "c.ass", out_w=1080, out_h=1350)
+        assert "crop=864:1080:" in fc
+        assert "scale=1080:1350:flags=lanczos" in fc
+
+    def test_16_9_full_frame_no_x_tracking(self) -> None:
+        # 16:9 выход = весь 16:9 кадр → кроп на полную ширину, без горизонт. слежения
+        region = _fill_region(0.0, 5.0, [0.3, 0.7])
+        fc = build_smooth_filter([region], 1920, 1080, 24.0, "c.ass", out_w=1920, out_h=1080)
+        assert "crop=1920:1080:0:0" in fc
+        assert "scale=1920:1080:flags=lanczos" in fc
+
 
 # ─────────────────────── helpers ───────────────────────
 

@@ -83,6 +83,25 @@ export async function setCropOverride(
   return res.json();
 }
 
+export type Aspect = "9:16" | "1:1" | "4:5" | "16:9";
+
+export async function setClipAspect(
+  jobId: string,
+  clipId: string,
+  version: number,
+  aspect: Aspect,
+): Promise<ClipEdit> {
+  // T5: сменить соотношение сторон клипа (выход + reframe-кроп; кадровая сетка не трогается).
+  const res = await fetch(`${BASE}/jobs/${jobId}/clips/${clipId}/edit/aspect`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ version, aspect }),
+  });
+  if (res.status === 409) throw new Error("Edit conflict — reload and retry");
+  if (!res.ok) throw new Error(`setClipAspect failed: ${res.status}`);
+  return res.json();
+}
+
 export async function setClipInterval(
   jobId: string,
   clipId: string,

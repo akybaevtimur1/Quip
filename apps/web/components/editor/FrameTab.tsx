@@ -2,7 +2,15 @@
 
 import { Loader2 } from "lucide-react";
 import { useState } from "react";
+import type { Aspect } from "@/lib/api";
 import type { ClipEdit } from "@/lib/types";
+
+const ASPECTS: { value: Aspect; label: string; hint: string }[] = [
+  { value: "9:16", label: "9:16", hint: "Reels / TikTok / Shorts" },
+  { value: "1:1", label: "1:1", hint: "Лента (квадрат)" },
+  { value: "4:5", label: "4:5", hint: "Instagram пост" },
+  { value: "16:9", label: "16:9", hint: "YouTube / горизонт" },
+];
 
 // ── Таб «Кадр»: режим кадрирования клипа вручную ──
 // Auto = решает ИИ (per-shot: лицо→тайт, пейзаж→широко, 2 спикера→split).
@@ -26,6 +34,7 @@ export function FrameTab({
   outerEnd,
   busy,
   onApply,
+  onAspectChange,
 }: {
   edit: ClipEdit;
   outerStart: number;
@@ -36,7 +45,9 @@ export function FrameTab({
     center: number | null,
     centerB: number | null,
   ) => Promise<void>;
+  onAspectChange: (aspect: Aspect) => void;
 }) {
+  const aspect = (edit.aspect as Aspect) ?? "9:16";
   // текущий override на интервал (последний пересекающий) → стартовое состояние
   const current = (edit.reframe_overrides ?? [])
     .filter((ov) => ov.source_start < outerEnd && ov.source_end > outerStart)
@@ -65,6 +76,32 @@ export function FrameTab({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pr-1">
+      {/* T5: соотношение сторон выхода */}
+      <section className="space-y-2">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">
+          Соотношение сторон
+        </p>
+        <div className="grid grid-cols-4 gap-1.5">
+          {ASPECTS.map((a) => (
+            <button
+              key={a.value}
+              type="button"
+              disabled={busy}
+              onClick={() => onAspectChange(a.value)}
+              title={a.hint}
+              className={`flex flex-col items-center gap-1 rounded-xl border py-2 transition ${
+                aspect === a.value
+                  ? "border-accent/60 bg-accent/10 text-accent"
+                  : "border-line bg-surface-2 text-muted hover:border-accent/30"
+              }`}
+            >
+              <AspectGlyph aspect={a.value} active={aspect === a.value} />
+              <span className="text-[11px] font-semibold">{a.label}</span>
+            </button>
+          ))}
+        </div>
+      </section>
+
       <section className="space-y-2">
         <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">
           Режим кадра
@@ -139,6 +176,24 @@ export function FrameTab({
         Кадрирование применяется на весь клип. «Авто» возвращает решение ИИ по шотам.
       </p>
     </div>
+  );
+}
+
+const ASPECT_GLYPH: Record<Aspect, { w: number; h: number }> = {
+  "9:16": { w: 9, h: 16 },
+  "1:1": { w: 14, h: 14 },
+  "4:5": { w: 12, h: 15 },
+  "16:9": { w: 18, h: 10 },
+};
+
+function AspectGlyph({ aspect, active }: { aspect: Aspect; active: boolean }) {
+  const g = ASPECT_GLYPH[aspect];
+  return (
+    <span
+      aria-hidden
+      className={`block rounded-[2px] border ${active ? "border-accent" : "border-muted"}`}
+      style={{ width: g.w, height: g.h }}
+    />
   );
 }
 
