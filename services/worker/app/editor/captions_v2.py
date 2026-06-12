@@ -135,3 +135,44 @@ def write_caption_ass(
     ass = compile_ass(track, words, cmap)
     out_path.write_text(ass, encoding="utf-8")
     return ass
+
+
+# ─────────────────────────── SRT-экспорт (экспорт-свобода) ───────────────────────────
+
+
+def format_srt_time(t: float) -> str:
+    """Секунды → SRT-таймкод HH:MM:SS,mmm (запятая-разделитель миллисекунд). PURE."""
+    ms_total = round(t * 1000)
+    ms = ms_total % 1000
+    s_total = ms_total // 1000
+    return f"{s_total // 3600:02d}:{s_total // 60 % 60:02d}:{s_total % 60:02d},{ms:03d}"
+
+
+def compile_srt(track: CaptionTrack, words: list[Word], cmap: ClipTimeMap) -> str:
+    """CaptionTrack + слова + тайм-маппинг → SRT (клип-время). PURE.
+
+    Зеркалит reply-итерацию compile_ass (те же реплики, тот же cmap.source_to_clip)
+    → скачанный SRT совпадает с прожжённым видео по таймингам. Отличия: плоский текст
+    в НАТУРАЛЬНОМ регистре, без караоке/анимации/ASS-тегов (для переноса в любой
+    редактор — CapCut/Premiere/Resolve импортируют SRT). Индексы 1..N по ЭМИТНУТЫМ
+    репликам (скрытые/в-дырке пропущены, без дыр в нумерации).
+    """
+    blocks: list[str] = []
+    idx = 1
+    for reply in track.replies:
+        if reply.hidden or not reply.word_refs:
+            continue
+        rwords = [words[i] for i in reply.word_refs]
+        start_c = cmap.source_to_clip(rwords[0].start)
+        if start_c is None:
+            continue  # слово в дырке → пропуск (как compile_ass)
+        last_c = cmap.source_to_clip(rwords[-1].start)
+        end_c = (last_c if last_c is not None else start_c) + (rwords[-1].end - rwords[-1].start)
+        text = (
+            reply.text_override
+            if reply.text_override is not None
+            else " ".join(w.text for w in rwords)
+        )
+        blocks.append(f"{idx}\n{format_srt_time(start_c)} --> {format_srt_time(end_c)}\n{text}")
+        idx += 1
+    return "\n\n".join(blocks) + ("\n" if blocks else "")

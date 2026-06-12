@@ -22,7 +22,7 @@ from app import __version__, db
 from app.config import get_settings
 from app.editor import presets as presets_mod
 from app.editor import store
-from app.editor.captions_v2 import compile_ass
+from app.editor.captions_v2 import compile_ass, compile_srt
 from app.editor.ops import (
     add_section,
     apply_extend,
@@ -248,6 +248,27 @@ def get_clip_ass(job_id: str, clip_id: str) -> Response:
     cmap = ClipTimeMap(edit.source_intervals)
     ass = compile_ass(edit.captions, words, cmap)
     return Response(content=ass, media_type="text/plain; charset=utf-8")
+
+
+@app.get("/jobs/{job_id}/clips/{clip_id}/export.srt")
+def export_clip_srt(job_id: str, clip_id: str) -> Response:
+    """SRT субтитров текущего edit-state (экспорт-свобода: унести в любой редактор).
+
+    compile_srt зеркалит compile_ass (те же реплики/тайминги) → скачанный SRT
+    совпадает с прожжённым видео. Content-Disposition: attachment → браузер скачивает.
+    """
+    try:
+        edit = store.ensure_edit(job_id, clip_id)
+    except (FileNotFoundError, KeyError) as e:
+        raise HTTPException(status_code=404, detail="clip/segment not found") from e
+    words = store.load_transcript_words(job_id)
+    cmap = ClipTimeMap(edit.source_intervals)
+    srt = compile_srt(edit.captions, words, cmap)
+    return Response(
+        content=srt,
+        media_type="application/x-subrip; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{clip_id}.srt"'},
+    )
 
 
 @app.patch("/jobs/{job_id}/clips/{clip_id}/edit")

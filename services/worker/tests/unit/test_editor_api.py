@@ -143,3 +143,20 @@ def test_get_ass_404_for_missing_clip(monkeypatch, tmp_path):
     client, job = _client(monkeypatch, tmp_path)
     r = client.get(f"/jobs/{job}/clips/clip_09/ass")
     assert r.status_code == 404
+
+
+def test_export_srt_returns_attachment(monkeypatch, tmp_path):
+    client, job = _client(monkeypatch, tmp_path)
+    r = client.get(f"/jobs/{job}/clips/clip_01/export.srt")
+    assert r.status_code == 200
+    cd = r.headers.get("content-disposition", "")
+    assert "attachment" in cd and "clip_01.srt" in cd
+    body = r.text
+    assert "-->" in body  # SRT-таймкод присутствует
+    assert "{" not in body and "\\k" not in body  # без ASS-тегов
+
+
+def test_export_srt_404_for_missing_clip(monkeypatch, tmp_path):
+    client, job = _client(monkeypatch, tmp_path)
+    r = client.get(f"/jobs/{job}/clips/clip_09/export.srt")
+    assert r.status_code == 404
