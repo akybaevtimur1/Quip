@@ -1,40 +1,26 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { applyPreset, getPresets } from "@/lib/api";
-import type { CaptionPreset, ClipEdit } from "@/lib/types";
+import { getPresets } from "@/lib/api";
+import type { CaptionPreset } from "@/lib/types";
 
 // ────────────────────────────────────────────────────────────────────────────
-// PresetStrip — горизонтальная галерея пресетов субтитров (A–D). Каждый пресет —
-// мини-превью (как слово выглядит в этом стиле). Клик → applyPreset → onApplied.
-// Дефолт = preset_a. См. docs .../2026-06-11-editor-v2-design.md §A2.
+// PresetStrip — горизонтальная галерея пресетов субтитров (A–L). Каждый пресет —
+// мини-превью (как слово выглядит в этом стиле). Клик → onApply (родитель
+// исполняет в ОЧЕРЕДИ мутаций: правки на ходу не плодят 409). Дефолт = preset_a.
 // ────────────────────────────────────────────────────────────────────────────
 
 const DEFAULT_PRESET_ID = "preset_a";
 
 export interface PresetStripProps {
-  jobId: string;
-  clipId: string;
-  /** Версия edit-state для optimistic-lock (apply-preset). */
-  version: number;
   /** id текущего активного пресета (для подсветки). */
   activePresetId?: string | null;
-  /** Применённый edit-state + id пресета (родитель обновляет состояние/версию + активный пресет). */
-  onApplied: (updated: ClipEdit, presetId: string) => void;
-  /** 409/сетевой сбой — родитель решает (reload edit-state / тост). */
-  onConflict?: () => void;
+  /** Применить пресет; родитель сам обновляет edit-state/ASS (через очередь мутаций). */
+  onApply: (presetId: string) => Promise<void>;
   onError?: (message: string) => void;
 }
 
-export function PresetStrip({
-  jobId,
-  clipId,
-  version,
-  activePresetId,
-  onApplied,
-  onConflict,
-  onError,
-}: PresetStripProps) {
+export function PresetStrip({ activePresetId, onApply, onError }: PresetStripProps) {
   const [presets, setPresets] = useState<CaptionPreset[]>([]);
   const [loading, setLoading] = useState(true);
   const [applyingId, setApplyingId] = useState<string | null>(null);
@@ -64,12 +50,9 @@ export function PresetStrip({
     if (applyingId) return;
     setApplyingId(presetId);
     try {
-      const updated = await applyPreset(jobId, clipId, version, presetId);
-      onApplied(updated, presetId);
+      await onApply(presetId);
     } catch (e) {
-      const msg = String(e);
-      if (msg.includes("conflict") || msg.includes("409")) onConflict?.();
-      else onError?.(msg);
+      onError?.(String(e));
     } finally {
       setApplyingId(null);
     }

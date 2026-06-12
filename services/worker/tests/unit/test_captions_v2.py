@@ -102,6 +102,9 @@ def test_compile_ass_pop_emits_transforms_per_word():
     assert ass.count("\\k") == 2  # караоке-заливка остаётся
     assert ass.count("\\t(") == 4  # по 2 transform-тега на слово
     assert "\\t(400,520" in ass  # второе слово анимируется на СВОЁМ оффсете
+    # \t действует на весь последующий текст → каждый блок ОБЯЗАН сбрасывать
+    # \fscy100 ДО своего \t, иначе анимация первого слова дёргает всю строку
+    assert ass.count("\\fscy100\\t(") == 2
 
 
 def test_compile_ass_animation_none_disables_karaoke_fill():

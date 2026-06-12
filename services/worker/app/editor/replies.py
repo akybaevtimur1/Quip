@@ -9,9 +9,7 @@ from __future__ import annotations
 
 from app.models import (
     CaptionReply,
-    CaptionStyle,
     CaptionTrack,
-    HighlightStyle,
     SourceInterval,
     Word,
 )
@@ -60,9 +58,16 @@ def rebuild_replies(
 
 
 def default_caption_track(all_words: list[Word], intervals: list[SourceInterval]) -> CaptionTrack:
-    """Дефолтный трек: brand-neutral стиль + караоке ВКЛ + авто-группировка реплик."""
+    """Дефолтный трек: стиль = сид-пресет A («Караоке-бокс», коралловая подсветка).
+
+    Раньше брались голые дефолты моделей (HighlightStyle → жёлтый #FFE000) —
+    дефолт расходился с заявленным «дефолт = preset A» (фидбек фаундера).
+    """
+    from app.editor.preset_seeds import DEFAULT_PRESET_ID, seed_presets
+
+    default = next(p for p in seed_presets() if p.id == DEFAULT_PRESET_ID)
     return CaptionTrack(
-        style=CaptionStyle(),
-        highlight=HighlightStyle(),
+        style=default.style.model_copy(),
+        highlight=default.highlight.model_copy() if default.highlight else None,
         replies=rebuild_replies(all_words, intervals),
     )

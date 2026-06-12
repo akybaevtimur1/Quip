@@ -189,7 +189,7 @@ export function CaptionOverlay({
   const karaokeOff = highlightProp === null;
   const highlight: Required<HighlightStyle> = useMemo(
     () => ({
-      color: highlightProp?.color ?? "#FFE000",
+      color: highlightProp?.color ?? "#FF5A3D", // дефолт = коралл пресета A
       scale: highlightProp?.scale ?? 1.0,
       box: highlightProp?.box ?? false,
       animation: highlightProp?.animation ?? "karaoke_fill",

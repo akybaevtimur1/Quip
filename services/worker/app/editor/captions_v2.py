@@ -45,10 +45,17 @@ def word_animation_tags(animation: str, offset_ms: int) -> str:
 
 
 def _karaoke_word(word_text: str, w: Word, line_start: float, animation: str) -> str:
-    """Одно слово караоке-строки: {\\k<дур><анимация>}ТЕКСТ."""
+    """Одно слово караоке-строки: {\\k<дур>[\\fscy100<анимация>]}ТЕКСТ.
+
+    \\t действует на ВЕСЬ последующий текст строки → без сброса анимация первого
+    слова «протекала» на все слова (вся строка прыгала), а у последующих слов
+    смешивалась с чужой. Статический \\fscy100 в начале КАЖДОГО блока обрывает
+    чужую анимацию: слово анимируется только своим \\t в своё время.
+    """
     k = round((w.end - w.start) * 100)
     anim = word_animation_tags(animation, round((w.start - line_start) * 1000))
-    return f"{{\\k{k}{anim}}}{word_text}"
+    reset = "\\fscy100" if anim else ""
+    return f"{{\\k{k}{reset}{anim}}}{word_text}"
 
 
 def _reply_text(

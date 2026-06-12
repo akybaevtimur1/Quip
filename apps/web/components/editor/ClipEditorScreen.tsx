@@ -3,6 +3,7 @@
 import { Captions, Crop, Loader2, Palette } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  applyPreset,
   getClipAnalysis,
   getClipAss,
   getClipEdit,
@@ -248,86 +249,118 @@ export default function ClipEditorScreen({
   }, [edit, selected, globalIndices, jobId, clipId, refetchAfter, failOr409]);
 
   // ── правки субтитров/стиля → PATCH + refetch ASS ──
+  // ОЧЕРЕДЬ мутаций: правки на ходу (цвет/анимация/текст во время воспроизведения)
+  // могут сыпаться быстрее, чем отвечает сервер. Параллельные PATCH'и со старой
+  // версией давали 409 → полный reload редактора. Теперь мутации выполняются
+  // строго по одной, каждая берёт СВЕЖИЕ captions/version на момент исполнения.
+  const editRef = useRef<ClipEdit | null>(null);
+  useEffect(() => {
+    editRef.current = edit;
+  }, [edit]);
+  const patchChain = useRef<Promise<void>>(Promise.resolve());
+
   const patchCaptions = useCallback(
-    async (captions: ClipEdit["captions"]) => {
-      if (!edit) return;
-      setError(null);
-      try {
-        const newEdit = await patchClipEdit(jobId, clipId, edit.version ?? 1, captions);
-        setEdit(newEdit);
-        setDirty(true);
-        await refreshAss();
-      } catch (e) {
-        failOr409(e);
-      }
+    (update: (captions: ClipEdit["captions"]) => ClipEdit["captions"]) => {
+      patchChain.current = patchChain.current.then(async () => {
+        const cur = editRef.current;
+        if (!cur) return;
+        setError(null);
+        try {
+          const newEdit = await patchClipEdit(
+            jobId,
+            clipId,
+            cur.version ?? 1,
+            update(cur.captions),
+          );
+          editRef.current = newEdit; // свежая версия доступна СЛЕДУЮЩЕЙ мутации сразу
+          setEdit(newEdit);
+          setDirty(true);
+          await refreshAss();
+        } catch (e) {
+          failOr409(e);
+        }
+      });
+      return patchChain.current;
     },
-    [edit, jobId, clipId, refreshAss, failOr409],
+    [jobId, clipId, refreshAss, failOr409],
   );
 
   const handleCaptionsChange = useCallback(
     (replyIndex: number, text: string | null) => {
-      if (!edit) return;
-      const replies = (edit.captions.replies ?? []).map(
-        (reply, i): CaptionReply =>
-          i === replyIndex ? { ...reply, text_override: text } : reply,
-      );
-      void patchCaptions({ ...edit.captions, replies });
+      void patchCaptions((captions) => ({
+        ...captions,
+        replies: (captions.replies ?? []).map(
+          (reply, i): CaptionReply =>
+            i === replyIndex ? { ...reply, text_override: text } : reply,
+        ),
+      }));
     },
-    [edit, patchCaptions],
+    [patchCaptions],
   );
 
   const handleStyleChange = useCallback(
     (patch: Partial<CaptionStyle>) => {
-      if (!edit) return;
       setActivePresetId(null); // кастомизация поверх пресета — пресет больше не «чистый»
-      void patchCaptions({
-        ...edit.captions,
-        style: { ...edit.captions.style, ...patch },
-      });
+      void patchCaptions((captions) => ({
+        ...captions,
+        style: { ...captions.style, ...patch },
+      }));
     },
-    [edit, patchCaptions],
+    [patchCaptions],
   );
 
   const handleHighlightChange = useCallback(
     (patch: Partial<HighlightStyle> | null) => {
-      if (!edit) return;
       setActivePresetId(null);
-      const prev = edit.captions.highlight ?? null;
-      const next =
-        patch === null
-          ? null
-          : {
-              color: "#FFE000",
-              scale: 1.0,
-              box: false,
-              animation: "karaoke_fill" as const,
-              ...(prev ?? {}),
-              ...patch,
-            };
-      void patchCaptions({ ...edit.captions, highlight: next });
+      void patchCaptions((captions) => ({
+        ...captions,
+        highlight:
+          patch === null
+            ? null
+            : {
+                color: "#FF5A3D", // дефолт = коралл пресета A (не жёлтый)
+                scale: 1.0,
+                box: false,
+                animation: "karaoke_fill" as const,
+                ...(captions.highlight ?? {}),
+                ...patch,
+              },
+      }));
     },
-    [edit, patchCaptions],
+    [patchCaptions],
   );
 
   const handleMarginChange = useCallback(
     (marginV: number) => {
-      if (!edit) return;
-      void patchCaptions({
-        ...edit.captions,
-        style: { ...edit.captions.style, margin_v: clampMargin(marginV) },
-      });
+      void patchCaptions((captions) => ({
+        ...captions,
+        style: { ...captions.style, margin_v: clampMargin(marginV) },
+      }));
     },
-    [edit, patchCaptions],
+    [patchCaptions],
   );
 
-  const handlePresetApplied = useCallback(
-    (updated: ClipEdit, presetId: string) => {
-      setEdit(updated);
-      setActivePresetId(presetId);
-      setDirty(true);
-      void refreshAss();
+  // применение пресета — в ТОЙ ЖЕ очереди мутаций (свежая версия, никаких 409 на ходу)
+  const handlePresetApply = useCallback(
+    (presetId: string) => {
+      patchChain.current = patchChain.current.then(async () => {
+        const cur = editRef.current;
+        if (!cur) return;
+        setError(null);
+        try {
+          const updated = await applyPreset(jobId, clipId, cur.version ?? 1, presetId);
+          editRef.current = updated;
+          setEdit(updated);
+          setActivePresetId(presetId);
+          setDirty(true);
+          await refreshAss();
+        } catch (e) {
+          failOr409(e);
+        }
+      });
+      return patchChain.current;
     },
-    [refreshAss],
+    [jobId, clipId, refreshAss, failOr409],
   );
 
   // ── кадр (таб «Кадр») ──
@@ -698,13 +731,10 @@ export default function ClipEditorScreen({
               )}
               {edit && tab === "style" && (
                 <StyleTab
-                  jobId={jobId}
-                  clipId={clipId}
                   edit={edit}
                   activePresetId={activePresetId}
                   busy={busy}
-                  onPresetApplied={handlePresetApplied}
-                  onConflict={handleConflict}
+                  onPresetApply={handlePresetApply}
                   onError={setError}
                   onStyleChange={handleStyleChange}
                   onHighlightChange={handleHighlightChange}

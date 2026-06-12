@@ -21,24 +21,18 @@ const ANIMATIONS: { value: NonNullable<HighlightStyle["animation"]>; label: stri
 ];
 
 export function StyleTab({
-  jobId,
-  clipId,
   edit,
   activePresetId,
   busy,
-  onPresetApplied,
-  onConflict,
+  onPresetApply,
   onError,
   onStyleChange,
   onHighlightChange,
 }: {
-  jobId: string;
-  clipId: string;
   edit: ClipEdit;
   activePresetId: string | null;
   busy: boolean;
-  onPresetApplied: (updated: ClipEdit, presetId: string) => void;
-  onConflict: () => void;
+  onPresetApply: (presetId: string) => Promise<void>;
   onError: (msg: string) => void;
   onStyleChange: (patch: Partial<CaptionStyle>) => void;
   onHighlightChange: (patch: Partial<HighlightStyle> | null) => void;
@@ -53,15 +47,7 @@ export function StyleTab({
         <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">
           Готовые стили
         </p>
-        <PresetStrip
-          jobId={jobId}
-          clipId={clipId}
-          version={edit.version ?? 1}
-          activePresetId={activePresetId}
-          onApplied={onPresetApplied}
-          onConflict={onConflict}
-          onError={onError}
-        />
+        <PresetStrip activePresetId={activePresetId} onApply={onPresetApply} onError={onError} />
       </section>
 
       {/* ── кастомизация ── */}
@@ -79,7 +65,7 @@ export function StyleTab({
           />
           <ColorField
             label="Цвет подсветки"
-            value={hl?.color ?? "#FFE000"}
+            value={hl?.color ?? "#FF5A3D"}
             disabled={busy || hl === null}
             onChange={(v) => onHighlightChange({ color: v })}
           />
