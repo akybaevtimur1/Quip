@@ -188,6 +188,8 @@ def run_pipeline(
                 thumbnail_url=None,
                 transcript=_snippet(transcript.words, seg.start, seg.end),
                 words=words_in_segment(transcript.words, seg.start, seg.end),
+                hook=seg.hook,
+                why_works=seg.why_works,
             )
         )
         n_fit = sum(1 for r in regions if r.mode == "fit")

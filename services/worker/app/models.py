@@ -71,13 +71,19 @@ class Transcript(BaseModel):
 
 
 class Segment(BaseModel):
-    """Выбранный момент (границы снэпнуты к словам). `reason` — ПОЧЕМУ, 1-2 предложения."""
+    """Выбранный момент (границы снэпнуты к словам). `reason` — ПОЧЕМУ, 1-2 предложения.
+
+    `hook`/`why_works` (T1/T2): объяснимость как продукт — цепляющий топ-заголовок и
+    разбор «почему сработает». Опциональны (default None) → старые segments.json валидны.
+    """
 
     start: float  # секунды, снэп к границе слова
     end: float  # секунды, снэп к границе слова
     reason: str
     score: float = Field(ge=0, le=1)
     type: ClipType
+    hook: str | None = None  # короткий топ-текст (≤~6 слов), привязан к reason
+    why_works: str | None = None  # 1 фраза: почему момент работает как шортс
 
 
 class CropWindow(BaseModel):
@@ -122,6 +128,8 @@ class ClipOut(BaseModel):
     thumbnail_url: str | None = None
     transcript: str  # сниппет текста клипа
     words: list[Word]
+    hook: str | None = None  # T1: цепляющий топ-заголовок (объяснимость)
+    why_works: str | None = None  # T2: разбор «почему сработает»
 
 
 class Metrics(BaseModel):
@@ -204,6 +212,29 @@ class HighlightStyle(BaseModel):
     ] = "karaoke_fill"
 
 
+class HookOverlay(BaseModel):
+    """Топ-текст (хук) клипа: цепляющий заголовок СВЕРХУ кадра (T1, наш отличитель —
+    объяснимый хук, привязанный к reason). Рендерится отдельным ASS-событием с верхним
+    якорем (alignment 8) тем же libass-стеком, что субтитры → превью = экспорт, без
+    второго пайплайна. Не пересекается с нижними субтитрами.
+    """
+
+    text: str = ""
+    enabled: bool = True
+    full_clip: bool = True  # True = весь клип; False = первые duration_sec секунд
+    duration_sec: float = 4.0  # окно показа при full_clip=False
+    font: str = "Unbounded"  # уже лежит в обоих местах (fonts/ + public/libass/fonts)
+    size: int = 66
+    color: str = "#FFFFFF"
+    outline_color: str = "#000000"
+    outline_w: int = 4
+    shadow: int = 0
+    box_color: str | None = "#FF5A3D"  # коралл-плашка (бренд); None = без плашки
+    box_opacity: float = Field(default=1.0, ge=0.0, le=1.0)
+    margin_v: int = 150  # отступ от ВЕРХА кадра (ASS top alignment)
+    uppercase: bool = True
+
+
 class CaptionReply(BaseModel):
     """Одна реплика субтитра (чанк 3–5 слов)."""
 
@@ -214,11 +245,12 @@ class CaptionReply(BaseModel):
 
 
 class CaptionTrack(BaseModel):
-    """Трек субтитров клипа: стиль + караоке + реплики."""
+    """Трек субтитров клипа: стиль + караоке + реплики + опц. топ-текст (хук)."""
 
     style: CaptionStyle
     highlight: HighlightStyle | None = None
     replies: list[CaptionReply] = Field(default_factory=list)
+    hook: HookOverlay | None = None  # T1: топ-текст; None = без хука (компилится в top-event)
 
 
 class ClipEdit(BaseModel):

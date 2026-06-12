@@ -142,12 +142,23 @@
       "type": "object"
     },
     "CaptionTrack": {
-      "description": "Трек субтитров клипа: стиль + караоке + реплики.",
+      "description": "Трек субтитров клипа: стиль + караоке + реплики + опц. топ-текст (хук).",
       "properties": {
         "highlight": {
           "anyOf": [
             {
               "$ref": "#/$defs/HighlightStyle"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "hook": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HookOverlay"
             },
             {
               "type": "null"
@@ -313,6 +324,17 @@
         "end": {
           "type": "number"
         },
+        "hook": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "id": {
           "type": "string"
         },
@@ -346,6 +368,17 @@
         },
         "video_url": {
           "type": "string"
+        },
+        "why_works": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "words": {
           "items": {
@@ -481,6 +514,77 @@
       },
       "type": "object"
     },
+    "HookOverlay": {
+      "description": "Топ-текст (хук) клипа: цепляющий заголовок СВЕРХУ кадра (T1, наш отличитель —\nобъяснимый хук, привязанный к reason). Рендерится отдельным ASS-событием с верхним\nякорем (alignment 8) тем же libass-стеком, что субтитры → превью = экспорт, без\nвторого пайплайна. Не пересекается с нижними субтитрами.",
+      "properties": {
+        "box_color": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": "#FF5A3D"
+        },
+        "box_opacity": {
+          "default": 1.0,
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "type": "number"
+        },
+        "color": {
+          "default": "#FFFFFF",
+          "type": "string"
+        },
+        "duration_sec": {
+          "default": 4.0,
+          "type": "number"
+        },
+        "enabled": {
+          "default": true,
+          "type": "boolean"
+        },
+        "font": {
+          "default": "Unbounded",
+          "type": "string"
+        },
+        "full_clip": {
+          "default": true,
+          "type": "boolean"
+        },
+        "margin_v": {
+          "default": 150,
+          "type": "integer"
+        },
+        "outline_color": {
+          "default": "#000000",
+          "type": "string"
+        },
+        "outline_w": {
+          "default": 4,
+          "type": "integer"
+        },
+        "shadow": {
+          "default": 0,
+          "type": "integer"
+        },
+        "size": {
+          "default": 66,
+          "type": "integer"
+        },
+        "text": {
+          "default": "",
+          "type": "string"
+        },
+        "uppercase": {
+          "default": true,
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
     "Job": {
       "description": "Состояние задачи целиком — ответ `GET /jobs/{id}` (§4.3).",
       "properties": {
@@ -573,10 +677,21 @@
       "type": "object"
     },
     "Segment": {
-      "description": "Выбранный момент (границы снэпнуты к словам). `reason` — ПОЧЕМУ, 1-2 предложения.",
+      "description": "Выбранный момент (границы снэпнуты к словам). `reason` — ПОЧЕМУ, 1-2 предложения.\n\n`hook`/`why_works` (T1/T2): объяснимость как продукт — цепляющий топ-заголовок и\nразбор «почему сработает». Опциональны (default None) → старые segments.json валидны.",
       "properties": {
         "end": {
           "type": "number"
+        },
+        "hook": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "reason": {
           "type": "string"
@@ -591,6 +706,17 @@
         },
         "type": {
           "$ref": "#/$defs/ClipType"
+        },
+        "why_works": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
@@ -788,6 +914,9 @@
     },
     "HighlightStyle": {
       "$ref": "#/$defs/HighlightStyle"
+    },
+    "HookOverlay": {
+      "$ref": "#/$defs/HookOverlay"
     },
     "Job": {
       "$ref": "#/$defs/Job"

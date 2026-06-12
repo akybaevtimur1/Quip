@@ -248,6 +248,41 @@ class TestPostprocess:
         assert {s.reason for s in segs} == {"b", "d"}  # топ-2 по score
         assert [s.start for s in segs] == sorted(s.start for s in segs)  # сортировка по start
 
+    def test_carries_hook_and_why_works(self) -> None:
+        # T1/T2: LLM-поля hook/why_works пробрасываются в Segment (объяснимость как продукт)
+        words = uniform(40, sentence_ends={2, 25})
+        raw = [
+            {
+                "start_word_index": 3,
+                "end_word_index": 22,
+                "reason": "concrete why",
+                "score": 0.8,
+                "type": "hook",
+                "hook": "Он потерял всё за день",
+                "why_works": "Ставка и конфликт в первой фразе",
+            }
+        ]
+        segs = postprocess(raw, words, min_sec=15, max_sec=60)
+        assert len(segs) == 1
+        assert segs[0].hook == "Он потерял всё за день"
+        assert segs[0].why_works == "Ставка и конфликт в первой фразе"
+
+    def test_missing_hook_fields_are_none(self) -> None:
+        # старый raw без hook/why_works → поля None (не падаем, обратная совместимость)
+        words = uniform(40, sentence_ends={2, 25})
+        raw = [
+            {
+                "start_word_index": 3,
+                "end_word_index": 22,
+                "reason": "r",
+                "score": 0.8,
+                "type": "hook",
+            }
+        ]
+        segs = postprocess(raw, words, min_sec=15, max_sec=60)
+        assert len(segs) == 1
+        assert segs[0].hook is None and segs[0].why_works is None
+
     def test_resolves_overlap_keeping_higher_score(self) -> None:
         words = uniform(60)
         raw = [

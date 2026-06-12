@@ -32,6 +32,7 @@ export interface ClipFlowContract {
   CropOverride?: CropOverride;
   CropWindow?: CropWindow;
   HighlightStyle?: HighlightStyle;
+  HookOverlay?: HookOverlay;
   Job?: Job;
   JobStatus?: JobStatus;
   Metrics?: Metrics;
@@ -89,12 +90,35 @@ export interface CaptionReply {
   word_refs: number[];
 }
 /**
- * Трек субтитров клипа: стиль + караоке + реплики.
+ * Трек субтитров клипа: стиль + караоке + реплики + опц. топ-текст (хук).
  */
 export interface CaptionTrack {
   highlight?: HighlightStyle | null;
+  hook?: HookOverlay | null;
   replies?: CaptionReply[];
   style: CaptionStyle;
+}
+/**
+ * Топ-текст (хук) клипа: цепляющий заголовок СВЕРХУ кадра (T1, наш отличитель —
+ * объяснимый хук, привязанный к reason). Рендерится отдельным ASS-событием с верхним
+ * якорем (alignment 8) тем же libass-стеком, что субтитры → превью = экспорт, без
+ * второго пайплайна. Не пересекается с нижними субтитрами.
+ */
+export interface HookOverlay {
+  box_color?: string | null;
+  box_opacity?: number;
+  color?: string;
+  duration_sec?: number;
+  enabled?: boolean;
+  font?: string;
+  full_clip?: boolean;
+  margin_v?: number;
+  outline_color?: string;
+  outline_w?: number;
+  shadow?: number;
+  size?: number;
+  text?: string;
+  uppercase?: boolean;
 }
 /**
  * Глава AI-карты видео (источник-время, секунды). Главы покрывают видео непрерывно.
@@ -137,13 +161,18 @@ export interface CropWindow {
 }
 /**
  * Выбранный момент (границы снэпнуты к словам). `reason` — ПОЧЕМУ, 1-2 предложения.
+ *
+ * `hook`/`why_works` (T1/T2): объяснимость как продукт — цепляющий топ-заголовок и
+ * разбор «почему сработает». Опциональны (default None) → старые segments.json валидны.
  */
 export interface Segment {
   end: number;
+  hook?: string | null;
   reason: string;
   score: number;
   start: number;
   type: ClipType;
+  why_works?: string | null;
 }
 /**
  * РЕЦЕПТ клипа — не-деструктивный edit-state. Версионируется (optimistic-lock).
@@ -181,6 +210,7 @@ export interface SourceInterval {
 export interface ClipOut {
   duration: number;
   end: number;
+  hook?: string | null;
   id: string;
   reason: string;
   score: number;
@@ -189,6 +219,7 @@ export interface ClipOut {
   transcript: string;
   type: ClipType;
   video_url: string;
+  why_works?: string | null;
   words: Word[];
 }
 /**

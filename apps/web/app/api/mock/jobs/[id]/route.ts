@@ -31,6 +31,9 @@ const MOCK_CLIPS: ClipOut[] = [
       "Сатира на вторую поправку и владение оружием — острый, самодостаточный обмен репликами, понятный без контекста.",
     type: "strong_quote",
     score: 0.85,
+    hook: "Это дискриминация по 2-й поправке?",
+    why_works:
+      "Абсурдная логика на серьёзных щах — мгновенно смешно и репостится без контекста.",
     video_url: "/mock/clip_01.mp4",
     thumbnail_url: null,
     transcript: "Mafia, townsperson, angel. Mike, this seems kinda discriminatory against second amendment…",
@@ -48,6 +51,9 @@ const MOCK_CLIPS: ClipOut[] = [
       "Кульминация игры: игроки осознают, что убили Ангела — и мафия побеждает. Пиковая эмоция и развязка.",
     type: "emotional_peak",
     score: 0.96,
+    hook: "Мафия победила в последний момент",
+    why_works:
+      "Резкий разворот на пике напряжения — пейофф, ради которого досматривают до конца.",
     video_url: "/mock/clip_05.mp4",
     thumbnail_url: null,
     transcript: "Moxie was kicked into a vat of piranhas, and the mafia win. Yeah. Let's go…",

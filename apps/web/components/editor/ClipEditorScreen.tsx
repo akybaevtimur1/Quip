@@ -1,6 +1,6 @@
 "use client";
 
-import { Captions, Crop, Loader2, Palette } from "lucide-react";
+import { Captions, Crop, Loader2, Palette, Type } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   applyPreset,
@@ -21,6 +21,7 @@ import type {
   CaptionStyle,
   ClipEdit,
   HighlightStyle,
+  HookOverlay,
   TimelineData,
   Word,
 } from "@/lib/types";
@@ -30,6 +31,7 @@ import { LibassLayer } from "../LibassLayer";
 import { CaptionsTab } from "./CaptionsTab";
 import { EditorHeader, type RenderState } from "./EditorHeader";
 import { FrameTab } from "./FrameTab";
+import { HookTab } from "./HookTab";
 import { type FrameState, PreviewPlayer } from "./PreviewPlayer";
 import { buildReplyRanges, clampMargin, originalReplyText } from "./replyUtils";
 import { StyleTab } from "./StyleTab";
@@ -44,7 +46,7 @@ import TimelineV2 from "./TimelineV2";
 // ────────────────────────────────────────────────────────────────────────────
 
 type Phase = "loading" | "ready" | "saving" | "error";
-type Tab = "captions" | "style" | "frame";
+type Tab = "captions" | "hook" | "style" | "frame";
 
 /** Регион reframe-плана пайплайна (reframe_<clip>.json), клип-время. */
 interface RawRegion {
@@ -67,6 +69,7 @@ function cxAt(points: { t: number; cx: number | null }[] | undefined, clipT: num
 
 const TABS: { id: Tab; label: string; icon: typeof Captions }[] = [
   { id: "captions", label: "Субтитры", icon: Captions },
+  { id: "hook", label: "Хук", icon: Type },
   { id: "style", label: "Стиль", icon: Palette },
   { id: "frame", label: "Кадр", icon: Crop },
 ];
@@ -367,6 +370,19 @@ export default function ClipEditorScreen({
       void patchCaptions((captions) => ({
         ...captions,
         style: { ...captions.style, margin_v: clampMargin(marginV) },
+      }));
+    },
+    [patchCaptions],
+  );
+
+  // ── хук (таб «Хук») → PATCH captions.hook через ту же очередь мутаций ──
+  // patch=null → убрать хук; иначе мерж поверх текущего (или нового {text:""}) —
+  // опущенные поля дольёт pydantic (шрифт/плашка/размер по дефолту).
+  const handleHookChange = useCallback(
+    (patch: Partial<HookOverlay> | null) => {
+      void patchCaptions((captions) => ({
+        ...captions,
+        hook: patch === null ? null : { ...(captions.hook ?? { text: "" }), ...patch },
       }));
     },
     [patchCaptions],
@@ -783,6 +799,9 @@ export default function ClipEditorScreen({
                   onCutReply={handleCutReply}
                   onSeekReply={seekToReply}
                 />
+              )}
+              {edit && tab === "hook" && (
+                <HookTab edit={edit} busy={busy} onHookChange={handleHookChange} />
               )}
               {edit && tab === "style" && (
                 <StyleTab

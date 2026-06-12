@@ -11,6 +11,7 @@ export type {
   ClipEdit,
   CropOverride,
   HighlightStyle,
+  HookOverlay,
   SourceInterval,
   TimelineData,
   TimelineSegment,

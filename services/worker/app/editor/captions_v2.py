@@ -8,7 +8,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from app.editor.timemap import ClipTimeMap
-from app.models import CaptionReply, CaptionTrack, HighlightStyle, Word
+from app.models import CaptionReply, CaptionTrack, HighlightStyle, HookOverlay, Word
 from app.pipeline.stage4_captions import format_ass_time
 
 
@@ -26,6 +26,35 @@ def _ass_color_tag(hex_color: str) -> str:
     """
     h = hex_color.lstrip("#")
     return f"&H{h[4:6]}{h[2:4]}{h[0:2]}&".upper()
+
+
+def build_hook_event(hook: HookOverlay, clip_duration: float) -> tuple[str, str]:
+    """Хук → (Style-строка "Hook", Dialogue top-event). PURE (T1).
+
+    Верхний якорь (alignment 8) → топ-текст не пересекается с нижними субтитрами.
+    Окно показа: весь клип (full_clip) или первые duration_sec (клампится в длину
+    клипа). Плашка (box_color) → BorderStyle=3, как у субтитров. Текст .upper() при
+    uppercase; переводы строк → пробел (libass WrapStyle 0 переносит сам).
+    """
+    primary = _ass_color(hook.color)
+    outline = _ass_color(hook.outline_color)
+    if hook.box_color:
+        back = _ass_color(hook.box_color, round((1.0 - hook.box_opacity) * 255))
+        border_style = 3
+    else:
+        back = "&H64000000"
+        border_style = 1
+    style = (
+        f"Style: Hook,{hook.font},{hook.size},{primary},{primary},{outline},{back},"
+        f"-1,0,0,0,100,100,0,0,{border_style},{hook.outline_w},{hook.shadow},"
+        f"8,60,60,{hook.margin_v},1"
+    )
+    window = clip_duration if hook.full_clip else min(hook.duration_sec, clip_duration)
+    text = hook.text.replace("\n", " ").strip()
+    if hook.uppercase:
+        text = text.upper()
+    dialogue = f"Dialogue: 0,{format_ass_time(0.0)},{format_ass_time(window)},Hook,,0,0,,{text}"
+    return style, dialogue
 
 
 def word_animation_tags(animation: str, offset_ms: int, *, accent: str = "", base: str = "") -> str:
@@ -195,6 +224,14 @@ def compile_ass(track: CaptionTrack, words: list[Word], cmap: ClipTimeMap) -> st
         f"-1,0,0,0,100,100,0,0,{border_style},{st.outline_w},{st.shadow},"
         f"{st.alignment},40,40,{st.margin_v},1\n"
     )
+    # Топ-текст (хук): отдельный ASS-стиль + событие с верхним якорем. Компилится в
+    # ТОТ ЖЕ файл → libass-превью и ffmpeg-экспорт показывают хук пиксель-в-пиксель.
+    hook_dialogue: str | None = None
+    hk = track.hook
+    if hk is not None and hk.enabled and hk.text.strip():
+        hook_style, hook_dialogue = build_hook_event(hk, cmap.clip_duration)
+        styles = styles + hook_style + "\n"
+
     events_hdr = (
         "[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, Effect, Text\n"
     )
@@ -229,6 +266,8 @@ def compile_ass(track: CaptionTrack, words: list[Word], cmap: ClipTimeMap) -> st
         lines.append(
             f"Dialogue: 0,{format_ass_time(start_c)},{format_ass_time(end_c)},Default,,0,0,,{text}"
         )
+    if hook_dialogue is not None:
+        lines.append(hook_dialogue)
     return "\n".join(lines) + "\n"
 
 

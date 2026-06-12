@@ -13,7 +13,7 @@ def default_clip_edit(clip_id: str, segment: Segment, all_words: list[Word]) -> 
         id=clip_id,
         version=1,
         source_intervals=intervals,
-        captions=default_caption_track(all_words, intervals),
+        captions=default_caption_track(all_words, intervals, hook=segment.hook),
         reframe_overrides=[],
         aspect="9:16",
     )

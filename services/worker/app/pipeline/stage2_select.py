@@ -136,6 +136,12 @@ def postprocess(
             continue
         if typ not in valid_types:
             continue
+        # T1/T2: объяснимость как продукт — топ-хук + разбор «почему». Опциональны
+        # (старый raw без них → None; не роняем сегмент).
+        hook_raw = item.get("hook")
+        why_raw = item.get("why_works")
+        hook = str(hook_raw).strip() or None if hook_raw else None
+        why_works = str(why_raw).strip() or None if why_raw else None
         try:
             si = snap_start_index(words, si)
             ei = snap_end_index(words, ei)
@@ -145,7 +151,15 @@ def postprocess(
         if not (min_sec <= end - start <= max_sec):
             continue
         candidates.append(
-            Segment(start=start, end=end, reason=reason, score=score, type=ClipType(typ))
+            Segment(
+                start=start,
+                end=end,
+                reason=reason,
+                score=score,
+                type=ClipType(typ),
+                hook=hook,
+                why_works=why_works,
+            )  # fmt: skip
         )
     chosen = resolve_overlaps(candidates)
     if len(chosen) > max_clips:
@@ -176,11 +190,17 @@ Return moments as word index ranges. For each moment choose a `type`:
 - complete_thought: a self-contained idea that makes sense without surrounding context.
 - strong_quote: a quotable, punchy line.
 
+For each moment ALSO produce:
+- `hook`: a punchy on-screen TOP title (≤6 words, transcript language, no ending period),
+  tied to what actually happens in the moment — the scroll-stopper, never empty clickbait.
+- `why_works`: ONE short sentence (transcript language) on WHY it performs standalone.
+
 HARD RULES:
 - Each moment MUST be a complete thought: clean start (begin a sentence), clean ending.
 - Target 15-60 seconds (sweet spot 20-45s). Do NOT pick moments shorter than ~15s.
 - Moments MUST NOT overlap.
 - `reason` must be CONCRETE and specific to THIS moment (why it works), not generic.
+- `hook` and `why_works` are REQUIRED and specific to each moment.
 - High bar, but surface ALL genuinely strong standalone moments — never pad to hit a number.
 - `score` in [0,1] = your confidence this clip will perform standalone.
 - Use ONLY word indices that exist in the transcript.
@@ -193,6 +213,8 @@ class _LlmSegment(BaseModel):
     reason: str
     score: float
     type: ClipType
+    hook: str  # T1: цепляющий топ-заголовок (≤~6 слов), привязан к reason
+    why_works: str  # T2: 1 фраза — почему момент работает как шортс
 
 
 class _LlmSelection(BaseModel):

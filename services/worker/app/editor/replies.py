@@ -10,6 +10,7 @@ from __future__ import annotations
 from app.models import (
     CaptionReply,
     CaptionTrack,
+    HookOverlay,
     SourceInterval,
     Word,
 )
@@ -57,17 +58,24 @@ def rebuild_replies(
     return replies
 
 
-def default_caption_track(all_words: list[Word], intervals: list[SourceInterval]) -> CaptionTrack:
+def default_caption_track(
+    all_words: list[Word], intervals: list[SourceInterval], *, hook: str | None = None
+) -> CaptionTrack:
     """Дефолтный трек: стиль = сид-пресет A («Караоке-бокс», коралловая подсветка).
 
     Раньше брались голые дефолты моделей (HighlightStyle → жёлтый #FFE000) —
     дефолт расходился с заявленным «дефолт = preset A» (фидбек фаундера).
+
+    hook (T1) — текст топ-заголовка от Gemini: задан → сидим включённый HookOverlay
+    (бренд-плашка по дефолту); None/пусто → без хука (track.hook = None).
     """
     from app.editor.preset_seeds import DEFAULT_PRESET_ID, seed_presets
 
     default = next(p for p in seed_presets() if p.id == DEFAULT_PRESET_ID)
+    hook_overlay = HookOverlay(text=hook, enabled=True) if hook and hook.strip() else None
     return CaptionTrack(
         style=default.style.model_copy(),
         highlight=default.highlight.model_copy() if default.highlight else None,
         replies=rebuild_replies(all_words, intervals),
+        hook=hook_overlay,
     )

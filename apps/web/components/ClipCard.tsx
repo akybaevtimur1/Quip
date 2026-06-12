@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Maximize2, Minimize2, Pencil } from "lucide-react";
+import { Check, Gauge, Maximize2, Minimize2, Pencil, Sparkles } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { ExportMenu } from "@/components/ExportMenu";
@@ -126,13 +126,35 @@ export function ClipCard({
         </button>
       </div>
 
-      {/* ── meta ── */}
-      <div className="flex flex-col gap-2 p-3">
+      {/* ── meta: структурный reasoning (объяснимость = наш отличитель) ── */}
+      <div className="flex flex-col gap-2.5 p-3">
         <div className="flex items-center justify-between">
           <span className="font-mono text-xs text-muted">{clipRange(clip.start, clip.end)}</span>
-          <span className="font-mono text-sm font-semibold text-ink">{clip.score.toFixed(2)}</span>
+          <span
+            className="inline-flex items-center gap-1 font-mono text-sm font-semibold text-ink"
+            title="Уверенность ИИ, что клип сработает как шортс"
+          >
+            <Gauge className="size-3.5 text-muted" />
+            {clip.score.toFixed(2)}
+          </span>
         </div>
-        <p className="text-sm leading-snug text-ink">{clip.reason}</p>
+
+        {/* хук-заголовок (топ-текст клипа) */}
+        {clip.hook && (
+          <p className="flex items-start gap-1.5 text-[15px] font-bold leading-tight text-ink">
+            <Sparkles className="mt-0.5 size-4 shrink-0 text-accent" />
+            <span>«{clip.hook}»</span>
+          </p>
+        )}
+
+        {/* почему сработает (структурно, не один blob) */}
+        <div className="space-y-1">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted">
+            Почему сработает
+          </p>
+          <p className="text-sm leading-snug text-ink">{clip.why_works ?? clip.reason}</p>
+        </div>
+
         {clip.transcript && (
           <p className="line-clamp-2 text-xs leading-snug text-muted">«{clip.transcript}»</p>
         )}
