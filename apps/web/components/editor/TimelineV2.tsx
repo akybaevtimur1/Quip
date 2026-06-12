@@ -39,10 +39,28 @@ const TYPE_LABEL: Record<ClipType, string> = {
 };
 
 const WAVE_BUCKETS = 160;
-const MAX_ZOOM = 10;
 const CHAPTERS_POLL_MS = 4000;
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
+
+// Начальное окно зума: клип занимает ~38% видимой области (крупный → ресайз виден и
+// удобен). На часовом видео при 1× блок был ~1% и упирался в minWidth — отсюда баг
+// «цифры меняются, размер нет». Вызывается в useState-инициализаторе (key=clipId → ремоунт).
+function initialView(
+  duration: number,
+  start: number,
+  end: number,
+): { zoom: number; viewStart: number } {
+  const len = end - start;
+  if (duration <= 0 || len <= 0) return { zoom: 1, viewStart: 0 };
+  const maxZoom = clamp(duration / 12, 10, 300);
+  const z = clamp(duration / Math.min(duration, len * 2.6), 1, maxZoom);
+  const vlen = duration / z;
+  return {
+    zoom: z,
+    viewStart: clamp(start + len / 2 - vlen / 2, 0, Math.max(0, duration - vlen)),
+  };
+}
 
 function buildWave(words: Word[], duration: number, buckets: number): number[] {
   const out = new Array(buckets).fill(0);
@@ -102,8 +120,17 @@ export interface TimelineV2Props {
   onIntervalChange: (start: number, end: number) => void;
 }
 
-export function TimelineV2({ jobId, data, interval, busy = false, onIntervalChange }: TimelineV2Props) {
+export function TimelineV2({
+  jobId,
+  data,
+  interval,
+  busy = false,
+  onIntervalChange,
+}: TimelineV2Props) {
   const duration = Math.max(data.duration, 0.001);
+  // На часовом видео клип 40с при 1× = ~1% дорожки → блок упирается в minWidth и «не
+  // меняет размер при ресайзе». Разрешаем зумить сильнее; начальный зум кадрирует клип.
+  const maxZoom = clamp(duration / 12, 10, 300);
   const trackRef = useRef<HTMLDivElement>(null);
 
   const [live, setLive] = useState<{ start: number; end: number } | null>(null);
@@ -111,8 +138,14 @@ export function TimelineV2({ jobId, data, interval, busy = false, onIntervalChan
   const [hover, setHover] = useState<{ x: number; t: number } | null>(null);
 
   // ── зум/пан: видимое окно [viewStart, viewStart+viewLen] ⊆ [0, duration] ──
-  const [zoom, setZoom] = useState(1);
-  const [viewStart, setViewStart] = useState(0);
+  // Начальное окно кадрирует клип (key=clipId в родителе → ремоунт на смену клипа,
+  // инициализатор пересчитывается; собственный зум юзера внутри клипа сохраняется).
+  const [zoom, setZoom] = useState(
+    () => initialView(duration, interval.source_start, interval.source_end).zoom,
+  );
+  const [viewStart, setViewStart] = useState(
+    () => initialView(duration, interval.source_start, interval.source_end).viewStart,
+  );
   const viewLen = duration / zoom;
   const viewStartClamped = clamp(viewStart, 0, duration - viewLen);
 
@@ -166,14 +199,14 @@ export function TimelineV2({ jobId, data, interval, busy = false, onIntervalChan
 
   const setZoomAround = useCallback(
     (nextZoom: number, anchorT: number) => {
-      const z = clamp(nextZoom, 1, MAX_ZOOM);
+      const z = clamp(nextZoom, 1, maxZoom);
       const nextLen = duration / z;
       // якорим точку под курсором: её доля в окне сохраняется
       const frac = clamp((anchorT - viewStartClamped) / viewLen, 0, 1);
       setZoom(z);
       setViewStart(clamp(anchorT - frac * nextLen, 0, duration - nextLen));
     },
-    [duration, viewStartClamped, viewLen],
+    [duration, viewStartClamped, viewLen, maxZoom],
   );
 
   const onWheel = useCallback(
@@ -307,7 +340,7 @@ export function TimelineV2({ jobId, data, interval, busy = false, onIntervalChan
           <button
             type="button"
             aria-label="Приблизить"
-            disabled={zoom >= MAX_ZOOM}
+            disabled={zoom >= maxZoom}
             onClick={() => setZoomAround(zoom * 1.5, segStart + (segEnd - segStart) / 2)}
             className="inline-flex size-6 items-center justify-center rounded-md border border-line text-muted transition enabled:hover:text-ink disabled:opacity-30"
           >
@@ -420,7 +453,7 @@ export function TimelineV2({ jobId, data, interval, busy = false, onIntervalChan
             style={{
               left: pct(segStart),
               width: `${((segEnd - segStart) / viewLen) * 100}%`,
-              minWidth: "3rem",
+              minWidth: "2rem",
             }}
           >
             <div

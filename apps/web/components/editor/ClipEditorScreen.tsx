@@ -82,8 +82,6 @@ export default function ClipEditorScreen({
   const [error, setError] = useState<string | null>(null);
   const [edit, setEdit] = useState<ClipEdit | null>(null);
   const [words, setWords] = useState<Word[]>([]);
-  const [globalIndices, setGlobalIndices] = useState<number[]>([]);
-  const [selected, setSelected] = useState<Set<number>>(new Set());
   const [loadKey, setLoadKey] = useState(0);
   const [tab, setTab] = useState<Tab>("captions");
 
@@ -151,7 +149,6 @@ export default function ClipEditorScreen({
     async function fetchData() {
       setPhase("loading");
       setError(null);
-      setSelected(new Set());
       setActivePresetId(null);
       setLibassFailed(false);
       setEditingReply(null);
@@ -167,7 +164,6 @@ export default function ClipEditorScreen({
         if (cancelled) return;
         setEdit(editData);
         setWords(analysisData.words);
-        setGlobalIndices((editData.captions.replies ?? []).flatMap((r) => r.word_refs));
         setAssText(ass);
         if (!ass) setError("Не удалось загрузить субтитры превью — показываю упрощённый режим.");
         setPhase("ready");
@@ -236,8 +232,6 @@ export default function ClipEditorScreen({
       ]);
       setEdit(newEdit);
       setWords(analysisData.words);
-      setGlobalIndices((newEdit.captions.replies ?? []).flatMap((r) => r.word_refs));
-      setSelected(new Set());
       setEditingReply(null);
       setPhase("ready");
       setDirty(true);
@@ -269,18 +263,22 @@ export default function ClipEditorScreen({
     [edit, jobId, clipId, refetchAfter, failOr409],
   );
 
-  const handleTrim = useCallback(async () => {
-    if (!edit || selected.size === 0) return;
-    const wordIndices = Array.from(selected).map((pos) => globalIndices[pos]);
-    setPhase("saving");
-    setError(null);
-    try {
-      const newEdit = await trimClip(jobId, clipId, edit.version ?? 1, wordIndices);
-      await refetchAfter(newEdit);
-    } catch (e) {
-      failOr409(e);
-    }
-  }, [edit, selected, globalIndices, jobId, clipId, refetchAfter, failOr409]);
+  const handleCutReply = useCallback(
+    async (replyIndex: number) => {
+      if (!edit) return;
+      const reply = (edit.captions.replies ?? [])[replyIndex];
+      if (!reply || reply.word_refs.length === 0) return;
+      setPhase("saving");
+      setError(null);
+      try {
+        const newEdit = await trimClip(jobId, clipId, edit.version ?? 1, reply.word_refs);
+        await refetchAfter(newEdit);
+      } catch (e) {
+        failOr409(e);
+      }
+    },
+    [edit, jobId, clipId, refetchAfter, failOr409],
+  );
 
   // ── правки субтитров/стиля → PATCH + refetch ASS ──
   // ОЧЕРЕДЬ мутаций: правки на ходу (цвет/анимация/текст во время воспроизведения)
@@ -780,20 +778,9 @@ export default function ClipEditorScreen({
                   words={words}
                   replies={edit.captions.replies ?? []}
                   activeReplyIndex={activeReplyIndex}
-                  selected={selected}
                   busy={busy}
-                  saving={phase === "saving"}
-                  onToggleWord={(pos) =>
-                    setSelected((prev) => {
-                      const next = new Set(prev);
-                      if (next.has(pos)) next.delete(pos);
-                      else next.add(pos);
-                      return next;
-                    })
-                  }
-                  onClearSelected={() => setSelected(new Set())}
-                  onTrim={handleTrim}
                   onReplyTextChange={handleCaptionsChange}
+                  onCutReply={handleCutReply}
                   onSeekReply={seekToReply}
                 />
               )}
@@ -826,6 +813,7 @@ export default function ClipEditorScreen({
       <footer className="shrink-0 border-t border-line bg-surface px-4 py-3">
         {timeline && edit ? (
           <TimelineV2
+            key={clipId}
             jobId={jobId}
             clipId={clipId}
             version={edit.version ?? 1}
