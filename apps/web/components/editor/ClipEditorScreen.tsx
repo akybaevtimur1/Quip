@@ -375,6 +375,14 @@ export default function ClipEditorScreen({
     [patchCaptions],
   );
 
+  // ── burn-тогл (таб «Субтитры», T4 #8): не накладывать наши субтитры ──
+  const handleBurnChange = useCallback(
+    (burn: boolean) => {
+      void patchCaptions((captions) => ({ ...captions, burn }));
+    },
+    [patchCaptions],
+  );
+
   // ── хук (таб «Хук») → PATCH captions.hook через ту же очередь мутаций ──
   // patch=null → убрать хук; иначе мерж поверх текущего (или нового {text:""}) —
   // опущенные поля дольёт pydantic (шрифт/плашка/размер по дефолту).
@@ -795,9 +803,11 @@ export default function ClipEditorScreen({
                   replies={edit.captions.replies ?? []}
                   activeReplyIndex={activeReplyIndex}
                   busy={busy}
+                  burn={edit.captions.burn ?? true}
                   onReplyTextChange={handleCaptionsChange}
                   onCutReply={handleCutReply}
                   onSeekReply={seekToReply}
+                  onBurnChange={handleBurnChange}
                 />
               )}
               {edit && tab === "hook" && (

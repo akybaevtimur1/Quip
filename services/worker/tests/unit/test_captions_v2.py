@@ -198,6 +198,59 @@ def test_compile_ass_emphasis_keeps_karaoke():
     assert "\\1c&H00FF00&" in ass  # #00FF00 → &H00FF00& на ударном слове
 
 
+def test_compile_ass_burn_false_skips_captions():
+    # T4 #8: видео уже с вшитыми субтитрами → не накладываем наши (нет caption-Dialogue)
+    words = [_w("a", 0.0, 0.4)]
+    track = CaptionTrack(
+        style=CaptionStyle(), highlight=None, replies=[CaptionReply(word_refs=[0])], burn=False
+    )
+    ass = compile_ass(track, words, _cmap())
+    assert "Dialogue:" not in ass
+
+
+def test_compile_ass_burn_false_keeps_hook():
+    # хук (верх) НЕ конфликтует с вшитыми низами → остаётся даже при burn=False
+    from app.models import HookOverlay
+
+    words = [_w("a", 0.0, 0.4)]
+    track = CaptionTrack(
+        style=CaptionStyle(),
+        highlight=None,
+        replies=[CaptionReply(word_refs=[0])],
+        burn=False,
+        hook=HookOverlay(text="Хук"),
+    )
+    ass = compile_ass(track, words, _cmap())
+    assert ",Hook,," in ass  # топ-хук остаётся
+    assert ",Default,," not in ass  # нижние субтитры не накладываются
+
+
+def test_compile_ass_scale_pops_active_word_vertically():
+    # T4 #4: highlight.scale увеличивает АКТИВНОЕ слово по вертикали (\fscy, без реврапа)
+    words = [_w("раз", 0.0, 0.4), _w("два", 0.4, 0.8)]
+    track = CaptionTrack(
+        style=CaptionStyle(),
+        highlight=HighlightStyle(scale=1.15),  # animation=karaoke_fill (без \fscy-анимации)
+        replies=[CaptionReply(word_refs=[0, 1])],
+    )
+    ass = compile_ass(track, words, _cmap())
+    assert ass.count("\\k") == 2  # караоке цело
+    assert "\\fscy115" in ass  # активное слово растёт до 115% (round(1.15*100))
+    assert "\\fscx" not in ass  # ТОЛЬКО вертикально (горизонталь = реврап, запрещено)
+
+
+def test_compile_ass_scale_one_no_transform():
+    # scale=1.0 → без \t-трансформа (поведение прежнее)
+    words = [_w("раз", 0.0, 0.4)]
+    track = CaptionTrack(
+        style=CaptionStyle(),
+        highlight=HighlightStyle(scale=1.0),
+        replies=[CaptionReply(word_refs=[0])],
+    )
+    ass = compile_ass(track, words, _cmap())
+    assert "\\t(" not in ass
+
+
 def test_compile_ass_box_sets_border_style_3():
     words = [_w("a", 0.0, 0.4)]
     track = CaptionTrack(

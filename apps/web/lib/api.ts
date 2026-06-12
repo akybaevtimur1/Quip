@@ -52,9 +52,11 @@ export async function getTimeline(jobId: string): Promise<TimelineData> {
   return res.json();
 }
 
-export async function getChapters(jobId: string): Promise<ChaptersData> {
+export async function getChapters(jobId: string, retry = false): Promise<ChaptersData> {
   // AI-карта видео (главы). Первый вызов стартует генерацию (status=pending) → поллить.
-  const res = await fetch(`${BASE}/jobs/${jobId}/chapters`, { cache: "no-store" });
+  // retry=true перезапускает генерацию, если предыдущая упала (квота Gemini free-tier).
+  const url = `${BASE}/jobs/${jobId}/chapters${retry ? "?retry=true" : ""}`;
+  const res = await fetch(url, { cache: "no-store" });
   if (!res.ok) throw new Error(`getChapters failed: ${res.status}`);
   return res.json();
 }

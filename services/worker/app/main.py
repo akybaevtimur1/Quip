@@ -153,12 +153,15 @@ def get_timeline(job_id: str) -> dict[str, Any]:
 
 
 @app.get("/jobs/{job_id}/chapters")
-def get_chapters(job_id: str, bg: BackgroundTasks) -> dict[str, Any]:
+def get_chapters(job_id: str, bg: BackgroundTasks, retry: bool = False) -> dict[str, Any]:
     """AI-карта видео (главы с описаниями). Кэш data/<job>/chapters.json.
 
     Файла нет → пишем pending + стартуем фон-генерацию (Gemini, ~$0.01-0.03,
     платится один раз); фронт поллит до done/failed. 404 — нет транскрипта.
     Повторный GET при pending вторую генерацию НЕ стартует.
+
+    retry=true (T4 #9): если кэш — failed (квота Gemini free-tier 20/день), перезапускаем
+    генерацию (перетираем failed → pending). На done/pending retry игнорируется (не дёргаем).
     """
     from app import tasks as tasks_mod
     from app.editor.chapters import load_chapters, save_chapters
@@ -168,7 +171,7 @@ def get_chapters(job_id: str, bg: BackgroundTasks) -> dict[str, Any]:
     if not (out / "transcript.json").exists():
         raise HTTPException(status_code=404, detail="transcript not found")
     cached = load_chapters(out)
-    if cached is not None:
+    if cached is not None and not (retry and cached.status == "failed"):
         return cached.model_dump()
     pending = ChaptersData(status="pending")
     save_chapters(out, pending)

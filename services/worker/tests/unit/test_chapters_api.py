@@ -68,6 +68,34 @@ def test_chapters_failed_state_served_as_is(monkeypatch, tmp_path):
     assert "квота" in r.json()["error"]
 
 
+def test_chapters_retry_reruns_failed(monkeypatch, tmp_path):
+    # T4 #9: retry=true по failed перезапускает генерацию (failed → pending + фон-таск)
+    from app import tasks
+
+    called: dict[str, str] = {}
+    monkeypatch.setattr(tasks, "generate_chapters_job", lambda j: called.setdefault("job", j))
+    client, job, d = _client(monkeypatch, tmp_path)
+    save_chapters(d, ChaptersData(status="failed", error="квота Gemini"))
+    r = client.get(f"/jobs/{job}/chapters?retry=true")
+    assert r.json()["status"] == "pending"
+    assert called["job"] == job
+
+
+def test_chapters_retry_ignored_on_done(monkeypatch, tmp_path):
+    # retry на done НЕ дёргает повторную генерацию (главы уже есть)
+    from app import tasks
+
+    called: dict[str, str] = {}
+    monkeypatch.setattr(tasks, "generate_chapters_job", lambda j: called.setdefault("job", j))
+    client, job, d = _client(monkeypatch, tmp_path)
+    save_chapters(
+        d, ChaptersData(status="done", chapters=[Chapter(start=0, end=3, title="T", summary="S")])
+    )
+    r = client.get(f"/jobs/{job}/chapters?retry=true")
+    assert r.json()["status"] == "done"
+    assert called == {}
+
+
 def test_chapters_404_without_transcript(monkeypatch, tmp_path):
     client, job, d = _client(monkeypatch, tmp_path)
     (d / "transcript.json").unlink()

@@ -151,25 +151,32 @@ export function TimelineV2({
 
   // ── AI-главы: кэш-эндпоинт + поллинг пока pending ──
   const [chapters, setChapters] = useState<ChaptersData | null>(null);
+  // T4 #9: инкремент → перезапуск генерации (первый запрос цикла с retry=true)
+  const [chReloadKey, setChReloadKey] = useState(0);
   useEffect(() => {
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
-    async function poll() {
+    async function poll(force: boolean) {
       try {
-        const ch = await getChapters(jobId);
+        const ch = await getChapters(jobId, force);
         if (cancelled) return;
         setChapters(ch);
-        if (ch.status === "pending") timer = setTimeout(poll, CHAPTERS_POLL_MS);
+        if (ch.status === "pending") timer = setTimeout(() => poll(false), CHAPTERS_POLL_MS);
       } catch {
         if (!cancelled) setChapters({ status: "failed", chapters: [], error: "недоступно" });
       }
     }
-    void poll();
+    void poll(chReloadKey > 0); // retry только при ручном «Повторить»
     return () => {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [jobId]);
+  }, [jobId, chReloadKey]);
+
+  const retryChapters = () => {
+    setChapters({ status: "pending", chapters: [], error: null });
+    setChReloadKey((k) => k + 1);
+  };
 
   const segStart = live ? live.start : interval.source_start;
   const segEnd = live ? live.end : interval.source_end;
@@ -359,10 +366,17 @@ export function TimelineV2({
             </span>
           </div>
         ) : chapters.status === "failed" ? (
-          <div className="flex h-full items-center px-3">
+          <div className="flex h-full items-center gap-2 px-3">
             <span className="truncate text-[11px] text-muted">
               AI-карта недоступна: {chapters.error ?? "ошибка"}
             </span>
+            <button
+              type="button"
+              onClick={retryChapters}
+              className="shrink-0 rounded-md border border-line px-2 py-0.5 text-[11px] font-semibold text-accent transition hover:border-accent/50 hover:bg-accent/10"
+            >
+              Повторить
+            </button>
           </div>
         ) : (
           chapterList.map((c, i) => {

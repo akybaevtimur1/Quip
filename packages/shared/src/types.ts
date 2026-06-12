@@ -94,6 +94,7 @@ export interface CaptionReply {
  * Трек субтитров клипа: стиль + караоке + реплики + опц. топ-текст (хук).
  */
 export interface CaptionTrack {
+  burn?: boolean;
   highlight?: HighlightStyle | null;
   hook?: HookOverlay | null;
   replies?: CaptionReply[];

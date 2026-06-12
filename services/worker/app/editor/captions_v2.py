@@ -148,6 +148,18 @@ def word_animation_tags(animation: str, offset_ms: int, *, accent: str = "", bas
     return ""
 
 
+def _scale_pop_tags(w: Word, line_start: float, scale: float) -> str:
+    """\\fscy-пап активного слова до scale% на его караоке-окно, затем назад (T4 #4). PURE.
+
+    ТОЛЬКО вертикальный масштаб (\\fscy) — \\fscx менял бы ширину → реврап (запрет, фидбек
+    фаундера). Сброс \\fscy100 перед \\t обрывает утечку трансформа на следующие слова.
+    """
+    ws = round((w.start - line_start) * 1000)
+    we = round((w.end - line_start) * 1000)
+    sc = round(scale * 100)
+    return f"\\fscy100\\t({ws},{ws + 90},\\fscy{sc})\\t({we},{we + 90},\\fscy100)"
+
+
 def _karaoke_word(
     word_text: str,
     w: Word,
@@ -157,8 +169,9 @@ def _karaoke_word(
     color: str | None = None,
     accent: str = "",
     base: str = "",
+    scale: float = 1.0,
 ) -> str:
-    """Одно слово караоке-строки: {\\k<дур>[\\1c<цвет>][\\fscy100<анимация>]}ТЕКСТ.
+    """Одно слово караоке-строки: {\\k<дур>[\\1c<цвет>][\\fscy100<анимация|scale>]}ТЕКСТ.
 
     \\t действует на ВЕСЬ последующий текст строки → без сброса анимация первого
     слова «протекала» на все слова (вся строка прыгала), а у последующих слов
@@ -166,17 +179,21 @@ def _karaoke_word(
     чужую анимацию: слово анимируется только своим \\t в своё время.
 
     color: инлайн \\1c для ЭТОГО слова (emphasis-акцент или канонический primary).
-    Когда emphasis активен, цвет ставится на КАЖДОЕ слово — иначе \\1c «протекает»
-    на следующие (та же утечка тегов, что с \\fscy). None → \\1c не трогаем (поведение
-    без emphasis байт-в-байт прежнее).
+    scale (>1.0): вертикальный пап активного слова (T4 #4, highlight.scale) — применяется
+    ТОЛЬКО когда нет именованной анимации (иначе их \\fscy-трансформы конфликтуют).
     """
     k = round((w.end - w.start) * 100)
     anim = word_animation_tags(
         animation, round((w.start - line_start) * 1000), accent=accent, base=base
     )
-    reset = "\\fscy100" if anim else ""
+    if anim:
+        dyn = "\\fscy100" + anim
+    elif scale and scale != 1.0:
+        dyn = _scale_pop_tags(w, line_start, scale)
+    else:
+        dyn = ""
     col = f"\\1c{color}" if color else ""
-    return f"{{\\k{k}{col}{reset}{anim}}}{word_text}"
+    return f"{{\\k{k}{col}{dyn}}}{word_text}"
 
 
 def _reply_text(
@@ -200,13 +217,16 @@ def _reply_text(
         return s.upper() if uppercase else s
 
     anim = hl.animation if hl else "none"
+    scale = hl.scale if hl else 1.0
     line_start = rwords[0].start
     active = bool(emphasis_color) and bool(emph_positions)
 
     def kw(text: str, w: Word, j: int) -> str:
         # emphasis активен → \1c на КАЖДОМ слове (ударное→акцент, иначе→primary; без утечки)
         color = (emphasis_color if j in emph_positions else primary) if active else None
-        return _karaoke_word(text, w, line_start, anim, color=color, accent=accent, base=base)
+        return _karaoke_word(
+            text, w, line_start, anim, color=color, accent=accent, base=base, scale=scale
+        )
 
     if reply.text_override is not None:
         ov = reply.text_override.split()
@@ -275,7 +295,10 @@ def compile_ass(track: CaptionTrack, words: list[Word], cmap: ClipTimeMap) -> st
     )
     lines = [script_info, styles, events_hdr]
 
-    for reply in track.replies:
+    # burn=False (T4 #8): видео уже с вшитыми субтитрами → наши нижние НЕ накладываем
+    # (хук сверху не конфликтует с низами → остаётся). WYSIWYG: превью тоже без низов.
+    replies = track.replies if track.burn else []
+    for reply in replies:
         if reply.hidden or not reply.word_refs:
             continue
         rwords = [words[i] for i in reply.word_refs]

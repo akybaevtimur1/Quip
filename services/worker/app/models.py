@@ -252,6 +252,7 @@ class CaptionTrack(BaseModel):
     highlight: HighlightStyle | None = None
     replies: list[CaptionReply] = Field(default_factory=list)
     hook: HookOverlay | None = None  # T1: топ-текст; None = без хука (компилится в top-event)
+    burn: bool = True  # T4 #8: False = не накладывать наши субтитры (видео уже с вшитыми)
 
 
 class ClipEdit(BaseModel):

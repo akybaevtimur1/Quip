@@ -148,6 +148,10 @@
     "CaptionTrack": {
       "description": "Трек субтитров клипа: стиль + караоке + реплики + опц. топ-текст (хук).",
       "properties": {
+        "burn": {
+          "default": true,
+          "type": "boolean"
+        },
         "highlight": {
           "anyOf": [
             {

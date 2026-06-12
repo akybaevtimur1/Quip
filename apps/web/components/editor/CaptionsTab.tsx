@@ -16,17 +16,21 @@ export function CaptionsTab({
   replies,
   activeReplyIndex,
   busy,
+  burn,
   onReplyTextChange,
   onCutReply,
   onSeekReply,
+  onBurnChange,
 }: {
   words: Word[];
   replies: CaptionReply[];
   activeReplyIndex: number | null;
   busy: boolean;
+  burn: boolean;
   onReplyTextChange: (replyIndex: number, text: string | null) => void;
   onCutReply: (replyIndex: number) => void;
   onSeekReply: (replyIndex: number) => void;
+  onBurnChange: (burn: boolean) => void;
 }) {
   const [editing, setEditing] = useState<number | null>(null);
   const [draft, setDraft] = useState("");
@@ -76,7 +80,20 @@ export function CaptionsTab({
       <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">
         Реплики · клик — правка текста · ✂ — вырезать из клипа
       </p>
-      <div className="min-h-0 flex-1 space-y-1 overflow-y-auto rounded-xl border border-line bg-surface-2 p-2">
+
+      {/* T4 #8: видео уже с вшитыми субтитрами → не накладывать наши (без двойных) */}
+      <label className="flex items-center gap-2 rounded-lg border border-line bg-surface-2 px-2.5 py-2 text-xs text-muted">
+        <input
+          type="checkbox"
+          checked={!burn}
+          disabled={busy}
+          onChange={(e) => onBurnChange(!e.target.checked)}
+          className="size-3.5 accent-accent"
+        />
+        Видео уже с субтитрами — не накладывать наши
+      </label>
+
+      <div className={`min-h-0 flex-1 space-y-1 overflow-y-auto rounded-xl border border-line bg-surface-2 p-2 ${burn ? "" : "pointer-events-none opacity-40"}`}>
         {rows.map(({ reply, i, group }) => {
           if (reply.hidden || group.length === 0) return null;
           const text = reply.text_override ?? group.map((w) => w.text).join(" ");
