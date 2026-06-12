@@ -122,6 +122,45 @@ def test_compile_ass_animation_none_disables_karaoke_fill():
     assert style_line.split(",")[3] == "&H00FFFFFF"  # PrimaryColour = цвет текста
 
 
+def test_compile_ass_emphasis_colors_marked_word_plain():
+    # ударное слово (поз. 1) красится emphasis-цветом, с reset к базовому; остальные — нет
+    words = [_w("a", 0.0, 0.4), _w("b", 0.4, 0.8), _w("c", 0.8, 1.2)]
+    track = CaptionTrack(
+        style=CaptionStyle(uppercase=False, emphasis_color="#FF0000"),
+        highlight=None,
+        replies=[CaptionReply(word_refs=[0, 1, 2], emphasis_refs=[1])],
+    )
+    ass = compile_ass(track, words, _cmap())
+    d = next(ln for ln in ass.splitlines() if ln.startswith("Dialogue:"))
+    # #FF0000 → инлайн &H0000FF&; reset к белому &HFFFFFF&
+    assert "{\\1c&H0000FF&}b{\\1c&HFFFFFF&}" in d
+
+
+def test_compile_ass_no_emphasis_color_no_override():
+    # emphasis_refs есть, но emphasis_color не задан → НЕ красим (байт-в-байт как раньше)
+    words = [_w("a", 0.0, 0.4), _w("b", 0.4, 0.8)]
+    track = CaptionTrack(
+        style=CaptionStyle(uppercase=False),
+        highlight=None,
+        replies=[CaptionReply(word_refs=[0, 1], emphasis_refs=[1])],
+    )
+    ass = compile_ass(track, words, _cmap())
+    assert "\\1c" not in ass
+
+
+def test_compile_ass_emphasis_keeps_karaoke():
+    # emphasis в караоке-режиме: \k цел, ударное слово получает акцент-цвет
+    words = [_w("a", 0.0, 0.4), _w("b", 0.4, 0.8)]
+    track = CaptionTrack(
+        style=CaptionStyle(uppercase=False, emphasis_color="#00FF00"),
+        highlight=HighlightStyle(),
+        replies=[CaptionReply(word_refs=[0, 1], emphasis_refs=[0])],
+    )
+    ass = compile_ass(track, words, _cmap())
+    assert ass.count("\\k") == 2  # караоке не сломано
+    assert "\\1c&H00FF00&" in ass  # #00FF00 → &H00FF00& на ударном слове
+
+
 def test_compile_ass_box_sets_border_style_3():
     words = [_w("a", 0.0, 0.4)]
     track = CaptionTrack(

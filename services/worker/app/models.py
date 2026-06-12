@@ -180,6 +180,9 @@ class CaptionStyle(BaseModel):
     margin_v: int = 260  # позиция от низа (ASS MarginV)
     alignment: int = 2  # ASS alignment (2 = низ-центр)
     uppercase: bool = True
+    emphasis_color: str | None = (
+        None  # цвет «ударных» слов (None = не красим); см. CaptionReply.emphasis_refs
+    )
 
 
 class HighlightStyle(BaseModel):
@@ -197,6 +200,7 @@ class CaptionReply(BaseModel):
     word_refs: list[int]  # индексы в transcript.words (тайминги для караоке/trim)
     text_override: str | None = None  # если юзер правил текст реплики
     hidden: bool = False  # скрыть субтитр, видео не трогая
+    emphasis_refs: list[int] = Field(default_factory=list)  # подмн-во word_refs: «ударные» слова
 
 
 class CaptionTrack(BaseModel):

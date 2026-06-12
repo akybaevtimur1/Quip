@@ -70,6 +70,7 @@ export interface CaptionStyle {
   box_opacity?: number;
   box_radius?: number;
   color?: string;
+  emphasis_color?: string | null;
   font?: string;
   margin_v?: number;
   outline_color?: string;
@@ -82,6 +83,7 @@ export interface CaptionStyle {
  * Одна реплика субтитра (чанк 3–5 слов).
  */
 export interface CaptionReply {
+  emphasis_refs?: number[];
   hidden?: boolean;
   text_override?: string | null;
   word_refs: number[];

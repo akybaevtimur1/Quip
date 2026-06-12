@@ -33,6 +33,7 @@ const DEFAULT_STYLE: Required<CaptionStyle> = {
   margin_v: 260,
   alignment: 2,
   uppercase: true,
+  emphasis_color: null,
 };
 
 function resolveStyle(style?: CaptionStyle | null): Required<CaptionStyle> {

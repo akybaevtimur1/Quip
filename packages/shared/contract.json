@@ -34,6 +34,12 @@
     "CaptionReply": {
       "description": "Одна реплика субтитра (чанк 3–5 слов).",
       "properties": {
+        "emphasis_refs": {
+          "items": {
+            "type": "integer"
+          },
+          "type": "array"
+        },
         "hidden": {
           "default": false,
           "type": "boolean"
@@ -92,6 +98,17 @@
         "color": {
           "default": "#FFFFFF",
           "type": "string"
+        },
+        "emphasis_color": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "font": {
           "default": "Montserrat",

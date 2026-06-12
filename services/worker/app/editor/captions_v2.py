@@ -19,6 +19,15 @@ def _ass_color(hex_color: str, alpha_byte: int = 0) -> str:
     return f"&H{alpha_byte:02X}{bb}{gg}{rr}".upper()
 
 
+def _ass_color_tag(hex_color: str) -> str:
+    """#RRGGBB → инлайн-цвет ASS &HBBGGRR& (6 hex, без альфы — для пословного \\1c-override).
+
+    Style-строка хочет 8 hex с альфой (_ass_color); инлайн \\1c — 6 hex с хвостовым &.
+    """
+    h = hex_color.lstrip("#")
+    return f"&H{h[4:6]}{h[2:4]}{h[0:2]}&".upper()
+
+
 def word_animation_tags(animation: str, offset_ms: int) -> str:
     """ASS-теги анимации активного слова (рендерятся ИДЕНТИЧНО libass.wasm и ffmpeg).
 
@@ -44,38 +53,74 @@ def word_animation_tags(animation: str, offset_ms: int) -> str:
     return ""
 
 
-def _karaoke_word(word_text: str, w: Word, line_start: float, animation: str) -> str:
-    """Одно слово караоке-строки: {\\k<дур>[\\fscy100<анимация>]}ТЕКСТ.
+def _karaoke_word(
+    word_text: str, w: Word, line_start: float, animation: str, *, color: str | None = None
+) -> str:
+    """Одно слово караоке-строки: {\\k<дур>[\\1c<цвет>][\\fscy100<анимация>]}ТЕКСТ.
 
     \\t действует на ВЕСЬ последующий текст строки → без сброса анимация первого
     слова «протекала» на все слова (вся строка прыгала), а у последующих слов
     смешивалась с чужой. Статический \\fscy100 в начале КАЖДОГО блока обрывает
     чужую анимацию: слово анимируется только своим \\t в своё время.
+
+    color: инлайн \\1c для ЭТОГО слова (emphasis-акцент или канонический primary).
+    Когда emphasis активен, цвет ставится на КАЖДОЕ слово — иначе \\1c «протекает»
+    на следующие (та же утечка тегов, что с \\fscy). None → \\1c не трогаем (поведение
+    без emphasis байт-в-байт прежнее).
     """
     k = round((w.end - w.start) * 100)
     anim = word_animation_tags(animation, round((w.start - line_start) * 1000))
     reset = "\\fscy100" if anim else ""
-    return f"{{\\k{k}{reset}{anim}}}{word_text}"
+    col = f"\\1c{color}" if color else ""
+    return f"{{\\k{k}{col}{reset}{anim}}}{word_text}"
 
 
 def _reply_text(
-    reply: CaptionReply, rwords: list[Word], uppercase: bool, hl: HighlightStyle | None
+    reply: CaptionReply,
+    rwords: list[Word],
+    uppercase: bool,
+    hl: HighlightStyle | None,
+    *,
+    emphasis_color: str | None = None,
+    emph_positions: frozenset[int] = frozenset(),
+    primary: str = "",
 ) -> str:
+    """Текст реплики для Dialogue. emphasis_color+emph_positions красят «ударные» слова
+    (по позиции в рамках реплики) в emphasis_color; остальные — в primary. primary —
+    инлайн-цвет (_ass_color_tag). emphasis выключен (None/пусто) → рендер как раньше.
+    """
+
     def up(s: str) -> str:
         return s.upper() if uppercase else s
 
     anim = hl.animation if hl else "none"
     line_start = rwords[0].start
+    active = bool(emphasis_color) and bool(emph_positions)
+
+    def kw(text: str, w: Word, j: int) -> str:
+        # emphasis активен → \1c на КАЖДОМ слове (ударное→акцент, иначе→primary; без утечки)
+        color = (emphasis_color if j in emph_positions else primary) if active else None
+        return _karaoke_word(text, w, line_start, anim, color=color)
+
     if reply.text_override is not None:
         ov = reply.text_override.split()
         if hl and len(ov) == len(rwords):
             return " ".join(
-                _karaoke_word(up(o), w, line_start, anim) for o, w in zip(ov, rwords, strict=True)
+                kw(up(o), w, j) for j, (o, w) in enumerate(zip(ov, rwords, strict=True))
             )
-        return up(reply.text_override)
+        return up(reply.text_override)  # override без пословного маппинга → emphasis не применяем
     if hl:
-        return " ".join(_karaoke_word(up(w.text), w, line_start, anim) for w in rwords)
-    return " ".join(up(w.text) for w in rwords)
+        return " ".join(kw(up(w.text), w, j) for j, w in enumerate(rwords))
+    # plain (без караоке)
+    if not active:
+        return " ".join(up(w.text) for w in rwords)
+    parts: list[str] = []
+    for j, w in enumerate(rwords):
+        t = up(w.text)
+        if j in emph_positions:
+            t = f"{{\\1c{emphasis_color}}}{t}{{\\1c{primary}}}"
+        parts.append(t)
+    return " ".join(parts)
 
 
 def compile_ass(track: CaptionTrack, words: list[Word], cmap: ClipTimeMap) -> str:
@@ -86,6 +131,9 @@ def compile_ass(track: CaptionTrack, words: list[Word], cmap: ClipTimeMap) -> st
     hl = track.highlight if (track.highlight and track.highlight.animation != "none") else None
     primary = _ass_color(hl.color) if hl else _ass_color(st.color)  # активный/залитый
     secondary = _ass_color(st.color)  # ещё не проговорённый
+    # «Ударные» слова: инлайн \1c-теги (6-hex). primary_tag = канонический цвет слова.
+    emph_tag = _ass_color_tag(st.emphasis_color) if st.emphasis_color else None
+    primary_tag = _ass_color_tag(hl.color) if hl else _ass_color_tag(st.color)
     outline = _ass_color(st.outline_color)
     if st.box_color:
         back = _ass_color(st.box_color, round((1.0 - st.box_opacity) * 255))
@@ -121,7 +169,21 @@ def compile_ass(track: CaptionTrack, words: list[Word], cmap: ClipTimeMap) -> st
             continue  # слово в дырке → пропуск
         last_c = cmap.source_to_clip(rwords[-1].start)
         end_c = (last_c if last_c is not None else start_c) + (rwords[-1].end - rwords[-1].start)
-        text = _reply_text(reply, rwords, st.uppercase, hl)
+        emph_set = set(reply.emphasis_refs)
+        emph_positions = (
+            frozenset(j for j, wr in enumerate(reply.word_refs) if wr in emph_set)
+            if emph_tag
+            else frozenset()
+        )
+        text = _reply_text(
+            reply,
+            rwords,
+            st.uppercase,
+            hl,
+            emphasis_color=emph_tag,
+            emph_positions=emph_positions,
+            primary=primary_tag,
+        )
         lines.append(
             f"Dialogue: 0,{format_ass_time(start_c)},{format_ass_time(end_c)},Default,,0,0,,{text}"
         )
