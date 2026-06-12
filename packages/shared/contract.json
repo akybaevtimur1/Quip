@@ -457,7 +457,9 @@
             "none",
             "karaoke_fill",
             "pop",
-            "bounce"
+            "bounce",
+            "punch",
+            "fade"
           ],
           "type": "string"
         },

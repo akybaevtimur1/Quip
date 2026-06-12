@@ -50,6 +50,16 @@ def word_animation_tags(animation: str, offset_ms: int) -> str:
             f"\\t({offset_ms + 80},{offset_ms + 160},\\fscy96)"
             f"\\t({offset_ms + 160},{offset_ms + 240},\\fscy100)"
         )
+    if animation == "punch":
+        # сильный зум-удар (выразительнее pop) — тоже только \fscy (без реврапа)
+        return (
+            f"\\t({offset_ms},{offset_ms + 90},\\fscy132)"
+            f"\\t({offset_ms + 90},{offset_ms + 220},\\fscy100)"
+        )
+    if animation == "fade":
+        # пословный reveal: слово невидимо до своего момента, затем проявляется
+        # (alpha FF→00). Не трогает раскладку → реврапа нет.
+        return f"\\alpha&HFF&\\t({offset_ms},{offset_ms + 180},\\alpha&H00&)"
     return ""
 
 

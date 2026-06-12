@@ -91,6 +91,24 @@ def test_word_animation_none_and_karaoke_empty():
     assert word_animation_tags("karaoke_fill", 0) == ""
 
 
+def test_word_animation_punch():
+    # сильный зум-удар (вертикальный, без реврапа)
+    assert word_animation_tags("punch", 0) == r"\t(0,90,\fscy132)\t(90,220,\fscy100)"
+    assert word_animation_tags("punch", 500) == r"\t(500,590,\fscy132)\t(590,720,\fscy100)"
+
+
+def test_word_animation_fade():
+    # пословный reveal: слово появляется проявлением (alpha FF→00)
+    assert word_animation_tags("fade", 0) == r"\alpha&HFF&\t(0,180,\alpha&H00&)"
+    assert word_animation_tags("fade", 300) == r"\alpha&HFF&\t(300,480,\alpha&H00&)"
+
+
+def test_new_animations_never_scale_horizontally():
+    # \fscx меняет ширину → реврап. punch/fade не должны его трогать.
+    for anim in ("punch", "fade"):
+        assert "\\fscx" not in word_animation_tags(anim, 0)
+
+
 def test_compile_ass_pop_emits_transforms_per_word():
     words = [_w("Раз", 0.0, 0.4), _w("два", 0.4, 0.8)]
     track = CaptionTrack(

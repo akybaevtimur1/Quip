@@ -56,7 +56,7 @@ export interface CaptionPreset {
  * Караоке-подсветка активного слова. None в треке = караоке выключено.
  */
 export interface HighlightStyle {
-  animation?: "none" | "karaoke_fill" | "pop" | "bounce";
+  animation?: "none" | "karaoke_fill" | "pop" | "bounce" | "punch" | "fade";
   box?: boolean;
   color?: string;
   scale?: number;
