@@ -8,12 +8,27 @@ import { useCallback, useEffect, useRef, useState } from "react";
 // controls убраны: редактору нужны пауза-правка, скраб В КЛИП-времени и
 // fullscreen НА КОНТЕЙНЕРЕ (иначе libass-канвас пропадает — грабля CC overlay).
 // Слои поверх видео (libass, хит-зоны, тулбары) приходят как children.
+//
+// frame — РЕАЛЬНЫЙ режим кадра на текущий момент (из reframe-плана/override):
+//   fill  → object-cover с реальным центром кропа (а не всегда центр кадра);
+//   fit   → весь кадр + блюр-фон (как «горизонтальный вид» в рендере);
+//   split → два синхронных окна верх/низ (как в рендере; aux-видео ведомые).
+// Раньше превью ВСЕГДА показывало центр-кроп → на главной клип широкий,
+// в редакторе «вертикальный» (фидбек фаундера). Точность — приближение CSS,
+// финальная истина — рендер.
+
+export interface FrameState {
+  mode: "fill" | "fit" | "split";
+  cx: number; // центр кропа [0..1] (fill / верх split)
+  cxB: number; // низ split
+}
 
 export function PreviewPlayer({
   src,
   outerStart,
   outerEnd,
   videoRef,
+  frame,
   onTimeChange,
   children,
 }: {
@@ -21,10 +36,12 @@ export function PreviewPlayer({
   outerStart: number;
   outerEnd: number;
   videoRef: React.RefObject<HTMLVideoElement | null>;
+  frame?: FrameState | null;
   onTimeChange?: (sec: number) => void;
   children?: React.ReactNode;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const auxARef = useRef<HTMLVideoElement>(null);
   const [playing, setPlaying] = useState(false);
   const [muted, setMuted] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -32,6 +49,37 @@ export function PreviewPlayer({
   const [clipNow, setClipNow] = useState(0);
 
   const clipDur = Math.max(0.01, outerEnd - outerStart);
+  const mode = frame?.mode ?? "fill";
+  const cx = frame?.cx ?? 0.5;
+  const cxB = frame?.cxB ?? 0.7;
+
+  // ── блюр-фон (fit) ведомый: догоняет мастера ТОЛЬКО пока fit активен ──
+  // (иначе 3 лишних декодера 300МБ-источника крутятся вхолостую и душат страницу)
+  useEffect(() => {
+    if (mode !== "fit") {
+      auxARef.current?.pause();
+      return;
+    }
+    let raf = 0;
+    const tick = () => {
+      const m = videoRef.current;
+      const aux = auxARef.current;
+      if (m && aux && aux.readyState >= 1) {
+        if (Math.abs(aux.currentTime - m.currentTime) > 0.15) {
+          try {
+            aux.currentTime = m.currentTime;
+          } catch {
+            /* noop */
+          }
+        }
+        if (m.paused && !aux.paused) aux.pause();
+        else if (!m.paused && aux.paused) void aux.play().catch(() => {});
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [videoRef, mode]);
 
   // ── seek на старт интервала + луп в его границах ──
   useEffect(() => {
@@ -131,7 +179,21 @@ export function PreviewPlayer({
       }`}
     >
       <div className={isFullscreen ? "relative aspect-[9/16] h-full" : "absolute inset-0"}>
-        {/* клик по видео = play/pause (как во всех редакторах) */}
+        {/* fit: блюр-фон позади (весь кадр + рамки, как в рендере) */}
+        <video
+          ref={auxARef}
+          key={`bg-${src}`}
+          src={src}
+          muted
+          playsInline
+          preload="metadata"
+          className={`absolute inset-0 size-full scale-110 object-cover blur-xl brightness-50 ${
+            mode === "fit" ? "" : "hidden"
+          }`}
+        />
+
+        {/* мастер-видео: время+звук. fill=кроп с реальным центром; fit=весь кадр;
+            split=прячем картинку (звук/часы живут), показываем две половины ниже */}
         <video
           ref={videoRef}
           key={src}
@@ -139,8 +201,21 @@ export function PreviewPlayer({
           playsInline
           preload="auto"
           onClick={togglePlay}
-          className="absolute inset-0 size-full cursor-pointer bg-black object-cover [object-position:center]"
+          className={`absolute inset-0 size-full cursor-pointer ${
+            mode === "fit" ? "object-contain" : "object-cover"
+          } ${mode === "split" ? "opacity-0" : ""}`}
+          style={mode === "fill" ? { objectPosition: `${cx * 100}% 50%` } : undefined}
         />
+
+        {/* split: два синхронных окна (верх/низ), каждое кропится вокруг своего центра */}
+        <div
+          className={`pointer-events-none absolute inset-0 flex-col bg-black ${
+            mode === "split" ? "flex" : "hidden"
+          }`}
+        >
+          <SplitHalf src={src} masterRef={videoRef} cx={cx} active={mode === "split"} />
+          <SplitHalf src={src} masterRef={videoRef} cx={cxB} active={mode === "split"} />
+        </div>
 
         {children}
 
@@ -218,4 +293,59 @@ function fmtSec(s: number): string {
   const m = Math.floor(s / 60);
   const sec = Math.floor(s % 60);
   return `${m}:${String(sec).padStart(2, "0")}`;
+}
+
+/** Половина split-превью: своё немое видео, ведомое мастером (rAF-синк). */
+function SplitHalf({
+  src,
+  masterRef,
+  cx,
+  active,
+}: {
+  src: string;
+  masterRef: React.RefObject<HTMLVideoElement | null>;
+  cx: number;
+  active: boolean;
+}) {
+  const ref = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    if (!active) {
+      ref.current?.pause();
+      return;
+    }
+    let raf = 0;
+    const tick = () => {
+      const m = masterRef.current;
+      const v = ref.current;
+      if (m && v && v.readyState >= 1) {
+        if (Math.abs(v.currentTime - m.currentTime) > 0.15) {
+          try {
+            v.currentTime = m.currentTime;
+          } catch {
+            /* noop */
+          }
+        }
+        if (m.paused && !v.paused) v.pause();
+        else if (!m.paused && v.paused) void v.play().catch(() => {});
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [active, masterRef]);
+
+  return (
+    <div className="relative h-1/2 w-full overflow-hidden">
+      <video
+        ref={ref}
+        src={src}
+        muted
+        playsInline
+        preload="metadata"
+        className="absolute inset-0 size-full object-cover"
+        style={{ objectPosition: `${cx * 100}% 50%` }}
+      />
+    </div>
+  );
 }

@@ -402,6 +402,36 @@ def build_shot_trajectory(
     )
 
 
+def split_centers_for_shot(
+    shot_samples: list[tuple[float, list[tuple[float, float]]]],
+    crop_w_frac: float,
+    coverage_min: float = 0.6,
+) -> tuple[float, float] | None:
+    """Пара центров для split-режима по сэмплам лиц плана (editor-путь). PURE.
+
+    Кадр «split-пригоден»: РОВНО 2 лица, разнесённые сильнее ширины 9:16-кропа.
+    Таких кадров ≥ coverage_min от всех сэмплов плана → (медиана левых, медиана
+    правых). 3+ лиц / нестабильная пара / кластер → None (fit остаётся —
+    «горизонтальный вид для других ситуаций», решение фаундера).
+    """
+    if not shot_samples:
+        return None
+    lefts: list[float] = []
+    rights: list[float] = []
+    for _t, faces in shot_samples:
+        if len(faces) != 2:
+            continue
+        cx_a, cx_b = sorted(f[0] for f in faces)
+        if cx_b - cx_a > crop_w_frac:
+            lefts.append(cx_a)
+            rights.append(cx_b)
+    if len(lefts) < coverage_min * len(shot_samples):
+        return None
+    lefts.sort()
+    rights.sort()
+    return lefts[len(lefts) // 2], rights[len(rights) // 2]
+
+
 def build_regions_from_shots(
     shots: list[tuple[float, float]],
     raw_samples: list[tuple[float, list[tuple[float, float]]]],
@@ -411,12 +441,15 @@ def build_regions_from_shots(
     *,
     mode_setting: str = "auto",
     wide_ratio: float = 0.5,
+    split_enabled: bool = False,
 ) -> list[TrackRegion]:
     """Cut-aligned регионы: ОДИН режим на план, пан внутри fill-плана. PURE.
 
     Заменяет grid-based build_trajectory+build_regions. Границы режима = границы планов
     (= реальные склейки) -> смена режима только на склейке -> нет флеша. merge_short_regions
     в конце гасит планы короче min_hold (рапид-монтаж).
+    split_enabled (v3): «широкий» план с устойчивой парой разнесённых лиц → split
+    (верх/низ, как plan_regions в batch-пути) вместо fit; границы НЕ двигаются.
     """
     regions: list[TrackRegion] = []
     for t0, t1 in shots:
@@ -429,6 +462,19 @@ def build_regions_from_shots(
             if not pts:
                 pts = (TrackPoint(t=t0, mode="fill", cx=0.5),)
             regions.append(TrackRegion(t0=t0, t1=t1, mode="fill", points=pts))
+            continue
+        pair = split_centers_for_shot(seg, crop_w_frac) if split_enabled else None
+        if pair is not None:
+            cx_a, cx_b = pair
+            regions.append(
+                TrackRegion(
+                    t0=t0,
+                    t1=t1,
+                    mode="split",
+                    points=(TrackPoint(t=t0, mode="split", cx=cx_a),),
+                    points_b=(TrackPoint(t=t0, mode="split", cx=cx_b),),
+                )
+            )
         else:
             regions.append(TrackRegion(t0=t0, t1=t1, mode="fit", points=()))
     return merge_short_regions(regions, min_hold_sec)

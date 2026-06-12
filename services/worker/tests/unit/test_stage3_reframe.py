@@ -472,6 +472,39 @@ class TestPlanRegions:
     def test_track_region_points_b_default_empty(self) -> None:
         assert TrackRegion(t0=0.0, t1=1.0, mode="fill", points=()).points_b == ()
 
+    def test_build_regions_from_shots_split_two_spread_faces(self) -> None:
+        from app.pipeline.stage3_reframe import build_regions_from_shots
+
+        # editor-путь (sample-based): стабильно 2 разнесённых лица → split (агент сам)
+        raw = [(i / 5.0, [(0.2, 0.1), (0.8, 0.1)]) for i in range(10)]
+        regions = build_regions_from_shots([(0.0, 2.0)], raw, 0.32, 0.15, 1.5, split_enabled=True)
+        assert regions[0].mode == "split"
+        assert regions[0].points[0].cx is not None and regions[0].points[0].cx < 0.5
+        assert regions[0].points_b[0].cx is not None and regions[0].points_b[0].cx > 0.5
+
+    def test_build_regions_from_shots_split_disabled_is_fit(self) -> None:
+        from app.pipeline.stage3_reframe import build_regions_from_shots
+
+        raw = [(i / 5.0, [(0.2, 0.1), (0.8, 0.1)]) for i in range(10)]
+        regions = build_regions_from_shots([(0.0, 2.0)], raw, 0.32, 0.15, 1.5, split_enabled=False)
+        assert regions[0].mode == "fit"
+
+    def test_build_regions_from_shots_three_faces_stays_fit(self) -> None:
+        from app.pipeline.stage3_reframe import build_regions_from_shots
+
+        raw = [(i / 5.0, [(0.15, 0.1), (0.5, 0.1), (0.85, 0.1)]) for i in range(10)]
+        regions = build_regions_from_shots([(0.0, 2.0)], raw, 0.32, 0.15, 1.5, split_enabled=True)
+        assert regions[0].mode == "fit"
+
+    def test_build_regions_from_shots_unstable_pair_stays_fit(self) -> None:
+        from app.pipeline.stage3_reframe import build_regions_from_shots
+
+        # второй человек виден лишь на 3 из 10 сэмплов (<60%) → НЕ split
+        # (одно лицо доминирует → корректный режим fill на спикере)
+        raw = [(i / 5.0, [(0.2, 0.1), (0.8, 0.1)] if i < 3 else [(0.2, 0.1)]) for i in range(10)]
+        regions = build_regions_from_shots([(0.0, 2.0)], raw, 0.32, 0.15, 1.5, split_enabled=True)
+        assert regions[0].mode != "split"
+
     def test_merge_short_regions_preserves_points_b(self) -> None:
         from app.pipeline.stage3_reframe import merge_short_regions
 

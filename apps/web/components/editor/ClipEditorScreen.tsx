@@ -30,7 +30,7 @@ import { LibassLayer } from "../LibassLayer";
 import { CaptionsTab } from "./CaptionsTab";
 import { EditorHeader, type RenderState } from "./EditorHeader";
 import { FrameTab } from "./FrameTab";
-import { PreviewPlayer } from "./PreviewPlayer";
+import { type FrameState, PreviewPlayer } from "./PreviewPlayer";
 import { buildReplyRanges, clampMargin, originalReplyText } from "./replyUtils";
 import { StyleTab } from "./StyleTab";
 import TimelineV2 from "./TimelineV2";
@@ -45,6 +45,25 @@ import TimelineV2 from "./TimelineV2";
 
 type Phase = "loading" | "ready" | "saving" | "error";
 type Tab = "captions" | "style" | "frame";
+
+/** Регион reframe-плана пайплайна (reframe_<clip>.json), клип-время. */
+interface RawRegion {
+  t0: number;
+  t1: number;
+  mode: string;
+  points: { t: number; cx: number | null }[];
+  points_b?: { t: number; cx: number | null }[];
+}
+
+function cxAt(points: { t: number; cx: number | null }[] | undefined, clipT: number): number {
+  if (!points || points.length === 0) return 0.5;
+  let cx = points[0].cx ?? 0.5;
+  for (const p of points) {
+    if (p.t <= clipT && p.cx !== null) cx = p.cx;
+    if (p.t > clipT) break;
+  }
+  return cx;
+}
 
 const TABS: { id: Tab; label: string; icon: typeof Captions }[] = [
   { id: "captions", label: "Субтитры", icon: Captions },
@@ -72,6 +91,9 @@ export default function ClipEditorScreen({
   const [clipIds, setClipIds] = useState<string[]>([]);
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
   const [activePresetId, setActivePresetId] = useState<string | null>(null);
+  // reframe-план пайплайна (для честного превью кадра) + исходный старт сегмента
+  const [rawRegions, setRawRegions] = useState<RawRegion[] | null>(null);
+  const [origStart, setOrigStart] = useState<number | null>(null);
 
   const [renderState, setRenderState] = useState<RenderState>({ kind: "idle" });
   // есть правки после последнего рендера → юзеру явно видно, что скачивание/результат
@@ -134,6 +156,8 @@ export default function ClipEditorScreen({
       setLibassFailed(false);
       setEditingReply(null);
       setRenderState({ kind: "idle" });
+      setRawRegions(null);
+      setOrigStart(null);
       try {
         const [editData, analysisData, ass] = await Promise.all([
           getClipEdit(jobId, clipId),
@@ -156,9 +180,19 @@ export default function ClipEditorScreen({
             const ids = (job.clips ?? []).map((c) => c.id);
             setClipIds(ids.length > 0 ? ids : [clipId]);
             const me = (job.clips ?? []).find((c) => c.id === clipId);
-            if (me) setDownloadUrl(resolveUrl(me.video_url));
+            if (me) {
+              setDownloadUrl(resolveUrl(me.video_url));
+              setOrigStart(me.start);
+            }
           })
           .catch(() => !cancelled && setClipIds([clipId]));
+        // план кадра пайплайна (нефатально): превью уважает реальные режимы fit/fill/split
+        fetch(resolveUrl(`media/${jobId}/reframe_${clipId}.json`), { cache: "no-store" })
+          .then((r) => (r.ok ? r.json() : null))
+          .then((data) => {
+            if (!cancelled) setRawRegions((data?.regions as RawRegion[]) ?? null);
+          })
+          .catch(() => !cancelled && setRawRegions(null));
       } catch (e) {
         if (cancelled) return;
         setError(String(e));
@@ -523,6 +557,38 @@ export default function ClipEditorScreen({
     [openReplyEdit, handleMarginChange],
   );
 
+  // ── РЕАЛЬНЫЙ режим кадра для превью на текущий момент ──
+  // Приоритет: ручной override (таб «Кадр», виден сразу) → план пайплайна
+  // (reframe_<clip>.json; валиден пока интервал не сдвинут) → дефолт fill-центр.
+  const frame = useMemo<FrameState | null>(() => {
+    const ovs = (edit?.reframe_overrides ?? []).filter(
+      (ov) => ov.source_start < outerEnd && ov.source_end > outerStart,
+    );
+    const ov = ovs.at(-1);
+    if (ov) {
+      const m = ov.mode === "fit" ? "fit" : ov.mode === "split" ? "split" : "fill";
+      return {
+        mode: m,
+        cx: ov.center ?? (m === "split" ? 0.3 : 0.5),
+        cxB: ov.center_b ?? 0.7,
+      };
+    }
+    // план пайплайна устаревает, если шортс сдвинули с исходного сегмента
+    if (rawRegions && origStart !== null && Math.abs(outerStart - origStart) < 0.5) {
+      const clipT = Math.max(0, nowSec - outerStart);
+      const reg =
+        rawRegions.find((r) => clipT >= r.t0 && clipT < r.t1) ?? rawRegions.at(-1) ?? null;
+      if (reg && (reg.mode === "fit" || reg.mode === "split" || reg.mode === "fill")) {
+        return {
+          mode: reg.mode,
+          cx: cxAt(reg.points, clipT),
+          cxB: cxAt(reg.points_b, clipT),
+        };
+      }
+    }
+    return null;
+  }, [edit, outerStart, outerEnd, rawRegions, origStart, nowSec]);
+
   const busy = phase === "saving" || renderState.kind === "rendering";
   const totalSec = edit
     ? edit.source_intervals.reduce((s, iv) => s + (iv.source_end - iv.source_start), 0)
@@ -587,15 +653,17 @@ export default function ClipEditorScreen({
         </div>
       ) : (
         <main className="grid min-h-0 grid-cols-1 gap-4 p-4 lg:grid-cols-[minmax(280px,380px)_minmax(0,1fr)]">
-          {/* ЛЕВО: превью */}
+          {/* ЛЕВО: превью. На узких экранах (1 колонка) высота грид-ряда зависит от
+              контента → h-full зацикливается и схлопывается в 0 — даём явную высоту. */}
           <div className="flex min-h-0 items-start justify-center">
-            <div className="h-full max-h-full">
+            <div className="h-[58vh] max-h-full lg:h-full">
               <div className="mx-auto aspect-[9/16] h-full max-h-full">
                 <PreviewPlayer
                   src={sourceSrc}
                   outerStart={outerStart}
                   outerEnd={outerEnd}
                   videoRef={videoRef}
+                  frame={frame}
                   onTimeChange={setNowSec}
                 >
                   {/* субтитры: libass (пиксель-в-пиксель как экспорт) ИЛИ CSS-фолбэк */}

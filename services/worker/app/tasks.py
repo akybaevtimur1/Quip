@@ -61,6 +61,7 @@ def render_clip_edit_job(job_id: str, clip_id: str) -> None:
             min_hold_sec=s.reframe_min_hold_sec,
             mode_setting=s.reframe_mode,
             wide_ratio=s.reframe_wide_ratio,
+            split_enabled=s.reframe_split_enabled,
         )
         render_timeline(
             out,

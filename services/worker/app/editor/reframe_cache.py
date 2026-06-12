@@ -77,6 +77,7 @@ def resolve_regions(
     min_hold_sec: float,
     mode_setting: str = "auto",
     wide_ratio: float = 0.5,
+    split_enabled: bool = False,
 ) -> list[list[TrackRegion]]:
     """Регионы на каждый интервал (interval-relative). PURE.
 
@@ -100,6 +101,7 @@ def resolve_regions(
             min_hold_sec,
             mode_setting=mode_setting,
             wide_ratio=wide_ratio,
+            split_enabled=split_enabled,
         )
         if not regions:
             regions = [TrackRegion(t0=0.0, t1=dur, mode="fit", points=())]
