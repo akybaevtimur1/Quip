@@ -71,6 +71,7 @@ export interface CaptionStyle {
   box_opacity?: number;
   box_radius?: number;
   color?: string;
+  emphasis_auto?: boolean;
   emphasis_color?: string | null;
   font?: string;
   margin_v?: number;

@@ -28,6 +28,38 @@ def _ass_color_tag(hex_color: str) -> str:
     return f"&H{h[4:6]}{h[2:4]}{h[0:2]}&".upper()
 
 
+# Длинные служебные/филлер-слова (короткие отсекает min_len) — НЕ ключевые (RU+EN).
+_KEYWORD_STOPWORDS = frozenset(
+    {
+        "потому", "который", "которая", "которое", "которые", "наверное", "вообще",
+        "просто", "значит", "понимаешь", "допустим", "например", "вообще-то",
+        "because", "however", "actually", "basically", "literally", "something",
+        "everything", "anything", "probably", "really", "honestly",
+    }
+)  # fmt: skip
+
+
+def pick_keyword_positions(texts: list[str], *, max_emph: int = 2, min_len: int = 6) -> list[int]:
+    """Позиции «ключевых» слов реплики для авто-подсветки (T3). PURE.
+
+    Кандидаты: слова с цифрой (числа — главный keyword) и длинные контентные слова
+    (≥min_len букв, не стоп-слово). Берём до max_emph по приоритету (числа > длина),
+    возвращаем позиции по возрастанию. Краткие/служебные слова игнорируются — иначе
+    «подсвечено всё» и эффект теряется (как у OpusClip/Hormozi: 1-2 слова на строку).
+    """
+    cands: list[tuple[int, int]] = []  # (позиция, приоритет)
+    for i, raw in enumerate(texts):
+        clean = "".join(ch for ch in raw if ch.isalnum())
+        if not clean:
+            continue
+        if any(ch.isdigit() for ch in clean):
+            cands.append((i, 1000))  # числа — топ-приоритет
+        elif len(clean) >= min_len and clean.lower() not in _KEYWORD_STOPWORDS:
+            cands.append((i, len(clean)))
+    top = sorted(cands, key=lambda x: (-x[1], x[0]))[:max_emph]
+    return sorted(i for i, _ in top)
+
+
 def build_hook_event(hook: HookOverlay, clip_duration: float) -> tuple[str, str]:
     """Хук → (Style-строка "Hook", Dialogue top-event). PURE (T1).
 
@@ -252,12 +284,14 @@ def compile_ass(track: CaptionTrack, words: list[Word], cmap: ClipTimeMap) -> st
             continue  # слово в дырке → пропуск
         last_c = cmap.source_to_clip(rwords[-1].start)
         end_c = (last_c if last_c is not None else start_c) + (rwords[-1].end - rwords[-1].start)
-        emph_set = set(reply.emphasis_refs)
-        emph_positions = (
-            frozenset(j for j, wr in enumerate(reply.word_refs) if wr in emph_set)
-            if emph_tag
-            else frozenset()
-        )
+        # «Ударные» позиции: явные emphasis_refs > авто-keyword (T3) > пусто.
+        if emph_tag and reply.emphasis_refs:
+            emph_set = set(reply.emphasis_refs)
+            emph_positions = frozenset(j for j, wr in enumerate(reply.word_refs) if wr in emph_set)
+        elif emph_tag and st.emphasis_auto:
+            emph_positions = frozenset(pick_keyword_positions([w.text for w in rwords]))
+        else:
+            emph_positions = frozenset()
         text = _reply_text(
             reply,
             rwords,

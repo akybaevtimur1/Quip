@@ -34,6 +34,7 @@ const DEFAULT_STYLE: Required<CaptionStyle> = {
   alignment: 2,
   uppercase: true,
   emphasis_color: null,
+  emphasis_auto: true,
 };
 
 function resolveStyle(style?: CaptionStyle | null): Required<CaptionStyle> {

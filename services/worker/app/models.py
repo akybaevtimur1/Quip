@@ -191,6 +191,7 @@ class CaptionStyle(BaseModel):
     emphasis_color: str | None = (
         None  # цвет «ударных» слов (None = не красим); см. CaptionReply.emphasis_refs
     )
+    emphasis_auto: bool = True  # авто-выбор ключевых слов реплики, если нет явных emphasis_refs
 
 
 class HighlightStyle(BaseModel):

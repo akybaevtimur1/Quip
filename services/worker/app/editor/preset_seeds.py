@@ -118,4 +118,18 @@ def seed_presets() -> list[CaptionPreset]:
             ),
             highlight=None,
         ),
+        CaptionPreset(
+            id="preset_m",
+            name="Поп-слова",
+            # T3: авто-подсветка ключевых слов (числа + длинные контентные) коралл-акцентом,
+            # без караоке → чистый белый с «выстреливающими» словами (стиль OpusClip/Hormozi).
+            style=CaptionStyle(
+                size=96,
+                color="#FFFFFF",
+                outline_color="#000000",
+                outline_w=7,
+                emphasis_color="#FF5A3D",
+            ),
+            highlight=None,
+        ),
     ]

@@ -147,6 +147,30 @@ export function StyleTab({
           />
           ЗАГЛАВНЫМИ БУКВАМИ
         </label>
+
+        {/* T3: авто-подсветка ключевых слов (числа + длинные контентные) */}
+        <div className="space-y-2 border-t border-line/60 pt-3">
+          <label className="flex items-center gap-2 text-xs text-muted">
+            <input
+              type="checkbox"
+              checked={!!st.emphasis_color}
+              disabled={busy}
+              onChange={(e) =>
+                onStyleChange({ emphasis_color: e.target.checked ? "#FF5A3D" : null })
+              }
+              className="size-3.5 accent-accent"
+            />
+            Подсвечивать ключевые слова
+          </label>
+          {st.emphasis_color && (
+            <ColorField
+              label="Цвет ключевых слов"
+              value={st.emphasis_color}
+              disabled={busy}
+              onChange={(v) => onStyleChange({ emphasis_color: v })}
+            />
+          )}
+        </div>
       </section>
     </div>
   );

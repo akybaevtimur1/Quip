@@ -99,6 +99,10 @@
           "default": "#FFFFFF",
           "type": "string"
         },
+        "emphasis_auto": {
+          "default": true,
+          "type": "boolean"
+        },
         "emphasis_color": {
           "anyOf": [
             {
