@@ -160,3 +160,39 @@ def test_export_srt_404_for_missing_clip(monkeypatch, tmp_path):
     client, job = _client(monkeypatch, tmp_path)
     r = client.get(f"/jobs/{job}/clips/clip_09/export.srt")
     assert r.status_code == 404
+
+
+def test_export_clean_mp4_serves_file(monkeypatch, tmp_path):
+    client, job = _client(monkeypatch, tmp_path)
+    from app.editor import store as store_mod
+
+    def fake_render(job_id, clip_id, *, with_subtitles, out_rel):
+        assert with_subtitles is False  # чистый mp4 = БЕЗ субтитров (экспорт-свобода)
+        p = store_mod.data_root() / job_id / out_rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_bytes(b"\x00\x00fakeMP4")
+
+    monkeypatch.setattr("app.main.render_edit_to_file", fake_render)
+    r = client.get(f"/jobs/{job}/clips/clip_01/export/clean.mp4")
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "video/mp4"
+    assert "clip_01_clean.mp4" in r.headers.get("content-disposition", "")
+
+
+def test_export_clean_mp4_render_error_500(monkeypatch, tmp_path):
+    client, job = _client(monkeypatch, tmp_path)
+    from app.errors import JobError
+
+    def boom(job_id, clip_id, *, with_subtitles, out_rel):
+        raise JobError("render", "ffmpeg сдох")
+
+    monkeypatch.setattr("app.main.render_edit_to_file", boom)
+    r = client.get(f"/jobs/{job}/clips/clip_01/export/clean.mp4")
+    assert r.status_code == 500  # рендер упал → видимая ошибка (правило №8), не тихо
+    assert "ffmpeg" in r.json()["detail"]
+
+
+def test_export_clean_mp4_404_missing_clip(monkeypatch, tmp_path):
+    client, job = _client(monkeypatch, tmp_path)
+    r = client.get(f"/jobs/{job}/clips/clip_09/export/clean.mp4")
+    assert r.status_code == 404

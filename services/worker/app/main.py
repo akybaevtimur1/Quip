@@ -15,6 +15,7 @@ from typing import Any, Literal
 
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -34,6 +35,7 @@ from app.editor.ops import (
 from app.editor.store import EditConflict
 from app.editor.timeline import build_timeline_data
 from app.editor.timemap import ClipTimeMap
+from app.errors import JobError
 from app.models import (
     CaptionPreset,
     CaptionStyle,
@@ -43,7 +45,12 @@ from app.models import (
     Segment,
 )
 from app.run import DATA_ROOT
-from app.tasks import render_clip_edit_job, run_pipeline_job, run_upload_job
+from app.tasks import (
+    render_clip_edit_job,
+    render_edit_to_file,
+    run_pipeline_job,
+    run_upload_job,
+)
 
 _UPLOAD_CHUNK = 1024 * 1024  # 1 МБ потоковой записи (не держим весь файл в памяти)
 
@@ -269,6 +276,29 @@ def export_clip_srt(job_id: str, clip_id: str) -> Response:
         media_type="application/x-subrip; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{clip_id}.srt"'},
     )
+
+
+@app.get("/jobs/{job_id}/clips/{clip_id}/export/clean.mp4")
+def export_clip_clean_mp4(job_id: str, clip_id: str) -> FileResponse:
+    """Чистый mp4 БЕЗ прожжённых субтитров (экспорт-свобода: пере-монтаж где угодно).
+
+    Рендерит текущий edit-state с ass_name=None в clips/{clip}_clean.mp4 и отдаёт файл.
+    Синхронно: рендер ~секунды (FastAPI крутит sync-эндпоинт в threadpool). Очередь/статус —
+    на этапе масштаба (infra-план §2.3). Сбой рендера → HTTP 500 (правило №8, не тихо).
+    """
+    try:
+        store.ensure_edit(job_id, clip_id)  # из грида (без открытия редактора) тоже работает
+    except (FileNotFoundError, KeyError) as e:
+        raise HTTPException(status_code=404, detail="clip/segment not found") from e
+    out_rel = f"clips/{clip_id}_clean.mp4"
+    try:
+        render_edit_to_file(job_id, clip_id, with_subtitles=False, out_rel=out_rel)
+    except JobError as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+    path = store.data_root() / job_id / out_rel
+    if not path.exists():
+        raise HTTPException(status_code=500, detail="render produced no clean mp4")
+    return FileResponse(str(path), media_type="video/mp4", filename=f"{clip_id}_clean.mp4")
 
 
 @app.patch("/jobs/{job_id}/clips/{clip_id}/edit")
