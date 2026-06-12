@@ -97,10 +97,12 @@ export interface TimelineV2Props {
   version: number;
   data: TimelineData;
   interval: { source_start: number; source_end: number };
+  /** Идёт сохранение интервала: драг заблокирован (иначе гонка версий → 409 → reload). */
+  busy?: boolean;
   onIntervalChange: (start: number, end: number) => void;
 }
 
-export function TimelineV2({ jobId, data, interval, onIntervalChange }: TimelineV2Props) {
+export function TimelineV2({ jobId, data, interval, busy = false, onIntervalChange }: TimelineV2Props) {
   const duration = Math.max(data.duration, 0.001);
   const trackRef = useRef<HTMLDivElement>(null);
 
@@ -193,6 +195,7 @@ export function TimelineV2({ jobId, data, interval, onIntervalChange }: Timeline
     (mode: DragMode) => (e: React.PointerEvent) => {
       e.preventDefault();
       e.stopPropagation();
+      if (busy) return; // предыдущий сдвиг ещё сохраняется — не плодим конфликты версий
       (e.target as HTMLElement).setPointerCapture(e.pointerId);
       dragRef.current = {
         mode,
@@ -202,7 +205,7 @@ export function TimelineV2({ jobId, data, interval, onIntervalChange }: Timeline
       };
       setLive({ start: interval.source_start, end: interval.source_end });
     },
-    [interval.source_start, interval.source_end, pxToTime],
+    [interval.source_start, interval.source_end, pxToTime, busy],
   );
 
   const onPointerMove = useCallback(
@@ -411,7 +414,9 @@ export function TimelineV2({ jobId, data, interval, onIntervalChange }: Timeline
           {/* блок шортса */}
           <div
             onPointerDown={onPointerDown("move")}
-            className="absolute top-0 bottom-0 cursor-grab touch-none rounded-md border-2 border-accent bg-accent/25 active:cursor-grabbing"
+            className={`absolute top-0 bottom-0 touch-none rounded-md border-2 border-accent bg-accent/25 ${
+              busy ? "animate-pulse cursor-wait" : "cursor-grab active:cursor-grabbing"
+            }`}
             style={{
               left: pct(segStart),
               width: `${((segEnd - segStart) / viewLen) * 100}%`,
@@ -431,7 +436,7 @@ export function TimelineV2({ jobId, data, interval, onIntervalChange }: Timeline
               <span className="h-8 w-1 rounded-full bg-accent" />
             </div>
             <span className="pointer-events-none absolute inset-x-0 top-1 text-center font-mono text-[10px] font-semibold text-accent">
-              {mmss(segEnd - segStart)}
+              {busy ? "сохраняю…" : mmss(segEnd - segStart)}
             </span>
           </div>
 

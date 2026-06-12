@@ -97,12 +97,14 @@ export function LibassLayer({ videoRef, assText, sourceStart, onError }: LibassL
         ro = new ResizeObserver(applySize);
         if (canvas.parentElement) ro.observe(canvas.parentElement);
 
-        // время: ASS в клип-времени, видео в source-времени
+        // время: ASS в клип-времени, видео в source-времени.
+        // Троттл ~30Гц: каждый setCurrentTime = полный рендер в воркере
+        // (targetFps воркера = 24) — 60Гц-чёрн давал бы неровные обновления.
         let lastT = -1;
         const tick = () => {
           if (disposed) return;
           const t = Math.max(0, video.currentTime - startRef.current);
-          if (Math.abs(t - lastT) > 0.01 && local) {
+          if (Math.abs(t - lastT) >= 1 / 30 && local) {
             lastT = t;
             try {
               local.setCurrentTime(t);

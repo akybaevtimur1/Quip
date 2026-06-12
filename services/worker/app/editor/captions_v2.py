@@ -23,18 +23,23 @@ def word_animation_tags(animation: str, offset_ms: int) -> str:
     """ASS-теги анимации активного слова (рендерятся ИДЕНТИЧНО libass.wasm и ffmpeg).
 
     \\t отсчитывается от начала СТРОКИ → offset_ms = момент начала слова в строке.
-    pop: вспышка масштаба 115% и обратно; bounce: вертикальный подскок.
+    ⚠️ ТОЛЬКО вертикальный масштаб (\\fscy): \\fscx меняет ШИРИНУ строки → libass
+    перепереносит строку на каждом кадре анимации (слово «перепрыгивает» на вторую
+    строку и обратно — фидбек фаундера «субтитры дёргаются»). \\fscy растёт от
+    базлайна вверх и ширину не трогает → раскладка стабильна.
+    pop: быстрая вспышка вверх; bounce: подскок с овершутом.
     none/karaoke_fill → пусто (заливку даёт \\k).
     """
     if animation == "pop":
         return (
-            f"\\t({offset_ms},{offset_ms + 120},\\fscx115\\fscy115)"
-            f"\\t({offset_ms + 120},{offset_ms + 240},\\fscx100\\fscy100)"
+            f"\\t({offset_ms},{offset_ms + 120},\\fscy118)"
+            f"\\t({offset_ms + 120},{offset_ms + 240},\\fscy100)"
         )
     if animation == "bounce":
         return (
-            f"\\t({offset_ms},{offset_ms + 80},\\fscy118)"
-            f"\\t({offset_ms + 80},{offset_ms + 160},\\fscy100)"
+            f"\\t({offset_ms},{offset_ms + 80},\\fscy115)"
+            f"\\t({offset_ms + 80},{offset_ms + 160},\\fscy96)"
+            f"\\t({offset_ms + 160},{offset_ms + 240},\\fscy100)"
         )
     return ""
 

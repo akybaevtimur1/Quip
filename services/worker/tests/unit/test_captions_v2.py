@@ -69,17 +69,21 @@ def test_compile_ass_hidden_skipped():
 
 def test_word_animation_pop_offsets_from_line_start():
     # \t отсчитывается от начала СТРОКИ → теги получают оффсет слова
-    assert (
-        word_animation_tags("pop", 0) == r"\t(0,120,\fscx115\fscy115)\t(120,240,\fscx100\fscy100)"
-    )
-    assert (
-        word_animation_tags("pop", 500)
-        == r"\t(500,620,\fscx115\fscy115)\t(620,740,\fscx100\fscy100)"
-    )
+    assert word_animation_tags("pop", 0) == r"\t(0,120,\fscy118)\t(120,240,\fscy100)"
+    assert word_animation_tags("pop", 500) == r"\t(500,620,\fscy118)\t(620,740,\fscy100)"
 
 
 def test_word_animation_bounce():
-    assert word_animation_tags("bounce", 200) == r"\t(200,280,\fscy118)\t(280,360,\fscy100)"
+    assert (
+        word_animation_tags("bounce", 200)
+        == r"\t(200,280,\fscy115)\t(280,360,\fscy96)\t(360,440,\fscy100)"
+    )
+
+
+def test_word_animation_never_scales_horizontally():
+    # \fscx меняет ширину строки → реврап (слово прыгает на 2-ю строку). Запрещено.
+    for anim in ("pop", "bounce", "none", "karaoke_fill"):
+        assert "\\fscx" not in word_animation_tags(anim, 0)
 
 
 def test_word_animation_none_and_karaoke_empty():

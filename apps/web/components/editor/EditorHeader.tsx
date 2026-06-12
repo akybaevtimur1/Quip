@@ -21,6 +21,7 @@ export function EditorHeader({
   downloadUrl,
   renderState,
   busy,
+  dirty,
   onRender,
 }: {
   jobId: string;
@@ -30,6 +31,8 @@ export function EditorHeader({
   downloadUrl: string | null;
   renderState: RenderState;
   busy: boolean;
+  /** Есть правки после последнего рендера → результат увидишь только после «Рендер». */
+  dirty: boolean;
   onRender: () => void;
 }) {
   const router = useRouter();
@@ -80,6 +83,15 @@ export function EditorHeader({
 
       {/* право: статус рендера + действия */}
       <div className="flex shrink-0 items-center gap-2">
+        {dirty && renderState.kind !== "rendering" && (
+          <span
+            title="Превью уже показывает правки, но скачиваемый файл — старый. Нажми «Рендер», чтобы применить."
+            className="hidden items-center gap-1.5 rounded-lg border border-amber-600/40 bg-amber-900/20 px-3 py-1.5 text-xs text-amber-300 md:inline-flex"
+          >
+            <span className="size-1.5 animate-pulse rounded-full bg-amber-400" />
+            Правки не в рендере
+          </span>
+        )}
         {renderState.kind === "rendering" && (
           <span className="inline-flex items-center gap-1.5 rounded-lg border border-accent/30 bg-accent/10 px-3 py-1.5 font-mono text-xs text-accent">
             <Loader2 className="size-3.5 animate-spin" />
@@ -96,10 +108,15 @@ export function EditorHeader({
           type="button"
           disabled={busy || renderState.kind === "rendering"}
           onClick={onRender}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-4 py-1.5 text-sm font-semibold text-white transition hover:bg-accent-2 disabled:opacity-40"
+          className={`relative inline-flex items-center gap-1.5 rounded-lg bg-accent px-4 py-1.5 text-sm font-semibold text-white transition hover:bg-accent-2 disabled:opacity-40 ${
+            dirty && renderState.kind === "idle" ? "ring-2 ring-amber-400/60" : ""
+          }`}
         >
           <Film className="size-4" />
           Рендер
+          {dirty && renderState.kind === "idle" && (
+            <span className="absolute -right-1 -top-1 size-2.5 rounded-full bg-amber-400" />
+          )}
         </button>
         <a
           href={downloadUrl ?? undefined}

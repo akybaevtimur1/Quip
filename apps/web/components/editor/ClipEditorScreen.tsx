@@ -73,6 +73,9 @@ export default function ClipEditorScreen({
   const [activePresetId, setActivePresetId] = useState<string | null>(null);
 
   const [renderState, setRenderState] = useState<RenderState>({ kind: "idle" });
+  // есть правки после последнего рендера → юзеру явно видно, что скачивание/результат
+  // отстаёт от превью, пока не нажмёт «Рендер» (фидбек фаундера)
+  const [dirty, setDirty] = useState(false);
 
   // ── WYSIWYG-превью ──
   const [assText, setAssText] = useState("");
@@ -105,12 +108,17 @@ export default function ClipEditorScreen({
   }, []);
 
   // ── общий хелпер: перезапрос ASS после любой правки ──
+  // Секвенсирование: быстрые правки подряд → ответы могут прийти не по порядку,
+  // устаревший НЕ должен перетирать свежий (иначе субтитры «прыгают» назад).
+  const assSeq = useRef(0);
   const refreshAss = useCallback(async () => {
+    const seq = ++assSeq.current;
     try {
       const ass = await getClipAss(jobId, clipId);
-      setAssText(ass);
+      if (seq === assSeq.current) setAssText(ass);
     } catch (e) {
-      setError(`Не удалось обновить превью субтитров: ${String(e)}`);
+      if (seq === assSeq.current)
+        setError(`Не удалось обновить превью субтитров: ${String(e)}`);
     }
   }, [jobId, clipId]);
 
@@ -181,18 +189,26 @@ export default function ClipEditorScreen({
   );
 
   // ── refetch analysis + ASS после изменения интервалов (trim / set-interval) ──
+  // АТОМАРНО: и анализ, и НОВЫЙ ASS грузим ДО setState, применяем одним батчем.
+  // Иначе между setEdit (новый outerStart) и приездом ASS старые субтитры
+  // показываются с новым оффсетом → «не те слова» мигают при драге интервала.
   const refetchAfter = useCallback(
     async (newEdit: ClipEdit) => {
-      const analysisData = await getClipAnalysis(jobId, clipId);
+      const seq = ++assSeq.current;
+      const [analysisData, ass] = await Promise.all([
+        getClipAnalysis(jobId, clipId),
+        getClipAss(jobId, clipId).catch(() => null),
+      ]);
       setEdit(newEdit);
       setWords(analysisData.words);
       setGlobalIndices((newEdit.captions.replies ?? []).flatMap((r) => r.word_refs));
       setSelected(new Set());
       setEditingReply(null);
       setPhase("ready");
-      await refreshAss();
+      setDirty(true);
+      if (ass !== null && seq === assSeq.current) setAssText(ass);
     },
-    [jobId, clipId, refreshAss],
+    [jobId, clipId],
   );
 
   const handleSetInterval = useCallback(
@@ -239,6 +255,7 @@ export default function ClipEditorScreen({
       try {
         const newEdit = await patchClipEdit(jobId, clipId, edit.version ?? 1, captions);
         setEdit(newEdit);
+        setDirty(true);
         await refreshAss();
       } catch (e) {
         failOr409(e);
@@ -307,6 +324,7 @@ export default function ClipEditorScreen({
     (updated: ClipEdit, presetId: string) => {
       setEdit(updated);
       setActivePresetId(presetId);
+      setDirty(true);
       void refreshAss();
     },
     [refreshAss],
@@ -330,6 +348,7 @@ export default function ClipEditorScreen({
           center_b: centerB,
         });
         setEdit(newEdit);
+        setDirty(true);
       } catch (e) {
         failOr409(e);
       }
@@ -362,6 +381,7 @@ export default function ClipEditorScreen({
         if (st.status === "done" && st.video_url) {
           stopPoll();
           setRenderState({ kind: "done" });
+          setDirty(false); // рендер догнал правки
           setDownloadUrl(resolveUrl(st.video_url));
         } else if (st.status === "failed") {
           stopPoll();
@@ -509,6 +529,7 @@ export default function ClipEditorScreen({
         downloadUrl={downloadUrl}
         renderState={renderState}
         busy={busy}
+        dirty={dirty}
         onRender={handleRender}
       />
 
@@ -712,6 +733,7 @@ export default function ClipEditorScreen({
             version={edit.version ?? 1}
             data={timeline}
             interval={{ source_start: outerStart, source_end: outerEnd }}
+            busy={phase === "saving"}
             onIntervalChange={handleSetInterval}
           />
         ) : (
