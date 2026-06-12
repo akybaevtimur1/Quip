@@ -89,6 +89,16 @@ class TestBuildHookEvent:
         )
         assert style.split(",")[15] == "3"
 
+    def test_box_color_drives_outline_fill(self) -> None:
+        # libass BorderStyle=3 заливает ПЛАШКУ цветом OutlineColour (поле 5), не BackColour.
+        # box_color кладём туда → плашка реально коралл (баг найден на реальном рендере:
+        # коралл в BackColour → плашка рисовалась чёрной outline'ом).
+        style, _ = build_hook_event(
+            HookOverlay(text="x", box_color="#FF5A3D", box_opacity=1.0), clip_duration=10.0
+        )
+        # #FF5A3D → BGR 3D5AFF, opaque alpha 00 → &H003D5AFF
+        assert style.split(",")[5] == "&H003D5AFF"
+
     def test_no_box_border_style_1(self) -> None:
         style, _ = build_hook_event(HookOverlay(text="x", box_color=None), clip_duration=10.0)
         assert style.split(",")[15] == "1"

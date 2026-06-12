@@ -37,16 +37,22 @@ def build_hook_event(hook: HookOverlay, clip_duration: float) -> tuple[str, str]
     uppercase; переводы строк → пробел (libass WrapStyle 0 переносит сам).
     """
     primary = _ass_color(hook.color)
-    outline = _ass_color(hook.outline_color)
     if hook.box_color:
-        back = _ass_color(hook.box_color, round((1.0 - hook.box_opacity) * 255))
+        # libass BorderStyle=3 (opaque box) заливает ПЛАШКУ цветом OutlineColour
+        # (НЕ BackColour) → box_color кладём в outline; Outline = паддинг плашки.
+        # Белый текст на коралл-плашке читаем без отдельного контура.
+        outline = _ass_color(hook.box_color, round((1.0 - hook.box_opacity) * 255))
+        back = "&H00000000"
         border_style = 3
+        outline_w = max(hook.outline_w, 6)
     else:
+        outline = _ass_color(hook.outline_color)
         back = "&H64000000"
         border_style = 1
+        outline_w = hook.outline_w
     style = (
         f"Style: Hook,{hook.font},{hook.size},{primary},{primary},{outline},{back},"
-        f"-1,0,0,0,100,100,0,0,{border_style},{hook.outline_w},{hook.shadow},"
+        f"-1,0,0,0,100,100,0,0,{border_style},{outline_w},{hook.shadow},"
         f"8,60,60,{hook.margin_v},1"
     )
     window = clip_duration if hook.full_clip else min(hook.duration_sec, clip_duration)
