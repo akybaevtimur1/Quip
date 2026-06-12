@@ -42,6 +42,18 @@ def init_db() -> None:
                 PRIMARY KEY (job_id, clip_id)
             )"""
         )
+        # T6: учёт расхода для лимитов (зеркало Postgres usage_events, см.
+        # migrations/0001_init_billing.sql). 1 строка = 1 обработанное видео.
+        c.execute(
+            """CREATE TABLE IF NOT EXISTS usage_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT NOT NULL, job_id TEXT,
+                source_minutes REAL NOT NULL, month TEXT NOT NULL, created_at REAL
+            )"""
+        )
+        c.execute(
+            "CREATE INDEX IF NOT EXISTS idx_usage_user_month ON usage_events (user_id, month)"
+        )
 
 
 def insert_job(job_id: str, source_type: str, source_ref: str) -> None:
@@ -156,3 +168,30 @@ def set_render_status(
             " WHERE job_id=? AND clip_id=?",
             (status, url, error, time.time(), job_id, clip_id),
         )
+
+
+# ─────────────────────────── T6: учёт расхода (usage) ───────────────────────────
+# Адаптер усреднён под обе СУБД: тот же интерфейс на SQLite (локально) и Postgres
+# (Supabase). На Supabase эти две функции = INSERT в usage_events / SELECT агрегат
+# (через service-role, RLS обходится сервером). См. docs/SUPABASE_SETUP.md.
+
+
+def record_usage(user_id: str, job_id: str | None, source_minutes: float, month: str) -> None:
+    """Записать расход одного обработанного видео (минуты исходника) в месячное окно."""
+    with _conn() as c:
+        c.execute(
+            "INSERT INTO usage_events (user_id, job_id, source_minutes, month, created_at)"
+            " VALUES (?,?,?,?,?)",
+            (user_id, job_id, source_minutes, month, time.time()),
+        )
+
+
+def get_monthly_usage(user_id: str, month: str) -> dict[str, float]:
+    """Месячный расход пользователя → {"videos": кол-во, "minutes": сумма минут исходника}."""
+    with _conn() as c:
+        row = c.execute(
+            "SELECT COUNT(*) AS videos, COALESCE(SUM(source_minutes), 0) AS minutes"
+            " FROM usage_events WHERE user_id=? AND month=?",
+            (user_id, month),
+        ).fetchone()
+    return {"videos": int(row["videos"]), "minutes": float(row["minutes"])}

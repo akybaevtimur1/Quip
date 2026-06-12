@@ -1,7 +1,8 @@
-"""Тесты pure-маппинга строки SQLite → wire-Job (app.db.row_to_wire)."""
+"""Тесты pure-маппинга строки SQLite → wire-Job (app.db.row_to_wire) + usage-адаптер (T6)."""
 
 import json
 
+from app import db
 from app.db import row_to_wire
 
 
@@ -71,3 +72,24 @@ def test_failed_row_carries_error() -> None:
     assert wire["status"] == "failed"
     assert wire["error"] == "[import] boom"
     assert wire["metrics"] is None
+
+
+# ─────────────────────────── T6: usage-адаптер (SQLite-режим) ───────────────────────────
+
+
+def test_record_and_aggregate_monthly_usage(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(db, "_DB_PATH", tmp_path / "u.db")
+    db.init_db()
+    db.record_usage("user_1", "job_a", 10.0, "2026-06")
+    db.record_usage("user_1", "job_b", 33.0, "2026-06")
+    db.record_usage("user_1", "job_c", 5.0, "2026-07")  # другой месяц — не считается
+    db.record_usage("user_2", "job_d", 99.0, "2026-06")  # другой юзер — не считается
+
+    june = db.get_monthly_usage("user_1", "2026-06")
+    assert june == {"videos": 2, "minutes": 43.0}
+
+
+def test_monthly_usage_empty_is_zero(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(db, "_DB_PATH", tmp_path / "u.db")
+    db.init_db()
+    assert db.get_monthly_usage("nobody", "2026-06") == {"videos": 0, "minutes": 0.0}
