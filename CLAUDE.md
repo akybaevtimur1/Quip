@@ -578,3 +578,40 @@ accurate) и форк `if reframe_speaker:` — два отдельных пут
   (hook/emotional_peak/complete_thought/strong_quote) = clip_kind; не плодлю таксономию.
   ⚠️ Локально НЕТ кэша comedy01/sample01 (data/ gitignored, не синхронизирован) → DoD на
   синтетическом тёмном источнике (изолирует именно прожиг хука; шрифт/ASS/ffmpeg реальные).
+
+- **T3 — сочные субтитры (keyword-highlight). СДЕЛАНО** (коммит `7da8cfb`). PURE
+  `pick_keyword_positions` (числа + длинные контентные ≥6 букв, без стоп-слов; до 2/реплику —
+  иначе «подсвечено всё»). compile_ass: явные emphasis_refs > авто-keyword (emphasis_color +
+  emphasis_auto) > пусто. Модель `CaptionStyle.emphasis_auto`. Пресет «Поп-слова» (preset_m,
+  коралл-emphasis без караоке) + контрол в StyleTab. DoD `tmp/dod_emphasis.py`: реальный mp4
+  «Я ЗАРАБОТАЛ 1000000 РУБЛЕЙ» — keyword'ы [1,2] коралл, остальные белые (tmp/emph_dod_frame.png).
+  **Эмодзи descope:** libass color-emoji ненадёжен между wasm-превью и ffmpeg → сломал бы WYSIWYG
+  (hard-констрейнт). Нужен NotoColorEmoji в оба места + кросс-стек верификация — follow-up.
+- **T4 — баги §0.1. ЧАСТИЧНО** (коммит `73113e3`). #4 scale: `highlight.scale` вертикальным
+  \fscy-папом активного слова (без \fscx → без реврапа); ⚠️ per-word `box` НЕ реализуем в
+  libass (нет примитива фона под спан) — задокументировано. #9 retry глав: GET /chapters?retry=true
+  + кнопка «Повторить» (failed→pending). #8 двойные субтитры: `CaptionTrack.burn` (False →
+  compile_ass без нижних реплик, хук остаётся) + тогл в CaptionsTab — НАДЁЖНЫЙ ручной тогл
+  вместо хрупкого CV-автодетекта. #2 (превью-кадр после драга) ПРОПУЩЕН — косметика (финальный
+  рендер корректен; нужен live-reframe эндпоинт). +6 тестов.
+- **T5 — соотношения сторон 9:16/1:1/4:5/16:9. СДЕЛАНО** (коммит `7d598a7`). ⛔ ЧИСТО
+  пространственно: temporal-сетка (cuts/shots/regions/trim) НЕ ТРОНУТА → Δ=0 инвариант цел
+  по построению (флеши не вернулись). PURE `aspect_to_dims` + `fill_crop_dims` (height-limited
+  портрет = слежение; width-limited ландшафт = полный кадр). compile_ass(play_w,play_h): PlayRes
+  ASS = размеры выхода — ИНАЧЕ libass анаморфно растянет субтитры. out_w/out_h через
+  render_clip/render_timeline; POST /edit/aspect; селектор в FrameTab + динамич. аспект превью.
+  Регионы (cx) переносятся — reframe НЕ пересчитывается. DoD `tmp/dod_aspect.py`: ffprobe всех 4
+  верны (1080x1920/1080x1080/1080x1350/1920x1080), субтитры не растянуты (tmp/aspect_1_1.png,
+  aspect_16_9.png). +10 тестов. ⚠️ Engine B (не дефолт) fill остаётся 9:16; split+16:9 вырожден.
+- **T6 — прайсинг/лимиты + Supabase-ready. СДЕЛАНО** (коммит `94c0f38`). БЕЗ секретов/аккаунтов.
+  `app/billing.py` PURE: PLANS (free 2видео/20мин/watermark/720p; starter $12 20/200/1080;
+  pro $29 100/1000/приоритет), check_quota (видео→минуты, честная RU-причина), resolve_plan
+  (→free дефолт), current_month. Лимиты в КОДЕ (не БД). `db.py` usage-адаптер record_usage/
+  get_monthly_usage (SQLite, тот же интерфейс → Postgres). `migrations/0001_init_billing.sql`:
+  profiles/jobs/usage_events + RLS (TO authenticated + ownership; UPDATE USING+WITH CHECK;
+  триггер handle_new_user search_path=''; план/usage пишет ТОЛЬКО сервер). `docs/SUPABASE_SETUP.md`
+  — что вписать фаундеру (ключи + куда, 🔴 service_role не в NEXT_PUBLIC, гейт квоты, вебхук
+  Lemon→plan). +14 тестов. Провод auth/квоты/оплаты — follow-up (нужны секреты).
+
+> ✅ **ИТОГ НОЧИ T1–T6:** все шесть задач закрыты (T4 частично: #4 scale без box, #2 пропущен).
+> just check зелёный (388 тестов). 7 коммитов на `feat/mvp-launch`. Отчёт — docs/OVERNIGHT_REPORT_2026-06-13.md.
