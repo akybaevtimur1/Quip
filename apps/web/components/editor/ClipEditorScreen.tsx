@@ -803,6 +803,12 @@ export default function ClipEditorScreen({
 
           {/* ПРАВО: табы */}
           <div className="flex min-h-0 flex-col gap-3">
+            {/* #1: явно про live-vs-рендер — частый вопрос «надо ли ререндерить» */}
+            <p className="shrink-0 rounded-lg border border-line bg-surface-2 px-3 py-1.5 text-[11px] leading-snug text-muted">
+              <span className="text-accent">Превью живое</span> — субтитры, хук, стиль и кадр
+              видно сразу, рендерить не нужно. Кнопка <span className="font-semibold text-ink">«Рендер»</span> записывает
+              правки в скачиваемый файл (мигает жёлтым, когда файл отстал от превью).
+            </p>
             <div className="flex shrink-0 gap-1 rounded-xl border border-line bg-surface p-1">
               {TABS.map(({ id, label, icon: Icon }) => (
                 <button

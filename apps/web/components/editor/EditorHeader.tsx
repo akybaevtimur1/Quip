@@ -86,11 +86,12 @@ export function EditorHeader({
       <div className="flex shrink-0 items-center gap-2">
         {dirty && renderState.kind !== "rendering" && (
           <span
-            title="Превью уже показывает правки, но скачиваемый файл — старый. Нажми «Рендер», чтобы применить."
-            className="hidden items-center gap-1.5 rounded-lg border border-amber-600/40 bg-amber-900/20 px-3 py-1.5 text-xs text-amber-300 md:inline-flex"
+            title="Превью уже показывает правки вживую. Скачиваемый файл — пока старый. Нажми «Рендер», чтобы записать правки в файл."
+            className="inline-flex items-center gap-1.5 rounded-lg border border-amber-600/40 bg-amber-900/20 px-2.5 py-1.5 text-xs text-amber-300"
           >
             <span className="size-1.5 animate-pulse rounded-full bg-amber-400" />
-            Правки не в рендере
+            <span className="hidden sm:inline">Нажми «Рендер» — сохранить в файл</span>
+            <span className="sm:hidden">не в файле</span>
           </span>
         )}
         {renderState.kind === "rendering" && (
