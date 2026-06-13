@@ -4,14 +4,13 @@ import { AuthDevNotice } from "@/components/auth/AuthDevNotice";
 import { AuthForm } from "@/components/auth/AuthForm";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 
-export const metadata: Metadata = { title: "Sign in", robots: { index: false } };
+export const metadata: Metadata = { title: "Create account", robots: { index: false } };
 
-/** Only allow internal relative redirect targets (no open-redirect). */
 function safeNext(next: string | undefined): string {
   return next && next.startsWith("/") && !next.startsWith("//") ? next : "/dashboard";
 }
 
-export default async function LoginPage({
+export default async function SignupPage({
   searchParams,
 }: {
   searchParams: Promise<{ next?: string }>;
@@ -19,15 +18,19 @@ export default async function LoginPage({
   const next = safeNext((await searchParams).next);
   return (
     <div className="rounded-xl border border-line bg-surface p-7">
-      <h1 className="font-display text-h3 text-ink">Welcome back</h1>
-      <p className="mt-1 text-sm text-muted">Sign in to your Quip account.</p>
+      <h1 className="font-display text-h3 text-ink">Create your account</h1>
+      <p className="mt-1 text-sm text-muted">2 free videos every month. No card required.</p>
       <div className="mt-6">
-        {isSupabaseConfigured ? <AuthForm mode="login" next={next} /> : <AuthDevNotice next={next} />}
+        {isSupabaseConfigured ? (
+          <AuthForm mode="signup" next={next} />
+        ) : (
+          <AuthDevNotice next={next} />
+        )}
       </div>
       <p className="mt-5 text-center text-sm text-muted">
-        New to Quip?{" "}
-        <Link href="/signup" className="font-medium text-accent hover:underline">
-          Create an account
+        Already have an account?{" "}
+        <Link href="/login" className="font-medium text-accent hover:underline">
+          Sign in
         </Link>
       </p>
     </div>
