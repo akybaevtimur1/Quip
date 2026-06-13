@@ -1,7 +1,35 @@
 import json
 
-from app.editor.reframe_cache import RawReframe, analyze_source_range, resolve_regions
+from app.editor.reframe_cache import (
+    RawReframe,
+    _region_from_dict,
+    _region_to_dict,
+    analyze_source_range,
+    resolve_regions,
+)
 from app.models import CropOverride, SourceInterval
+from app.pipeline.stage3_reframe import TrackPoint, TrackRegion
+
+
+def test_region_json_roundtrip():
+    # сериализация регионов для кэша acc_*.json (resolve_regions_accurate): без потерь
+    r = TrackRegion(
+        t0=0.0, t1=3.3, mode="fill",
+        points=(TrackPoint(t=0.0, mode="fill", cx=0.42), TrackPoint(t=1.0, mode="fill", cx=0.6)),
+    )  # fmt: skip
+    back = _region_from_dict(json.loads(json.dumps(_region_to_dict(r))))
+    assert back == r
+
+
+def test_region_json_roundtrip_split():
+    r = TrackRegion(
+        t0=0.0, t1=5.0, mode="split",
+        points=(TrackPoint(t=0.0, mode="split", cx=0.3),),
+        points_b=(TrackPoint(t=0.0, mode="split", cx=0.7),),
+    )  # fmt: skip
+    back = _region_from_dict(json.loads(json.dumps(_region_to_dict(r))))
+    assert back == r
+
 
 SRC_W, SRC_H = 1920, 1080  # crop_w = 607.5→608; crop_w_frac ≈ 0.316
 

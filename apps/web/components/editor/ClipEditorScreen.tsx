@@ -700,19 +700,20 @@ export default function ClipEditorScreen({
         </div>
       ) : (
         <main className="grid min-h-0 grid-cols-1 gap-4 p-4 lg:grid-cols-[minmax(280px,380px)_minmax(0,1fr)]">
-          {/* ЛЕВО: превью. На узких экранах (1 колонка) высота грид-ряда зависит от
-              контента → h-full зацикливается и схлопывается в 0 — даём явную высоту. */}
-          <div className="flex min-h-0 items-start justify-center">
-            <div className="h-[58vh] max-h-full lg:h-full">
-              <div className={`mx-auto ${aspectClass} h-full max-h-full`}>
-                <PreviewPlayer
-                  src={sourceSrc}
-                  outerStart={outerStart}
-                  outerEnd={outerEnd}
-                  videoRef={videoRef}
-                  frame={frame}
-                  onTimeChange={setNowSec}
-                >
+          {/* ЛЕВО: превью. Доступная область = ширина колонки × ограниченная высота;
+              PreviewPlayer сам contain'ится по aspectClass (w-full + max-h-full + aspect) →
+              НЕ распирает страницу на 16:9/1:1/4:5 (баг T5 пофикшен). */}
+          <div className="flex min-h-0 items-center justify-center">
+            <div className="flex h-[58vh] max-h-full w-full items-center justify-center lg:h-full">
+              <PreviewPlayer
+                src={sourceSrc}
+                outerStart={outerStart}
+                outerEnd={outerEnd}
+                videoRef={videoRef}
+                frame={frame}
+                onTimeChange={setNowSec}
+                aspectClass={aspectClass}
+              >
                   {/* субтитры: libass (пиксель-в-пиксель как экспорт) ИЛИ CSS-фолбэк */}
                   {useLibass ? (
                     <LibassLayer
@@ -797,7 +798,6 @@ export default function ClipEditorScreen({
                     </div>
                   )}
                 </PreviewPlayer>
-              </div>
             </div>
           </div>
 

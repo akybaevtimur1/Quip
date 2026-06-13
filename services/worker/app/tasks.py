@@ -22,7 +22,7 @@ def render_edit_to_file(job_id: str, clip_id: str, *, with_subtitles: bool, out_
     from app.config import get_settings
     from app.editor import store
     from app.editor.captions_v2 import write_caption_ass
-    from app.editor.reframe_cache import analyze_source_range, resolve_regions
+    from app.editor.reframe_cache import resolve_regions_accurate
     from app.editor.timemap import ClipTimeMap
     from app.pipeline.stage0_import import SourceMeta
     from app.pipeline.stage5_render import aspect_to_dims, render_timeline
@@ -49,28 +49,25 @@ def render_edit_to_file(job_id: str, clip_id: str, *, with_subtitles: bool, out_
         ass_path.parent.mkdir(parents=True, exist_ok=True)
         write_caption_ass(edit.captions, words, cmap, ass_path, play_w=out_w, play_h=out_h)
 
-    analysis_dir = out / "analysis"
-    raw = [
-        analyze_source_range(
-            out / "source.mp4",
-            iv.source_start,
-            iv.source_end,
-            cache_dir=analysis_dir,
-            fps=s.reframe_face_fps,
-            cut_threshold=s.reframe_scene_threshold,
-        )
-        for iv in edit.source_intervals
-    ]
-    regions = resolve_regions(
+    # ЕДИНЫЙ frame-accurate reframe (как batch): PySceneDetect + ASD + held-crop.
+    # Убирает рывки/флеши старого editor-пути (cuts в секундах + 5fps без ASD на ≠25fps).
+    regions = resolve_regions_accurate(
+        out / "source.mp4",
         edit.source_intervals,
-        raw,
         edit.reframe_overrides,
         src_w=meta.width,
         src_h=meta.height,
+        fps=meta.fps,
+        clip_id=clip_id,
+        out_dir=out,
+        cache_dir=out / "analysis",
+        mode_setting=s.reframe_mode,
+        speaker_crop_scale=s.reframe_speaker_crop_scale,
+        face_fps=s.reframe_face_fps,
         smoothing=s.reframe_smoothing,
         min_hold_sec=s.reframe_min_hold_sec,
-        mode_setting=s.reframe_mode,
-        wide_ratio=s.reframe_wide_ratio,
+        speak_threshold=s.reframe_speak_threshold,
+        scene_threshold=s.reframe_scene_threshold,
         split_enabled=s.reframe_split_enabled,
     )
     render_timeline(

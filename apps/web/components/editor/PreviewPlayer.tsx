@@ -30,6 +30,7 @@ export function PreviewPlayer({
   videoRef,
   frame,
   onTimeChange,
+  aspectClass = "aspect-[9/16]",
   children,
 }: {
   src: string;
@@ -38,6 +39,9 @@ export function PreviewPlayer({
   videoRef: React.RefObject<HTMLVideoElement | null>;
   frame?: FrameState | null;
   onTimeChange?: (sec: number) => void;
+  /** T5: класс соотношения сторон (aspect-[9/16] | aspect-[1/1] | aspect-[4/5] | aspect-[16/9]).
+   *  Контейнер сам contain'ится: w-full + max-h-full + aspect → не распирает страницу. */
+  aspectClass?: string;
   children?: React.ReactNode;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -174,11 +178,11 @@ export function PreviewPlayer({
   return (
     <div
       ref={containerRef}
-      className={`group relative overflow-hidden rounded-xl border border-line bg-black ${
-        isFullscreen ? "flex items-center justify-center" : "aspect-[9/16]"
+      className={`group relative mx-auto overflow-hidden rounded-xl border border-line bg-black ${
+        isFullscreen ? "flex h-full w-full items-center justify-center" : `w-full max-h-full ${aspectClass}`
       }`}
     >
-      <div className={isFullscreen ? "relative aspect-[9/16] h-full" : "absolute inset-0"}>
+      <div className={isFullscreen ? `relative h-full ${aspectClass}` : "absolute inset-0"}>
         {/* fit: блюр-фон позади (весь кадр + рамки, как в рендере) */}
         <video
           ref={auxARef}
