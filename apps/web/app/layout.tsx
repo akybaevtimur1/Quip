@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
-import { IBM_Plex_Mono, Onest, Unbounded } from "next/font/google";
+import { IBM_Plex_Mono, Onest } from "next/font/google";
+import { siteConfig } from "@/lib/site";
 import "./globals.css";
 
-// Шрифты лендинга: Unbounded (дисплей), Onest (текст), IBM Plex Mono (тайм-коды/метрики).
-const unbounded = Unbounded({ variable: "--font-unbounded", subsets: ["latin"], display: "swap" });
+// Quip UI fonts. Onest (display + body) matches the live brand at quip.ink;
+// IBM Plex Mono carries timecodes / confidence scores / prices (tabular figures).
 const onest = Onest({
   variable: "--font-onest",
   subsets: ["latin", "cyrillic"],
@@ -17,18 +18,44 @@ const plexMono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "ClipFlow",
-  description: "Нарезка вертикальных клипов из видео",
+  metadataBase: new URL(siteConfig.url),
+  title: {
+    default: `${siteConfig.name} — ${siteConfig.tagline}`,
+    template: `%s · ${siteConfig.name}`,
+  },
+  description: siteConfig.description,
+  applicationName: siteConfig.name,
+  keywords: [
+    "AI video clipper",
+    "podcast to shorts",
+    "repurpose long videos",
+    "vertical clips",
+    "explainable AI clips",
+    "clip generator",
+  ],
+  authors: [{ name: siteConfig.name }],
+  openGraph: {
+    type: "website",
+    siteName: siteConfig.name,
+    title: `${siteConfig.name} — ${siteConfig.tagline}`,
+    description: siteConfig.description,
+    url: siteConfig.url,
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: `${siteConfig.name} — ${siteConfig.tagline}`,
+    description: siteConfig.description,
+    creator: siteConfig.twitterHandle,
+  },
+  robots: { index: true, follow: true },
+  icons: { icon: "/favicon.ico" },
 };
 
 export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html
-      lang="ru"
-      className={`${unbounded.variable} ${onest.variable} ${plexMono.variable} h-full`}
-    >
+    <html lang="en" className={`${onest.variable} ${plexMono.variable} h-full`}>
       <body className="min-h-full bg-bg text-ink antialiased">{children}</body>
     </html>
   );

@@ -2,61 +2,177 @@
 
 /*
   ════════════════════════════════════════════════════════════════════════
-  ПАЛИТРА ClipFlow — менять ТОЛЬКО здесь. Все компоненты используют семантические
-  утилиты (bg-bg, bg-surface, text-ink, text-muted, text-accent, border-line,
-  text-hook/peak/thought/quote) — смена значений ниже перекрашивает весь интерфейс.
-
-  Активна: №1 Warm Charcoal + Coral. Чтобы сменить — подставь хексы другой палитры:
-    №2 Ink Black:   bg #0C0D10  surface #15171C  surface-2 #1E2128  muted #9AA3B2
-    №3 Plum Noir:   bg #16121D  surface #1F1830  surface-2 #2A2140  muted #A79DBC
-    №4 Warm Paper:  bg #FAF7F2  surface #FFFFFF  surface-2 #EEE9E1  ink #15171C  muted #727D8C  line rgba(21,23,28,.10)
-  (accent коралл и 4 цвета типов одинаковы во всех вариантах)
+  QUIP — design tokens (single source of truth). See DESIGN.md for rationale.
+  Direction: Precision Dark, matched to quip.ink (cool near-black + scarce coral,
+  Onest display, hairlines over shadows). Change a value here → whole UI re-skins.
+  Backward-compatible utility names are preserved (bg-bg, text-ink, border-line,
+  text-hook/peak/thought/quote, font-display/sans/mono, rounded-card).
   ════════════════════════════════════════════════════════════════════════
 */
 @theme {
-  /* canvas */
-  --color-bg: #1c1813;
-  --color-surface: #231f16;
-  --color-surface-2: #2e2b1f;
-  --color-ink: #f5f7fb;
-  --color-muted: #a8b1bf;
-  --color-line: rgba(245, 247, 251, 0.1);
+  /* canvas / surfaces — cool near-black ladder */
+  --color-bg: #0a0b0f;
+  --color-surface: #111319;
+  --color-surface-2: #171a21;
+  --color-surface-3: #1e222b;
 
-  /* signature accent */
+  /* text */
+  --color-ink: #edf0f8;
+  --color-muted: #7e8aa4;
+  --color-faint: #565e70;
+
+  /* hairlines (elevation = ladder + borders, not shadows) */
+  --color-line: rgba(237, 240, 248, 0.08);
+  --color-line-strong: rgba(237, 240, 248, 0.14);
+
+  /* signature accent — coral (scarce) */
   --color-accent: #ff5a3d;
-  --color-accent-2: #df3f25;
+  --color-accent-2: #e0431f;
+  --color-accent-tint: rgba(255, 90, 61, 0.12);
+  --color-accent-line: rgba(255, 90, 61, 0.3);
 
-  /* clip-type colors (функциональные — кодируют тип момента) */
+  /* clip-type functional colors (encode the moment type) */
   --color-hook: #ff5a3d;
-  --color-peak: #bd5fff;
-  --color-thought: #1aa37a;
-  --color-quote: #2f7cf6;
+  --color-peak: #c06bff;
+  --color-thought: #19bd8b;
+  --color-quote: #4d8dff;
 
-  /* fonts (заданы в layout.tsx через next/font) */
-  --font-display: var(--font-unbounded), system-ui, sans-serif;
+  /* semantic */
+  --color-ok: #19bd8b;
+  --color-warn: #f5b32e;
+  --color-bad: #ff6b6b;
+
+  /* fonts (provided by next/font in layout.tsx) */
+  --font-display: var(--font-onest), system-ui, sans-serif;
   --font-sans: var(--font-onest), system-ui, sans-serif;
   --font-mono: var(--font-plex-mono), ui-monospace, monospace;
 
+  /* radii */
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
   --radius-card: 14px;
+  --radius-pill: 999px;
+
+  /* semantic display/heading scale (size · line-height · tracking · weight) */
+  --text-display-2xl: 4.5rem;
+  --text-display-2xl--line-height: 1.02;
+  --text-display-2xl--letter-spacing: -0.03em;
+  --text-display-2xl--font-weight: 800;
+
+  --text-display-xl: 3.5rem;
+  --text-display-xl--line-height: 1.04;
+  --text-display-xl--letter-spacing: -0.028em;
+  --text-display-xl--font-weight: 800;
+
+  --text-display-lg: 2.5rem;
+  --text-display-lg--line-height: 1.06;
+  --text-display-lg--letter-spacing: -0.024em;
+  --text-display-lg--font-weight: 700;
+
+  --text-h2: 1.875rem;
+  --text-h2--line-height: 1.12;
+  --text-h2--letter-spacing: -0.02em;
+  --text-h2--font-weight: 700;
+
+  --text-h3: 1.375rem;
+  --text-h3--line-height: 1.25;
+  --text-h3--letter-spacing: -0.015em;
+  --text-h3--font-weight: 600;
+
+  --text-lead: 1.1875rem;
+  --text-lead--line-height: 1.55;
+  --text-lead--letter-spacing: -0.01em;
+
+  --text-eyebrow: 0.78rem;
+  --text-eyebrow--line-height: 1;
+  --text-eyebrow--letter-spacing: 0.04em;
+  --text-eyebrow--font-weight: 500;
+
+  /* motion */
+  --ease-snappy: cubic-bezier(0.2, 0.7, 0.2, 1);
+
+  /* layout */
+  --container-page: 1200px;
 }
 
+/* ─────────────────────────── base ─────────────────────────── */
 html {
   background: var(--color-bg);
   color: var(--color-ink);
+  scroll-behavior: smooth;
+  -webkit-tap-highlight-color: transparent;
 }
 
 body {
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+  font-feature-settings: "kern", "liga", "calt";
 }
 
-/* уважаем reduced-motion (a11y) */
+/* tabular figures wherever mono is used (scores, timecodes, prices) */
+.font-mono {
+  font-feature-settings: "tnum", "zero";
+}
+
+/* visible, on-brand focus (a11y) */
+:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 2px var(--color-bg),
+    0 0 0 4px var(--color-accent-line);
+  border-radius: var(--radius-sm);
+}
+
+::selection {
+  background: var(--color-accent-tint);
+  color: var(--color-ink);
+}
+
+/* subtle dark scrollbar (instrument feel) */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-surface-3) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--color-surface-3);
+  border-radius: 999px;
+  border: 3px solid var(--color-bg);
+}
+
+/* scroll-reveal primitive (paired with <Reveal/>) */
+[data-reveal] {
+  opacity: 0;
+  transform: translateY(16px);
+  transition:
+    opacity 0.5s var(--ease-snappy),
+    transform 0.5s var(--ease-snappy);
+  will-change: opacity, transform;
+}
+[data-reveal="in"] {
+  opacity: 1;
+  transform: none;
+}
+
+/* respect reduced-motion (a11y) */
 @media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
   *,
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
+  }
+  [data-reveal] {
+    opacity: 1;
+    transform: none;
   }
 }
