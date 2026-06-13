@@ -128,7 +128,8 @@ export default function ClipEditorScreen({
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const sourceSrc = useMemo(() => resolveUrl(`media/${jobId}/source.mp4`), [jobId]);
+  // Воркер-эндпоинт: локально отдаёт source.mp4 с диска, на Modal — 302 на presigned R2.
+  const sourceSrc = useMemo(() => resolveUrl(`jobs/${jobId}/source.mp4`), [jobId]);
   const outerStart = edit?.source_intervals[0]?.source_start ?? 0;
   const outerEnd =
     edit?.source_intervals[edit.source_intervals.length - 1]?.source_end ?? 0;

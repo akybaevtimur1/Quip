@@ -297,6 +297,22 @@ def get_job(job_id: str) -> dict[str, Any]:
     return job
 
 
+@app.get("/jobs/{job_id}/source.mp4")
+def get_source(job_id: str) -> Response:
+    """Исходное видео для live-превью редактора. local → файл с диска; r2 → 302 на presigned R2."""
+    s = get_settings()
+    if s.storage_backend == "r2":
+        from fastapi.responses import RedirectResponse
+
+        from app.storage import presigned_source_url
+
+        return RedirectResponse(presigned_source_url(job_id))
+    path = DATA_ROOT / job_id / "source.mp4"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="source not found")
+    return FileResponse(str(path), media_type="video/mp4")
+
+
 @app.get("/jobs/{job_id}/timeline")
 def get_timeline(job_id: str) -> dict[str, Any]:
     """TimelineData: длительность источника + ВСЕ кандидаты ИИ + слова (для таймлайн-редактора).

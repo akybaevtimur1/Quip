@@ -85,6 +85,16 @@ def upload_source(local_path: Path, job_id: str) -> None:
         raise JobError("storage", f"R2 upload source {job_id} failed: {e}") from e
 
 
+def presigned_source_url(job_id: str) -> str:
+    """Presigned GET URL исходника в R2 (для live-превью source в редакторе на Modal)."""
+    s = get_settings()
+    key = source_object_key(job_id)
+    try:
+        return _presigned_get(_r2_client(), s.r2_bucket, key, s.signed_url_ttl)
+    except Exception as e:  # noqa: BLE001
+        raise JobError("storage", f"R2 presign source {job_id} failed: {e}") from e
+
+
 def download_source(job_id: str, dest: Path) -> None:
     """Скачать source.mp4 из R2 в dest (для редактор-рендера). JobError при сбое."""
     s = get_settings()
