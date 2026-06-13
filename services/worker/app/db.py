@@ -54,6 +54,13 @@ def init_db() -> None:
         c.execute(
             "CREATE INDEX IF NOT EXISTS idx_usage_user_month ON usage_events (user_id, month)"
         )
+        # P1: план пользователя (зеркало Postgres profiles.plan). Пишет вебхук оплаты
+        # (Lemon → set_user_plan) через service-role; гейт квоты читает get_user_plan.
+        c.execute(
+            """CREATE TABLE IF NOT EXISTS profiles (
+                user_id TEXT PRIMARY KEY, plan TEXT NOT NULL, updated_at REAL
+            )"""
+        )
 
 
 def insert_job(job_id: str, source_type: str, source_ref: str) -> None:
@@ -195,3 +202,25 @@ def get_monthly_usage(user_id: str, month: str) -> dict[str, float]:
             (user_id, month),
         ).fetchone()
     return {"videos": int(row["videos"]), "minutes": float(row["minutes"])}
+
+
+# ─────────────────────────── P1: план пользователя (profiles.plan) ───────────────────────────
+# Тот же интерфейс на SQLite (локально) и Postgres (Supabase profiles, service-role).
+
+
+def set_user_plan(user_id: str, plan: str) -> None:
+    """Установить план пользователя (вебхук оплаты Lemon → plan). Upsert."""
+    with _conn() as c:
+        c.execute(
+            "INSERT INTO profiles (user_id, plan, updated_at) VALUES (?,?,?)"
+            " ON CONFLICT(user_id) DO UPDATE SET"
+            " plan=excluded.plan, updated_at=excluded.updated_at",
+            (user_id, plan, time.time()),
+        )
+
+
+def get_user_plan(user_id: str) -> str:
+    """План пользователя для гейта квоты. Нет записи → "free" (безопасный дефолт)."""
+    with _conn() as c:
+        row = c.execute("SELECT plan FROM profiles WHERE user_id=?", (user_id,)).fetchone()
+    return str(row["plan"]) if row is not None else "free"

@@ -79,6 +79,16 @@ class Settings(BaseSettings):
     # 3+ лиц / нестабильные треки → fit как раньше. false = всегда fit (старое поведение).
     reframe_split_enabled: bool = True
 
+    # billing / payments (P1). Все опциональны — гейт квоты и вебхук Lemon активны
+    # ТОЛЬКО при заполнении (нужны Supabase + Lemon у фаундера). По умолчанию инертны →
+    # пайплайн не трогается. См. docs/SUPABASE_SETUP.md.
+    billing_enabled: bool = False  # включить гейт квоты в create_job (402)
+    polar_webhook_secret: str = ""  # Standard Webhooks секрет Polar.sh (whsec_...)
+    polar_product_starter: str = ""  # Polar product_id → план "starter"
+    polar_product_pro: str = ""  # Polar product_id → план "pro"
+    supabase_url: str = ""
+    supabase_service_role_key: str = ""  # 🔴 ТОЛЬКО сервер; пишет profiles.plan/usage_events
+
     @model_validator(mode="after")
     def _require_selected_provider_key(self) -> Self:
         if self.transcription_provider == "deepgram" and not self.deepgram_api_key:
