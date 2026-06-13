@@ -19,7 +19,7 @@
   /* text */
   --color-ink: #edf0f8;
   --color-muted: #7e8aa4;
-  --color-faint: #565e70;
+  --color-faint: #767e93; /* AA ≥4.5:1 on --color-bg for fine print */
 
   /* hairlines (elevation = ladder + borders, not shadows) */
   --color-line: rgba(237, 240, 248, 0.08);

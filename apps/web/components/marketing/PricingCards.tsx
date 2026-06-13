@@ -21,7 +21,7 @@ export function PricingCards() {
               )}
             >
               {plan.highlighted && (
-                <span className="absolute -top-3 left-7 rounded-pill bg-accent px-3 py-1 font-mono text-eyebrow uppercase text-white">
+                <span className="absolute -top-3 left-7 rounded-pill bg-accent px-3 py-1 font-mono text-eyebrow uppercase text-bg">
                   Most popular
                 </span>
               )}

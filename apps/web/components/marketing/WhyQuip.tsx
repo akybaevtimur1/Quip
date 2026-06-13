@@ -31,19 +31,19 @@ export function WhyQuip() {
               lead="Most AI clippers hand you thirty clips and a shrug. Quip hands you fewer — each with a hook, a confidence score, the moment type, and a plain reason it'll land. You post with intent, not hope."
             />
           </Reveal>
-          <dl className="mt-10 space-y-6">
+          <div className="mt-10 space-y-6">
             {dims.map((d, i) => (
               <Reveal key={d.label} delay={i * 70}>
                 <div className="flex gap-4">
                   <span className="mt-1.5 h-4 w-px shrink-0 bg-line-strong" aria-hidden />
                   <div>
-                    <dt className={`font-mono text-eyebrow uppercase ${d.color}`}>{d.label}</dt>
-                    <dd className="mt-1.5 text-sm leading-relaxed text-muted">{d.body}</dd>
+                    <p className={`font-mono text-eyebrow uppercase ${d.color}`}>{d.label}</p>
+                    <p className="mt-1.5 text-sm leading-relaxed text-muted">{d.body}</p>
                   </div>
                 </div>
               </Reveal>
             ))}
-          </dl>
+          </div>
         </div>
 
         {/* stacked reasons, different types & confidences */}

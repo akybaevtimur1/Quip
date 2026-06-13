@@ -10,10 +10,11 @@ const base =
   "disabled:pointer-events-none disabled:opacity-50 active:translate-y-0";
 
 const variantClass: Record<ButtonVariant, string> = {
-  // coral — the one scarce accent; tactile lift + inset highlight
+  // primary CTA: near-white on dark (matches quip.ink, AA-safe). Coral stays a
+  // scarce accent (mark, highlight, hook plate), never load-bearing button text.
   primary:
-    "bg-accent text-white shadow-[0_1px_0_rgba(255,255,255,.18)_inset,0_12px_34px_-14px_var(--color-accent)] " +
-    "hover:bg-accent-2 hover:-translate-y-px",
+    "bg-ink text-bg shadow-[0_1px_0_rgba(255,255,255,.35)_inset,0_12px_34px_-16px_rgba(0,0,0,.7)] " +
+    "hover:bg-white hover:-translate-y-px",
   secondary:
     "bg-surface-2 text-ink border border-line hover:border-line-strong hover:bg-surface-3 hover:-translate-y-px",
   ghost: "text-muted hover:text-ink hover:bg-surface-2",
