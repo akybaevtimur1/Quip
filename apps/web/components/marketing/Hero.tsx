@@ -9,14 +9,14 @@ import { Reveal } from "@/components/ui/Reveal";
 export function Hero() {
   return (
     <section className="relative overflow-hidden">
-      {/* restrained atmosphere: cool base + faint warm bloom behind the product (quip.ink language) */}
+      {/* restrained atmosphere: warm near-black + coral/amber blooms (Warm Precision, concept C) */}
       <div
         aria-hidden
-        className="pointer-events-none absolute -left-40 -top-40 size-[640px] rounded-full bg-[radial-gradient(circle,rgba(255,110,70,.10),transparent_62%)]"
+        className="pointer-events-none absolute -left-40 -top-40 size-[640px] rounded-full bg-[radial-gradient(circle,rgba(255,110,70,.11),transparent_62%)]"
       />
       <div
         aria-hidden
-        className="pointer-events-none absolute right-[-12%] top-[8%] size-[560px] rounded-full bg-[radial-gradient(circle,rgba(120,140,200,.06),transparent_64%)]"
+        className="pointer-events-none absolute right-[-12%] top-[8%] size-[560px] rounded-full bg-[radial-gradient(circle,rgba(255,150,90,.06),transparent_64%)]"
       />
 
       <Container className="relative grid items-center gap-14 py-16 sm:py-24 lg:grid-cols-[1.06fr_.94fr] lg:gap-12 lg:py-28">

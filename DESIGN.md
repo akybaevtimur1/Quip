@@ -15,31 +15,32 @@
   argument — a tool that hands you confidence scores should look measured and credible.
 - **Message:** "Don't just get clips. Know why they're worth posting."
 
-## Direction — Precision Dark (matched to quip.ink)
-- **Decision:** match the founder's live brand at **quip.ink** for one coherent identity.
-- **Extracted from quip.ink (computed, not guessed):** deep **cool** near-black base, headline
-  **Onest 700** at `-2.28px` tracking, body `#7E8AA4` cool blue-grey, **coral** only on the clip
-  hook plate + progress, white "Get a spot" pill. The "warmth" is just faint atmospheric corner
-  blooms over a cool base.
-- **Mood:** measured, premium, trustworthy. Linear/Vercel restraint + the warm coral as the one
-  human spark. Hairlines over shadows. Product shown as a real 9:16 clip.
-- **Reference:** quip.ink (north-star); design-md/ (linear, vercel, superhuman, cursor, raycast,
-  runwayml, elevenlabs).
+## Direction — Warm Precision (concept C, founder-chosen 2026-06-13)
+- **Decision:** founder chose the **warm** variant (concept C "Warm Precision") over the cool
+  "Precision Dark" (concept B). Same restraint and layout; the near-black canvas + text + hairlines
+  carry a warm (brown-black, ~35° hue) undertone, with warmer coral/amber atmospheric blooms.
+- **History:** originally locked to cool "Precision Dark" matched to quip.ink's computed cool tokens
+  (`#EDF0F8`/`#7E8AA4`); founder asked to warm it to concept C (2026-06-13). Token *lightness* tiers
+  kept identical → AA preserved (Lighthouse a11y 100). Only the **hue** shifted cool→warm.
+- **Mood:** measured, premium, trustworthy. Linear/Vercel restraint + coral as the one human spark.
+  Hairlines over shadows. Product shown as a real 9:16 clip.
+- **Reference:** quip.ink (north-star, layout/restraint); design-md/ (linear, vercel, superhuman,
+  cursor, raycast, runwayml, elevenlabs).
 
 ## Color
-Approach: **restrained** — one accent (coral), everything else is a cool neutral ladder.
+Approach: **restrained** — one accent (coral), everything else is a WARM neutral ladder.
 
 | Token (`--color-*`) | Hex / value | Use |
 |---|---|---|
-| `bg` | `#0A0B0F` | page canvas (cool near-black) |
-| `surface` | `#111319` | cards, panels |
-| `surface-2` | `#171A21` | raised / nested surfaces |
-| `surface-3` | `#1E222B` | hover / active fill |
-| `ink` | `#EDF0F8` | primary text (quip headline) |
-| `muted` | `#7E8AA4` | secondary text (quip body) |
-| `faint` | `#565E70` | tertiary / disabled / fine print |
-| `line` | `rgba(237,240,248,.08)` | default hairline border |
-| `line-strong` | `rgba(237,240,248,.14)` | focus / emphasis border |
+| `bg` | `#0C0B09` | page canvas (warm near-black) |
+| `surface` | `#15120E` | cards, panels |
+| `surface-2` | `#1C1813` | raised / nested surfaces |
+| `surface-3` | `#241F18` | hover / active fill |
+| `ink` | `#F2EFE9` | primary text (warm off-white) |
+| `muted` | `#9A8F80` | secondary text (warm grey) |
+| `faint` | `#8B8276` | tertiary / fine print (AA ≥4.5:1 on bg) |
+| `line` | `rgba(242,239,233,.08)` | default hairline border |
+| `line-strong` | `rgba(242,239,233,.14)` | focus / emphasis border |
 | `accent` | `#FF5A3D` | **coral** — CTA, confidence, hook, focus (scarce) |
 | `accent-2` | `#E0431F` | coral pressed/hover |
 | `accent-tint` | `rgba(255,90,61,.12)` | coral wash (chip bg, glow) |
@@ -115,6 +116,6 @@ perf/a11y/SEO/best-practices ≥ 90. Contrast AA, visible focus, full keyboard n
 |---|---|---|
 | 2026-06-13 | System created by /design-consultation | Production shell for Quip |
 | 2026-06-13 | Direction = Precision Dark matched to quip.ink | Founder: brand consistency with live site |
-| 2026-06-13 | Cool near-black, not warm | quip.ink computed tokens are cool (#EDF0F8/#7E8AA4); warmth was atmospheric only |
+| 2026-06-13 | ~~Cool near-black~~ → **Warm near-black (concept C)** | Founder chose warm "Warm Precision" over cool B; hue cool→warm, lightness/AA unchanged |
 | 2026-06-13 | Display = Onest (drop Unbounded) | quip.ink uses Onest 700; already wired |
 | 2026-06-13 | Coral kept as sole accent | In quip mark + both ref clusters + burned into every exported clip |

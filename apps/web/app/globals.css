@@ -3,27 +3,28 @@
 /*
   ════════════════════════════════════════════════════════════════════════
   QUIP — design tokens (single source of truth). See DESIGN.md for rationale.
-  Direction: Precision Dark, matched to quip.ink (cool near-black + scarce coral,
-  Onest display, hairlines over shadows). Change a value here → whole UI re-skins.
+  Direction: Warm Precision (concept C, founder-chosen 2026-06-13) — WARM near-black +
+  scarce coral, Onest display, hairlines over shadows. (Previously cool "Precision Dark"
+  / concept B; founder asked to warm it to C.) Change a value here → whole UI re-skins.
   Backward-compatible utility names are preserved (bg-bg, text-ink, border-line,
   text-hook/peak/thought/quote, font-display/sans/mono, rounded-card).
   ════════════════════════════════════════════════════════════════════════
 */
 @theme {
-  /* canvas / surfaces — cool near-black ladder */
-  --color-bg: #0a0b0f;
-  --color-surface: #111319;
-  --color-surface-2: #171a21;
-  --color-surface-3: #1e222b;
+  /* canvas / surfaces — WARM near-black ladder (brown-black undertone, ~35° hue) */
+  --color-bg: #0c0b09;
+  --color-surface: #15120e;
+  --color-surface-2: #1c1813;
+  --color-surface-3: #241f18;
 
-  /* text */
-  --color-ink: #edf0f8;
-  --color-muted: #7e8aa4;
-  --color-faint: #767e93; /* AA ≥4.5:1 on --color-bg for fine print */
+  /* text (warm off-white; same lightness tiers as before → AA preserved) */
+  --color-ink: #f2efe9;
+  --color-muted: #9a8f80;
+  --color-faint: #8b8276; /* AA ≥4.5:1 on --color-bg for fine print */
 
   /* hairlines (elevation = ladder + borders, not shadows) */
-  --color-line: rgba(237, 240, 248, 0.08);
-  --color-line-strong: rgba(237, 240, 248, 0.14);
+  --color-line: rgba(242, 239, 233, 0.08);
+  --color-line-strong: rgba(242, 239, 233, 0.14);
 
   /* signature accent — coral (scarce) */
   --color-accent: #ff5a3d;
