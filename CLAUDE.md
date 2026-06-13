@@ -641,3 +641,32 @@ accurate) и форк `if reframe_speaker:` — два отдельных пут
   (кадры hl_dod_a/b.png). Демо clip_01 (job_9cae49a1103c) очищен apply-preset'ом.
 - **Урок от фаундера (зафиксирован):** СНАЧАЛА гуглить готовое OSS, потом писать своё (ASD взят из
   репо и лучше самописа). just check зелёный (391 тест), next build зелёный.
+
+### Продакшн-оболочка Quip (ветка `feat/production-shell`, 2026-06-13) — отчёт `docs/PRODUCTION_REPORT_2026-06-13.md`
+Автономная сессия по `docs/PRODUCTION_BRIEF`: дизайн-система + лендинг + auth + дашборд + оплата.
+**Бренд = Quip** (поправка фаундера; ClipFlow — внутреннее имя репо). **Оплата = Polar.sh**
+(поправка фаундера, не Lemon Squeezy из брифа). 6 фаз, `just check` зелёный (**409 тестов**).
+- **D1 (`50a5ff7`)** Дизайн-замок: fan-out агенты по `design-md/` + **вытащил реальные computed-
+  токены quip.ink** (он ХОЛОДНЫЙ near-black + Onest 700, не тёплый) → 3 живых HTML-концепта показаны
+  → фаундер выбрал. `DESIGN.md` + `globals.css @theme` (Precision Dark под quip.ink), Onest (дроп
+  Unbounded). Старые util-имена сохранены → редактор перекрасился без поломок.
+- **D2** Лендинг: route-groups `(marketing)/(app)/(auth)` (тул переехал `/`→`/dashboard`);
+  примитивы `components/ui`; 8 секций `components/marketing`; SEO (metadata/JSON-LD/sitemap/robots/
+  OG `opengraph-image.tsx`). ⚠️ Next 16: **middleware→proxy**, `cookies()` async, OG satori требует
+  `display:flex` на multi-child. scroll-reveal под `.js`+no-reduced-motion (видим без JS).
+- **A1** Supabase auth **dual-mode**: `@supabase/ssr` (client/server/`proxy.ts`), гейт `(app)/layout`
+  через `getUser()`; login/signup/callback; **работает открыто без ключей** (dev), активируется
+  вписыванием ключей. Удалил middleware.ts + демо /api/auth.
+- **D3 (`04d67bb`)** Дашборд: AppHeader+UsageMeter+RecentProjects (localStorage через
+  `useSyncExternalStore` — фикс lint `set-state-in-effect`); интеграция тула+редактора.
+- **P1** Прайсинг + **Polar.sh**: `/pricing`; `app/polar.py` (Standard Webhooks подпись пиннута к
+  ОФИЦИАЛЬНОМУ тест-вектору → спека-корректна; product→план; парс); `POST /webhooks/polar`; гейт
+  квоты в create_job (402, **инертен без `BILLING_ENABLED`**); `db` profiles. +18 TDD-тестов.
+- **POLISH (`698fdb7`)** chrome-devtools Lighthouse: a11y 88→**100**. Белый primary-CTA (coral-white
+  фейлил AA → near-white/тёмный, ЗАОДНО совпало с белым CTA quip.ink), faint-контраст, dl→div,
+  badge dark-on-coral. **Lighthouse 100/100/100/100, LCP 173ms, CLS 0.00.**
+- ⚠️ **Фаундер вписывает (секреты — не агент):** Supabase (ключи→auth активируется),
+  Polar (продукты+вебхук+`BILLING_ENABLED`), 🔴 заменить плейсхолдер `X-User-Id` на валидацию
+  Supabase-JWT перед продом, деплой Vercel+Modal, домен. Лендинг НЕ на quip.ink до проверки auth.
+- ⚠️ **i18n:** новые поверхности (лендинг/auth/дашборд) — АНГЛИЙСКИЕ; ядро редактора/SourceForm —
+  РУССКОЕ (не ломал). English-ify ядра — follow-up.

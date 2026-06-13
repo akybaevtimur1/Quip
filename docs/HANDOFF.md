@@ -10,6 +10,30 @@
 
 ---
 
+## 0.000 ⚡⚡⚡ Продакшн-оболочка Quip (ветка `feat/production-shell`, 2026-06-13) — НОВЕЙШЕЕ
+
+Отчёт: **`docs/PRODUCTION_REPORT_2026-06-13.md`**. Полная надстройка над ядром: дизайн-система +
+лендинг + auth + дашборд + оплата. **Бренд = Quip** (ClipFlow — внутреннее имя). **Оплата = Polar.sh**.
+6 коммитов от `feat/mvp-launch`, `just check` зелёный (**409 тестов**), **Lighthouse 100/100/100/100,
+LCP 173ms, CLS 0.00**.
+
+- **Route-groups:** `/` = лендинг `(marketing)`, `/dashboard`+`/edit` = `(app)` (тул переехал с `/`),
+  `/login`+`/signup` = `(auth)`. `/pricing`, `/terms`, `/privacy`. Дизайн-система — `DESIGN.md` +
+  `apps/web/app/globals.css @theme` (Precision Dark под quip.ink: холодный near-black + скупой
+  коралл + Onest + белый CTA).
+- **Dual-mode:** auth (Supabase) и billing (Polar) РАБОТАЮТ без секретов (dev = открыто), активируются
+  вписыванием ключей. Так что `pnpm --filter web dev` поднимает весь сайт локально без Supabase/Polar.
+- ⚠️ **Next 16: `middleware.ts` → `proxy.ts`** (переименован). Auth-гейт — в `(app)/layout.tsx`
+  через `getUser()`. Шрифты — Onest (дроп Unbounded).
+- ⚠️ **Фаундер вписывает** (см. отчёт §4): Supabase-ключи, Polar (продукты+вебхук+`BILLING_ENABLED`),
+  🔴 заменить плейсхолдер `X-User-Id` на валидацию Supabase-JWT, деплой, домен. Лендинг НЕ на quip.ink
+  до проверки auth+логики.
+- ⚠️ **i18n:** новые поверхности английские; ядро редактора/SourceForm — русское (не ломал).
+- Скрины: `design-md/_research/landing_*.png`, `pricing_page.png`, `dashboard.png`, `auth_login.png`,
+  `og_card.png`, `concepts.html` (3 концепта D1).
+
+---
+
 ## ⚠️ DEMO PREP — читай если завтра демо (70 человек)
 
 ### Что сделать ДО демо (чеклист)
