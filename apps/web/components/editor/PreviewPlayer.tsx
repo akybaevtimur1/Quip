@@ -205,7 +205,7 @@ export function PreviewPlayer({
           playsInline
           preload="auto"
           onClick={togglePlay}
-          className={`absolute inset-0 size-full cursor-pointer ${
+          className={`absolute inset-0 size-full cursor-pointer transition-[object-position] duration-300 ease-linear ${
             mode === "fit" ? "object-contain" : "object-cover"
           } ${mode === "split" ? "opacity-0" : ""}`}
           style={mode === "fill" ? { objectPosition: `${cx * 100}% 50%` } : undefined}
@@ -347,7 +347,7 @@ function SplitHalf({
         muted
         playsInline
         preload="metadata"
-        className="absolute inset-0 size-full object-cover"
+        className="absolute inset-0 size-full object-cover transition-[object-position] duration-300 ease-linear"
         style={{ objectPosition: `${cx * 100}% 50%` }}
       />
     </div>

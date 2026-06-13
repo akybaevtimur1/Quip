@@ -61,12 +61,23 @@ interface RawRegion {
 
 function cxAt(points: { t: number; cx: number | null }[] | undefined, clipT: number): number {
   if (!points || points.length === 0) return 0.5;
-  let cx = points[0].cx ?? 0.5;
-  for (const p of points) {
-    if (p.t <= clipT && p.cx !== null) cx = p.cx;
-    if (p.t > clipT) break;
+  const first = points[0];
+  if (clipT <= first.t) return first.cx ?? 0.5;
+  // Линейная интерполяция между кейфреймами — как кусочно-линейное cx-выражение ffmpeg
+  // в рендере. Раньше тут была СТУПЕНЬКА (держим последний кейфрейм) → превью «прыгало»
+  // между разреженными кейфреймами ВНУТРИ плана (где контент непрерывен), хотя реальный
+  // рендер плавный. Теперь превью = рендер: камера едет плавно внутри fill-региона.
+  for (let i = 1; i < points.length; i++) {
+    const p0 = points[i - 1];
+    const p1 = points[i];
+    if (clipT < p1.t) {
+      const c0 = p0.cx ?? 0.5;
+      const c1 = p1.cx ?? c0;
+      const span = p1.t - p0.t;
+      return span > 0 ? c0 + (c1 - c0) * ((clipT - p0.t) / span) : c1;
+    }
   }
-  return cx;
+  return points[points.length - 1].cx ?? 0.5;
 }
 
 const TABS: { id: Tab; label: string; icon: typeof Captions }[] = [
