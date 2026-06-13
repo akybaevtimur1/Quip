@@ -2,21 +2,36 @@
 
 import { Plus } from "lucide-react";
 import { useEffect, useState } from "react";
+import { AppHeader } from "@/components/app/AppHeader";
+import { RecentProjects } from "@/components/app/RecentProjects";
+import { UsageMeter } from "@/components/app/UsageMeter";
 import { ClipGrid } from "@/components/ClipGrid";
 import { ErrorPanel } from "@/components/ErrorPanel";
 import { JobProgress } from "@/components/JobProgress";
 import { SourceForm } from "@/components/SourceForm";
 import { createJob, createUploadJob } from "@/lib/api";
+import { addRecentProject } from "@/lib/recent";
 import { useJob } from "@/lib/useJob";
 
-export default function Home() {
+/** Friendly label for the recent-projects list (no PII, just a hint). */
+function labelFromUrl(url: string): string {
+  try {
+    const u = new URL(url);
+    const v = u.searchParams.get("v");
+    if (v) return `YouTube · ${v}`;
+    return u.hostname.replace(/^www\./, "") + u.pathname.slice(0, 22);
+  } catch {
+    return url.slice(0, 40) || "Project";
+  }
+}
+
+export default function DashboardPage() {
   const { job, error: pollError, elapsed, start, reset } = useJob();
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
-
   const error = submitError ?? pollError;
 
-  // Deep-link: открыть существующую задачу по ?job=<id> (на маунте). start стабилен.
+  // Deep-link: open an existing job via ?job=<id>.
   useEffect(() => {
     const j = new URLSearchParams(window.location.search).get("job");
     if (j) start(j);
@@ -27,14 +42,11 @@ export default function Home() {
     setSubmitError(null);
     setSubmitting(true);
     try {
-      const { id } = await createJob({
-        source_type: "youtube",
-        source_ref: url,
-        max_clips: maxClips,
-      });
+      const { id } = await createJob({ source_type: "youtube", source_ref: url, max_clips: maxClips });
+      addRecentProject({ id, label: labelFromUrl(url), at: Date.now() });
       start(id);
     } catch (e) {
-      setSubmitError(e instanceof Error ? e.message : "Не удалось создать задачу");
+      setSubmitError(e instanceof Error ? e.message : "Couldn't create the project");
     } finally {
       setSubmitting(false);
     }
@@ -45,9 +57,10 @@ export default function Home() {
     setSubmitting(true);
     try {
       const { id } = await createUploadJob(file, maxClips);
+      addRecentProject({ id, label: file.name, at: Date.now() });
       start(id);
     } catch (e) {
-      setSubmitError(e instanceof Error ? e.message : "Не удалось загрузить файл");
+      setSubmitError(e instanceof Error ? e.message : "Couldn't upload the file");
     } finally {
       setSubmitting(false);
     }
@@ -68,53 +81,46 @@ export default function Home() {
         : "idle";
 
   return (
-    <main className="mx-auto flex min-h-dvh w-full max-w-6xl flex-col px-5 py-6">
-      <header className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <span className="size-3 rounded-full bg-accent" />
-          <span className="font-display text-lg font-extrabold tracking-tight">ClipFlow</span>
-        </div>
-        {phase !== "idle" ? (
+    <div className="min-h-dvh">
+      <AppHeader />
+      <main className="mx-auto max-w-[1200px] px-5 py-10 sm:px-8 sm:py-12">
+        {phase !== "idle" && (
           <button
             onClick={handleReset}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-sm text-muted transition hover:text-ink"
+            className="mb-6 inline-flex items-center gap-1.5 rounded-md border border-line px-3 py-1.5 text-sm text-muted transition hover:border-line-strong hover:text-ink"
           >
             <Plus className="size-4" />
-            Новое видео
+            New project
           </button>
-        ) : null}
-      </header>
+        )}
 
-      <section className="flex flex-1 flex-col items-center justify-center py-10">
         {phase === "idle" ? (
-          <div className="flex w-full max-w-xl flex-col items-center text-center">
-            <h1 className="font-display text-4xl font-extrabold leading-tight sm:text-5xl">
-              Длинное видео → <span className="text-accent">вертикальные клипы</span>
-            </h1>
-            <p className="mt-4 max-w-md text-muted">
-              Вставь ссылку или загрузи файл — ИИ найдёт лучшие моменты, обрежет в 9:16 и
-              прожжёт субтитры.
-            </p>
-            <div className="mt-8 flex justify-center">
-              <SourceForm
-                onSubmit={handleSubmit}
-                onSubmitFile={handleSubmitFile}
-                busy={submitting}
-              />
-            </div>
+          <div className="grid gap-10 lg:grid-cols-[1fr_320px] lg:gap-12">
+            <section>
+              <h1 className="font-display text-h2 text-ink sm:text-display-lg">Create clips</h1>
+              <p className="mt-3 max-w-md text-lead text-muted">
+                Paste a link or upload a video. Quip finds the moments, cuts vertical clips, and
+                explains why each one will land.
+              </p>
+              <div className="mt-8">
+                <SourceForm onSubmit={handleSubmit} onSubmitFile={handleSubmitFile} busy={submitting} />
+              </div>
+            </section>
+            <aside className="space-y-5">
+              <UsageMeter />
+              <RecentProjects />
+            </aside>
           </div>
-        ) : null}
-
-        {phase === "tracking" ? (
-          <JobProgress status={job?.status ?? "queued"} elapsed={elapsed} />
-        ) : null}
-
-        {phase === "done" && job ? <ClipGrid key={job.id} job={job} /> : null}
-
-        {phase === "error" && error ? (
+        ) : phase === "tracking" ? (
+          <div className="flex justify-center py-8">
+            <JobProgress status={job?.status ?? "queued"} elapsed={elapsed} />
+          </div>
+        ) : phase === "done" && job ? (
+          <ClipGrid key={job.id} job={job} />
+        ) : phase === "error" && error ? (
           <ErrorPanel message={error} onRetry={handleReset} />
         ) : null}
-      </section>
-    </main>
+      </main>
+    </div>
   );
 }
