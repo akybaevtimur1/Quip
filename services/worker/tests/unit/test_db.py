@@ -74,6 +74,25 @@ def test_failed_row_carries_error() -> None:
     assert wire["metrics"] is None
 
 
+def test_cloud_row_passes_through_absolute_r2_url_and_reads_clips_list() -> None:
+    # Облачная строка (Postgres): clips — jsonb-список; video_url — полный R2-URL → отдаём как есть.
+    r2 = "https://pub-x.r2.dev/job_z/clip_01.mp4"
+    row = {
+        "id": "job_z",
+        "status": "done",
+        "stage": "done",
+        "progress": 100,
+        "error": None,
+        "clips": [{"id": "clip_01", "video_url": r2}],
+        "cost_usd": 0.16,
+        "duration_sec": 120.0,
+        "elapsed_sec": 30.0,
+    }
+    wire = row_to_wire(row)
+    assert wire["clips"][0]["video_url"] == r2  # без media/-префикса
+    assert wire["metrics"] == {"cost_usd": 0.16, "duration_sec": 120.0, "elapsed_sec": 30.0}
+
+
 # ─────────────────────────── T6: usage-адаптер (SQLite-режим) ───────────────────────────
 
 

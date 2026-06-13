@@ -31,7 +31,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from app import __version__, auth, billing, db
+from app import __version__, auth, billing, db, dispatch
 from app.config import bootstrap_env, get_settings
 
 # Локально активируем auth/billing-гейты из .env (как env-vars в проде). Под pytest НЕ
@@ -59,7 +59,6 @@ from app.models import (
     CaptionTrack,
     CropOverride,
     HighlightStyle,
-    Segment,
 )
 from app.pipeline.stage5_render import aspect_to_dims
 from app.run import DATA_ROOT
@@ -81,9 +80,11 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(title="clipflow-worker", version=__version__, lifespan=lifespan)
 
+# CORS: прод-домен app.quip.ink + любые vercel-превью + локальный dev. Регулярка (не список),
+# т.к. preview-домены Vercel динамические. Bearer-токен в заголовке (не cookie).
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origin_regex=r"https://(app\.quip\.ink|([a-z0-9-]+\.)*vercel\.app)|http://localhost:3000",
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -190,10 +191,17 @@ def create_job(
     user_id = _resolve_user(authorization, x_user_id)
     _enforce_quota(user_id, 0.0)
     job_id = f"job_{uuid.uuid4().hex[:12]}"
-    db.insert_job(job_id, body.source_type, body.source_ref)
-    bg.add_task(
-        run_pipeline_job, job_id, body.source_type, body.source_ref, body.max_clips, user_id
-    )
+    db.insert_job(job_id, body.source_type, body.source_ref, user_id=user_id)
+    # На Modal: spawn отдельной долгоживущей CPU-функции (web scale-to-zero убил бы фон-таск).
+    # Локально: BackgroundTask, как в Phase 0.
+    if dispatch.modal_spawn_enabled():
+        dispatch.spawn(
+            "run_job", job_id, body.source_type, body.source_ref, body.max_clips, user_id
+        )
+    else:
+        bg.add_task(
+            run_pipeline_job, job_id, body.source_type, body.source_ref, body.max_clips, user_id
+        )
     return {"id": job_id, "status": "queued", "stage": "queued", "progress": 0}
 
 
@@ -221,7 +229,9 @@ async def create_upload_job(
     with upload_path.open("wb") as fh:
         while chunk := await file.read(_UPLOAD_CHUNK):
             fh.write(chunk)
-    db.insert_job(job_id, "upload", filename)
+    db.insert_job(job_id, "upload", filename, user_id=user_id)
+    # NB: загруженный файл лежит на диске ЭТОГО контейнера → upload-путь идёт BackgroundTask'ом
+    # (не spawn): на Modal он отработает на web-контейнере. Основной поток — YouTube-URL (spawn).
     bg.add_task(run_upload_job, job_id, str(upload_path), filename, max_clips, user_id)
     return {"id": job_id, "status": "queued", "stage": "queued", "progress": 0}
 
@@ -291,21 +301,17 @@ def get_job(job_id: str) -> dict[str, Any]:
 def get_timeline(job_id: str) -> dict[str, Any]:
     """TimelineData: длительность источника + ВСЕ кандидаты ИИ + слова (для таймлайн-редактора).
 
-    Собирается из готовых meta.json + segments.json + transcript.json. Дорогих ИИ-вызовов НЕТ.
-    404, если артефактов нет (как /analysis).
+    Собирается из готовых meta/segments/transcript (диск локально, Postgres на Modal).
+    Дорогих ИИ-вызовов НЕТ. 404, если артефактов нет (как /analysis).
     """
-    import json
+    from app import artifacts
 
-    from app.pipeline.stage0_import import SourceMeta
-
-    out = store.data_root() / job_id
-    meta_path = out / "meta.json"
-    segs_path = out / "segments.json"
-    if not meta_path.exists() or not segs_path.exists():
-        raise HTTPException(status_code=404, detail="timeline data not found")
-    meta = SourceMeta.model_validate_json(meta_path.read_text(encoding="utf-8"))
-    segments = [Segment.model_validate(s) for s in json.loads(segs_path.read_text("utf-8"))]
-    words = store.load_transcript_words(job_id)
+    try:
+        meta = artifacts.load_meta(job_id)
+        segments = artifacts.load_segments(job_id)
+        words = artifacts.load_transcript_words(job_id)
+    except JobError as e:
+        raise HTTPException(status_code=404, detail="timeline data not found") from e
     return build_timeline_data(meta.duration, segments, words).model_dump()
 
 
@@ -320,13 +326,19 @@ def get_chapters(job_id: str, bg: BackgroundTasks, retry: bool = False) -> dict[
     retry=true (T4 #9): если кэш — failed (квота Gemini free-tier 20/день), перезапускаем
     генерацию (перетираем failed → pending). На done/pending retry игнорируется (не дёргаем).
     """
+    from app import artifacts
     from app import tasks as tasks_mod
     from app.editor.chapters import load_chapters, save_chapters
     from app.models import ChaptersData
 
-    out = store.data_root() / job_id
-    if not (out / "transcript.json").exists():
-        raise HTTPException(status_code=404, detail="transcript not found")
+    out = artifacts.job_dir(job_id)
+    out.mkdir(parents=True, exist_ok=True)
+    try:
+        artifacts.load_transcript(job_id)  # 404, если транскрипта нет нигде (диск/Postgres)
+    except JobError as e:
+        raise HTTPException(status_code=404, detail="transcript not found") from e
+    # NB: кэш chapters.json — на scratch-диске контейнера; на Modal может перегенериться на
+    # холодном web-контейнере (Gemini-вызов). Перенос кэша в Postgres — follow-up (Phase C).
     cached = load_chapters(out)
     if cached is not None and not (retry and cached.status == "failed"):
         return cached.model_dump()
@@ -396,7 +408,7 @@ def get_clip_edit(job_id: str, clip_id: str) -> dict[str, Any]:
     """ClipEdit клипа (создаёт дефолт из сегмента при первом обращении)."""
     try:
         return store.ensure_edit(job_id, clip_id).model_dump()
-    except (FileNotFoundError, KeyError) as e:
+    except (FileNotFoundError, KeyError, JobError) as e:
         raise HTTPException(status_code=404, detail="clip/segment not found") from e
 
 
@@ -409,7 +421,7 @@ def get_clip_ass(job_id: str, clip_id: str) -> Response:
     """
     try:
         edit = store.ensure_edit(job_id, clip_id)
-    except (FileNotFoundError, KeyError) as e:
+    except (FileNotFoundError, KeyError, JobError) as e:
         raise HTTPException(status_code=404, detail="clip/segment not found") from e
     words = store.load_transcript_words(job_id)
     cmap = ClipTimeMap(edit.source_intervals)
@@ -427,7 +439,7 @@ def export_clip_srt(job_id: str, clip_id: str) -> Response:
     """
     try:
         edit = store.ensure_edit(job_id, clip_id)
-    except (FileNotFoundError, KeyError) as e:
+    except (FileNotFoundError, KeyError, JobError) as e:
         raise HTTPException(status_code=404, detail="clip/segment not found") from e
     words = store.load_transcript_words(job_id)
     cmap = ClipTimeMap(edit.source_intervals)
@@ -449,7 +461,7 @@ def export_clip_clean_mp4(job_id: str, clip_id: str) -> FileResponse:
     """
     try:
         store.ensure_edit(job_id, clip_id)  # из грида (без открытия редактора) тоже работает
-    except (FileNotFoundError, KeyError) as e:
+    except (FileNotFoundError, KeyError, JobError) as e:
         raise HTTPException(status_code=404, detail="clip/segment not found") from e
     out_rel = f"clips/{clip_id}_clean.mp4"
     try:
@@ -532,13 +544,11 @@ def op_set_interval(job_id: str, clip_id: str, body: SetIntervalBody) -> dict[st
     Границы клампятся в [0,duration] и в [clip_min_sec, clip_max_sec] (set_interval, PURE).
     Optimistic-lock (409 при version mismatch).
     """
-    from app.pipeline.stage0_import import SourceMeta
+    from app import artifacts
 
     edit = _load_or_404(job_id, clip_id)
     words = store.load_transcript_words(job_id)
-    meta = SourceMeta.model_validate_json(
-        (store.data_root() / job_id / "meta.json").read_text(encoding="utf-8")
-    )
+    meta = artifacts.load_meta(job_id)
     s = get_settings()
     new = set_interval(
         edit,
@@ -554,10 +564,16 @@ def op_set_interval(job_id: str, clip_id: str, body: SetIntervalBody) -> dict[st
 
 @app.post("/jobs/{job_id}/clips/{clip_id}/render", status_code=202)
 def post_render(job_id: str, clip_id: str, bg: BackgroundTasks) -> dict[str, Any]:
-    """Async-рендер mp4 из edit-state. Статус — GET …/render."""
+    """Async-рендер mp4 из edit-state. Статус — GET …/render.
+
+    На Modal — spawn отдельной CPU-функции (web scale-to-zero убил бы фон-рендер); локально — bg.
+    """
     _load_or_404(job_id, clip_id)
     db.set_render_status(job_id, clip_id, "rendering", None, None)
-    bg.add_task(render_clip_edit_job, job_id, clip_id)
+    if dispatch.modal_spawn_enabled():
+        dispatch.spawn("render_job", job_id, clip_id)
+    else:
+        bg.add_task(render_clip_edit_job, job_id, clip_id)
     return {"status": "rendering"}
 
 
@@ -567,9 +583,12 @@ def get_render(job_id: str, clip_id: str) -> dict[str, Any]:
     if row is None:
         raise HTTPException(status_code=404, detail="clip not found")
     url = row.get("render_url")
+    # url абсолютный (http → R2 CDN/presigned) отдаём как есть; относительный → воркер-раздача.
+    if url and not str(url).startswith("http"):
+        url = f"media/{job_id}/{url}"
     return {
         "status": row.get("render_status"),
-        "video_url": f"media/{job_id}/{url}" if url else None,
+        "video_url": url or None,
         "error": row.get("render_error"),
     }
 
@@ -579,7 +598,7 @@ def get_analysis(job_id: str, clip_id: str) -> dict[str, Any]:
     """Интервалы + слова клипа (для клиент-превью субтитров/таймлайна)."""
     try:
         edit = store.ensure_edit(job_id, clip_id)
-    except (FileNotFoundError, KeyError) as e:
+    except (FileNotFoundError, KeyError, JobError) as e:
         raise HTTPException(status_code=404, detail="clip/segment not found") from e
     words = store.load_transcript_words(job_id)
     in_clip = [

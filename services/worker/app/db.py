@@ -12,6 +12,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from app import cloud_state as cs
 from app import supa
 from app.billing import credits_per_video
 from app.models import Job
@@ -34,6 +35,10 @@ def _ensure_column(c: sqlite3.Connection, table: str, col: str, decl: str) -> No
 
 
 def init_db() -> None:
+    if cs.cloud_enabled():
+        # Облачный режим (Modal): стейт в Supabase (схема накатана миграцией, не из кода).
+        # Локальную SQLite не создаём — она не используется.
+        return
     with _conn() as c:
         c.execute(
             """CREATE TABLE IF NOT EXISTS jobs (
@@ -79,7 +84,12 @@ def init_db() -> None:
         _ensure_column(c, "profiles", "payg_credits", "INTEGER NOT NULL DEFAULT 0")
 
 
-def insert_job(job_id: str, source_type: str, source_ref: str) -> None:
+def insert_job(
+    job_id: str, source_type: str, source_ref: str, *, user_id: str | None = None
+) -> None:
+    if cs.cloud_enabled():
+        cs.insert_job(job_id, source_type, source_ref, user_id=user_id)
+        return
     now = time.time()
     with _conn() as c:
         c.execute(
@@ -91,6 +101,9 @@ def insert_job(job_id: str, source_type: str, source_ref: str) -> None:
 
 
 def update_status(job_id: str, status: str, progress: int) -> None:
+    if cs.cloud_enabled():
+        cs.update_status(job_id, status, progress)
+        return
     with _conn() as c:
         c.execute(
             "UPDATE jobs SET status=?, stage=?, progress=?, updated_at=? WHERE id=?",
@@ -99,8 +112,17 @@ def update_status(job_id: str, status: str, progress: int) -> None:
 
 
 def set_done(job_id: str, job: Job) -> None:
-    clips_json = json.dumps([c.model_dump() for c in job.clips], ensure_ascii=False)
     m = job.metrics
+    if cs.cloud_enabled():
+        cs.set_done(
+            job_id,
+            [c.model_dump() for c in job.clips],
+            m.cost_usd if m else 0.0,
+            m.duration_sec if m else 0.0,
+            m.elapsed_sec if m else 0.0,
+        )
+        return
+    clips_json = json.dumps([c.model_dump() for c in job.clips], ensure_ascii=False)
     with _conn() as c:
         c.execute(
             "UPDATE jobs SET status='done', stage='done', progress=100, clips_json=?,"
@@ -117,6 +139,9 @@ def set_done(job_id: str, job: Job) -> None:
 
 
 def set_failed(job_id: str, error: str) -> None:
+    if cs.cloud_enabled():
+        cs.set_failed(job_id, error)
+        return
     with _conn() as c:
         c.execute(
             "UPDATE jobs SET status='failed', stage='failed', error=?, updated_at=? WHERE id=?",
@@ -125,16 +150,27 @@ def set_failed(job_id: str, error: str) -> None:
 
 
 def row_to_wire(row: dict[str, Any]) -> dict[str, Any]:
-    """Строка БД → wire-Job (dict). video_url клипов → путь, раздаваемый воркером (/media)."""
-    clips: list[dict[str, Any]] = json.loads(row["clips_json"]) if row.get("clips_json") else []
+    """Строка БД → wire-Job (dict).
+
+    ``video_url`` клипов: уже абсолютный (http → R2 CDN/presigned) отдаём КАК ЕСТЬ;
+    относительный (локальный SQLite, ``clips/clip_01.mp4``) префиксим воркер-раздачей
+    ``media/<job>/...``. Так одна pure-функция обслуживает и облако, и локальный dev.
+    Клипы приходят либо jsonb-списком (Postgres ``clips``), либо строкой (SQLite ``clips_json``).
+    """
+    raw = row.get("clips")
+    if raw is None:
+        raw = json.loads(row["clips_json"]) if row.get("clips_json") else []
+    clips: list[dict[str, Any]] = list(raw)
     for c in clips:
-        c["video_url"] = f"media/{row['id']}/{c['video_url']}"
+        u = str(c.get("video_url") or "")
+        if u and not u.startswith("http"):
+            c["video_url"] = f"media/{row['id']}/{u}"
     metrics = None
     if row.get("status") == "done":
         metrics = {
-            "cost_usd": row.get("cost_usd") or 0.0,
-            "duration_sec": row.get("duration_sec") or 0.0,
-            "elapsed_sec": row.get("elapsed_sec") or 0.0,
+            "cost_usd": float(row.get("cost_usd") or 0.0),
+            "duration_sec": float(row.get("duration_sec") or 0.0),
+            "elapsed_sec": float(row.get("elapsed_sec") or 0.0),
         }
     return {
         "id": row["id"],
@@ -149,12 +185,54 @@ def row_to_wire(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def get_job(job_id: str) -> dict[str, Any] | None:
+    if cs.cloud_enabled():
+        row = cs.get_job_row(job_id)
+        return row_to_wire(row) if row is not None else None
     with _conn() as c:
         row = c.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
     return row_to_wire(dict(row)) if row is not None else None
 
 
+# ── артефакты пайплайна (meta/segments/transcript) — durable для лёгкого API на Modal ──
+
+
+def put_job_artifacts(
+    job_id: str, meta: dict[str, Any], segments: list[Any], transcript: dict[str, Any]
+) -> None:
+    """Сохранить артефакты в Postgres (cloud). Локально — no-op: артефакты читаются с диска."""
+    if cs.cloud_enabled():
+        cs.put_job_artifacts(job_id, meta, segments, transcript)
+
+
+def get_job_artifacts(job_id: str) -> dict[str, Any] | None:
+    """Артефакты из Postgres (cloud) → {meta, segments, transcript}. Локально → None (диск)."""
+    if cs.cloud_enabled():
+        return cs.get_job_artifacts(job_id)
+    return None
+
+
+# ── content-addressed transcript-кэш (бережёт Deepgram между контейнерами) ──
+
+
+def get_cached_transcript(audio_sha: str, provider: str, model: str) -> dict[str, Any] | None:
+    if cs.cloud_enabled():
+        return cs.get_cached_transcript(audio_sha, provider, model)
+    return None
+
+
+def put_cached_transcript(
+    audio_sha: str, provider: str, model: str, transcript: dict[str, Any]
+) -> None:
+    if cs.cloud_enabled():
+        cs.put_cached_transcript(audio_sha, provider, model, transcript)
+
+
+# ── clip_edits (атомарный optimistic-lock) ──
+
+
 def get_clip_edit_row(job_id: str, clip_id: str) -> dict[str, Any] | None:
+    if cs.cloud_enabled():
+        return cs.get_clip_edit_row(job_id, clip_id)
     with _conn() as c:
         row = c.execute(
             "SELECT * FROM clip_edits WHERE job_id=? AND clip_id=?", (job_id, clip_id)
@@ -162,29 +240,49 @@ def get_clip_edit_row(job_id: str, clip_id: str) -> dict[str, Any] | None:
     return dict(row) if row is not None else None
 
 
-def put_clip_edit(job_id: str, clip_id: str, edit_json: str, version: int) -> None:
-    now = time.time()
+def insert_clip_edit(job_id: str, clip_id: str, edit: dict[str, Any], version: int) -> None:
+    """Первичная вставка edit-state (version=1). On conflict do nothing."""
+    if cs.cloud_enabled():
+        cs.insert_clip_edit(job_id, clip_id, edit, version)
+        return
     with _conn() as c:
-        exists = c.execute(
-            "SELECT 1 FROM clip_edits WHERE job_id=? AND clip_id=?", (job_id, clip_id)
-        ).fetchone()
-        if exists:
-            c.execute(
-                "UPDATE clip_edits SET edit_json=?, version=?, updated_at=?"
-                " WHERE job_id=? AND clip_id=?",
-                (edit_json, version, now, job_id, clip_id),
-            )
-        else:
-            c.execute(
-                "INSERT INTO clip_edits (job_id,clip_id,version,edit_json,updated_at)"
-                " VALUES (?,?,?,?,?)",
-                (job_id, clip_id, version, edit_json, now),
-            )
+        c.execute(
+            "INSERT OR IGNORE INTO clip_edits (job_id,clip_id,version,edit_json,updated_at)"
+            " VALUES (?,?,?,?,?)",
+            (job_id, clip_id, version, json.dumps(edit, ensure_ascii=False), time.time()),
+        )
+
+
+def update_clip_edit_if_version(
+    job_id: str, clip_id: str, edit: dict[str, Any], *, expected_version: int, new_version: int
+) -> bool:
+    """Атомарный optimistic-lock: UPDATE ... WHERE version=expected. True если применилось."""
+    if cs.cloud_enabled():
+        return cs.update_clip_edit_if_version(
+            job_id, clip_id, edit, expected_version=expected_version, new_version=new_version
+        )
+    with _conn() as c:
+        cur = c.execute(
+            "UPDATE clip_edits SET edit_json=?, version=?, updated_at=?"
+            " WHERE job_id=? AND clip_id=? AND version=?",
+            (
+                json.dumps(edit, ensure_ascii=False),
+                new_version,
+                time.time(),
+                job_id,
+                clip_id,
+                expected_version,
+            ),
+        )
+        return cur.rowcount == 1
 
 
 def set_render_status(
     job_id: str, clip_id: str, status: str, url: str | None, error: str | None
 ) -> None:
+    if cs.cloud_enabled():
+        cs.set_render_status(job_id, clip_id, status, url, error)
+        return
     with _conn() as c:
         c.execute(
             "UPDATE clip_edits SET render_status=?, render_url=?, render_error=?, updated_at=?"

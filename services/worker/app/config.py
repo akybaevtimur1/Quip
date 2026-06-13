@@ -89,6 +89,23 @@ class Settings(BaseSettings):
     supabase_url: str = ""
     supabase_service_role_key: str = ""  # 🔴 ТОЛЬКО сервер; пишет profiles.plan/usage_events
 
+    # ── облачный стейт + хранилище (boevoy / Modal). Инертны без заполнения. ──
+    # storage_backend=local → клип на диске, отдаётся воркером на /media (dev, Phase 0).
+    # storage_backend=r2    → клип льётся в Cloudflare R2, video_url = публичный CDN / presigned.
+    storage_backend: Literal["local", "r2"] = "local"
+    r2_account_id: str = ""  # Cloudflare account id (часть endpoint)
+    r2_endpoint: str = ""  # https://<account_id>.r2.cloudflarestorage.com
+    r2_access_key_id: str = ""  # 🔴
+    r2_secret_access_key: str = ""  # 🔴
+    r2_bucket: str = "quip"
+    # публичный базовый URL клипов (r2.dev managed domain или кастомный). Пусто →
+    # storage.py отдаёт presigned GET URL (работает на голых R2-ключах, без публичного бакета).
+    r2_public_url: str = ""
+    signed_url_ttl: int = 604800  # presigned GET TTL, сек (R2 максимум = 7 дней)
+    # job-стейт через psycopg-пулер (опц.). Воркер по умолчанию пишет стейт через PostgREST
+    # (см. app/cloud_state.py) — этот URL НЕ обязателен. Оставлен для будущего psycopg-пути.
+    supabase_db_url: str = ""
+
     @model_validator(mode="after")
     def _require_selected_provider_key(self) -> Self:
         if self.transcription_provider == "deepgram" and not self.deepgram_api_key:

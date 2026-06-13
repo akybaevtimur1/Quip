@@ -17,6 +17,7 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
+from app import db, storage
 from app.config import get_settings
 from app.errors import JobError
 from app.models import ClipOut, Job, JobStatus, Metrics, Segment, Transcript, Word
@@ -101,13 +102,20 @@ def run_pipeline(
         print(f"[1] transcribe: cached/local ({len(transcript.words)} words)")
     else:
         wav_path = out / "source.wav"
-        # Level 2: content-addressed cache (same audio, different job_id)
+        # Level 2: content-addressed cache (same audio, different job_id).
+        # cloud (Postgres transcript_cache) durable между Modal-контейнерами; локально диск.
         cached_tr: Transcript | None = None
+        sha: str | None = None
         ck: str | None = None
         if s.transcript_cache_enabled:
             sha = audio_sha(wav_path)
             ck = cache_key(sha, s.transcription_provider, s.deepgram_model)
-            cached_tr = get_cached(cache_dir, ck)
+            cloud_tr = db.get_cached_transcript(sha, s.transcription_provider, s.deepgram_model)
+            cached_tr = (
+                Transcript.model_validate(cloud_tr)
+                if cloud_tr is not None
+                else get_cached(cache_dir, ck)
+            )
 
         if cached_tr is not None:
             transcript = cached_tr
@@ -123,6 +131,10 @@ def run_pipeline(
                     cache_dir,
                     max_entries=s.transcript_cache_max_entries,
                     max_age_days=s.transcript_cache_max_age_days,
+                )
+            if s.transcript_cache_enabled and sha is not None:
+                db.put_cached_transcript(
+                    sha, s.transcription_provider, s.deepgram_model, transcript.model_dump()
                 )
     stages["transcription"] = round(time.perf_counter() - t0, 2)
 
@@ -184,7 +196,8 @@ def run_pipeline(
                 reason=seg.reason,
                 type=seg.type,
                 score=seg.score,
-                video_url=f"clips/{clip_id}.mp4",
+                # local → "clips/<id>.mp4" (раздаётся на /media); r2 → публичный/presigned URL.
+                video_url=storage.upload_clip(out / "clips" / f"{clip_id}.mp4", job_id, clip_id),
                 thumbnail_url=None,
                 transcript=_snippet(transcript.words, seg.start, seg.end),
                 words=words_in_segment(transcript.words, seg.start, seg.end),
@@ -199,6 +212,16 @@ def run_pipeline(
         )
     stages["reframe"] = round(reframe_t, 2)
     stages["render"] = round(render_t, 2)
+
+    # ── persist для облака (Modal): источник в R2 (редактор-рендер на другом контейнере) +
+    #    артефакты (meta/segments/transcript) в Postgres job_artifacts. Локально оба = no-op. ──
+    storage.upload_source(out / "source.mp4", job_id)
+    db.put_job_artifacts(
+        job_id,
+        meta.model_dump(),
+        [seg.model_dump() for seg in segments],
+        transcript.model_dump(),
+    )
 
     # ── job.json (wire-контракт) ──
     total_sec = round(time.perf_counter() - t_start, 2)

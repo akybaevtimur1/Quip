@@ -36,21 +36,21 @@ def render_edit_to_file(job_id: str, clip_id: str, *, with_subtitles: bool, out_
     без субтитров (экспорт-свобода: пере-монтаж в любом редакторе). Raises JobError при сбое;
     статус ставит вызыватель (фон-таск → clip_edits; sync-эндпоинт → HTTP).
     """
+    from app import artifacts
     from app.config import get_settings
     from app.editor import store
     from app.editor.captions_v2 import write_caption_ass
     from app.editor.reframe_cache import resolve_regions_accurate
     from app.editor.timemap import ClipTimeMap
-    from app.pipeline.stage0_import import SourceMeta
     from app.pipeline.stage5_render import aspect_to_dims, render_timeline
-    from app.run import DATA_ROOT
 
     s = get_settings()
-    out = DATA_ROOT / job_id
     edit = store.load_edit(job_id, clip_id)
     if edit is None:
         raise JobError("render", f"нет edit для {clip_id}")
-    meta = SourceMeta.model_validate_json((out / "meta.json").read_text(encoding="utf-8"))
+    # disk-first / cloud: на web-контейнере source.mp4 скачивается из R2, артефакты — из Postgres.
+    out = artifacts.ensure_source(job_id).parent
+    meta = artifacts.load_meta(job_id)
     out_w, out_h = aspect_to_dims(edit.aspect)  # T5: размеры выхода соотношения сторон
 
     ass_rel: str | None = None
@@ -105,10 +105,14 @@ def render_edit_to_file(job_id: str, clip_id: str, *, with_subtitles: bool, out_
 
 def render_clip_edit_job(job_id: str, clip_id: str) -> None:
     """Собрать mp4 из текущего ClipEdit (фон, С субтитрами). Статус → clip_edits (правило №8)."""
+    from app import artifacts, storage
+
     out_rel = f"clips/{clip_id}.mp4"
     try:
         render_edit_to_file(job_id, clip_id, with_subtitles=True, out_rel=out_rel)
-        db.set_render_status(job_id, clip_id, "done", out_rel, None)
+        # local → "clips/<id>.mp4" (раздаётся на /media); r2 → публичный/presigned URL.
+        url = storage.upload_clip(artifacts.job_dir(job_id) / out_rel, job_id, clip_id)
+        db.set_render_status(job_id, clip_id, "done", url, None)
     except JobError as e:
         db.set_render_status(job_id, clip_id, "failed", None, str(e))
     except Exception as e:  # noqa: BLE001 — фон-таск: любое падение → статус failed
@@ -121,15 +125,14 @@ def generate_chapters_job(job_id: str) -> None:
     Успех → status=done+chapters; падение → status=failed+error (правило №8,
     фронт показывает причину). Кэш-файл уже содержит pending (пишет endpoint).
     """
+    from app import artifacts
     from app.editor import chapters as chmod
-    from app.editor import store
-    from app.models import ChaptersData, Transcript
+    from app.models import ChaptersData
 
-    out = store.data_root() / job_id
+    out = artifacts.job_dir(job_id)
+    out.mkdir(parents=True, exist_ok=True)
     try:
-        transcript = Transcript.model_validate_json(
-            (out / "transcript.json").read_text(encoding="utf-8")
-        )
+        transcript = artifacts.load_transcript(job_id)
         chapters = chmod.generate_chapters(
             transcript.words, transcript.duration, transcript.language
         )

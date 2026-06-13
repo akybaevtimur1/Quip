@@ -1,0 +1,4 @@
+# Изолированный venv с Modal CLI (dev-инструмент, не в pyproject воркера).
+.venv-modal/
+__pycache__/
+*.pyc
