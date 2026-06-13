@@ -731,3 +731,26 @@ accurate) и форк `if reframe_speaker:` — два отдельных пут
 - ⚠️ Фаундеру: (1) Founding Pass $5 — решить ЧТО даёт (TODO в billing.py; в UI не показан); (2) Polar
   hosted-checkout ссылки в `NEXT_PUBLIC_POLAR_CHECKOUT_*` + `POLAR_PRODUCT_PAYG`; (3) числа на сайте
   зеркалят `billing.py` — менять в ОБОИХ местах.
+
+### Боевой воркер Modal + i18n фронта (ветка `feat/modal-boevoy` → main, 2026-06-14) — отчёт `docs/OVERNIGHT_MODAL_REPORT_2026-06-14.md`
+Автономная ночь: (1) боевой воркер на Modal, (2) i18n ядра + полировка фронта. `just check` зелёный
+(459 тестов), `next build` зелёный, смержено в main и запушено.
+- **Стейт-миграция dual-mode (disk-first, cloud-fallback):** локально SQLite+диск (Phase 0 цел);
+  на Modal — Supabase Postgres (`app/cloud_state.py`, PostgREST/service_role, схема в проде ref
+  `qiagetbnsssvbiowuxpp`) + Cloudflare R2 (`app/storage.py`, public-или-presigned URL). Новые модули:
+  `cloud_state`/`storage`/`artifacts`/`dispatch`; `db`/`store`/`run`/`tasks`/`main` сделаны dual-mode.
+  Гейт облака = `STORAGE_BACKEND=r2`+Supabase-ключи. row_to_wire: http-URL как есть, относительный→`media/`.
+- **Modal split (0 GPU, BENCHMARKS §7):** `deploy/modal/worker.py` = App `quip-worker` (web asgi
+  scale-to-zero + `run_job` + `render_job`). `POST /jobs` → `run_job.spawn` (НЕ BackgroundTask —
+  scale-to-zero убил бы нарезку). СТАТИК-ffmpeg 7.0.2 (John Van Sickle, НЕ apt — debian-ffmpeg крашит crop).
+- **🔑 ДОКАЗАНО на Modal без секретов:** `deploy/modal/proof_ffmpeg.py` (run `ap-vM71RIwLjviyC0R3kniQ3U`) —
+  статик-ffmpeg рендерит наш crop-граф в валидный mp4 (h264 1080×1920 5.04s). Риск №1 деплоя побеждён.
+- **⚠️ Live-деплой ФАУНДЕРУ (1 шаг):** агент НЕ создаёт чужие креды (правильно — security boundary).
+  `modal secret create quip-worker --from-dotenv .env STORAGE_BACKEND=r2 BILLING_ENABLED=true LLM_PROVIDER=gemini TRANSCRIPTION_PROVIDER=deepgram --force`
+  → `modal deploy deploy/modal/worker.py` → выдаст web-URL. e2e ждёт этого.
+- **i18n:** ядро редактора/грид/шелл переведены EN (22 файла; логика/WYSIWYG целы; комменты кода EN не делал).
+- **Фикс /pricing:** `prefetch={false}` на Polar-ссылках (ушли 6 CORS-ошибок RSC-prefetch).
+- **⚠️ Vercel-находка:** видимый Vercel-проект `quip` собирается из ЛЕНДИНГ-репо `Shorts-Automatizator`
+  (правило #10!), а НЕ из `clipflow/apps/web`. Пуш в clipflow сам по себе app.quip.ink НЕ деплоит;
+  путь деплоя инструмента отдельный/невидим токену. Vercel-env НЕ трогал; `NEXT_PUBLIC_WORKER_URL`
+  ставит фаундер на правильном проекте после Modal-деплоя.
