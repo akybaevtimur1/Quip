@@ -89,7 +89,7 @@ export function ClipCard({
         <button
           type="button"
           onClick={toggleFullscreen}
-          title={isFullscreen ? "Выйти из полного экрана" : "Полный экран"}
+          title={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
           className="absolute bottom-14 right-10 rounded-sm bg-black/60 p-1 text-white/70 backdrop-blur-sm transition duration-150 ease-snappy hover:bg-black/75 hover:text-white active:scale-95"
         >
           {isFullscreen ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
@@ -100,7 +100,7 @@ export function ClipCard({
           <button
             type="button"
             onClick={() => setShowCaptions((v) => !v)}
-            title={showCaptions ? "Скрыть анимированные субтитры" : "Показать анимированные субтитры"}
+            title={showCaptions ? "Hide animated captions" : "Show animated captions"}
             className={`absolute bottom-14 right-2 rounded-sm px-2 py-0.5 text-[11px] font-bold backdrop-blur-sm transition duration-150 ease-snappy active:scale-95 ${
               showCaptions
                 ? "bg-accent text-white"
@@ -116,7 +116,7 @@ export function ClipCard({
           type="button"
           onClick={onToggle}
           aria-pressed={selected}
-          aria-label={selected ? "Убрать из выбора" : "Добавить в выбор"}
+          aria-label={selected ? "Deselect" : "Select"}
           className={`absolute right-2 top-2 inline-flex size-7 items-center justify-center rounded-sm border transition duration-150 ease-snappy active:scale-95 ${
             selected
               ? "border-accent bg-accent text-white"
@@ -133,7 +133,7 @@ export function ClipCard({
           <span className="font-mono text-xs text-muted">{clipRange(clip.start, clip.end)}</span>
           <span
             className="inline-flex items-center gap-1 font-mono text-sm font-semibold text-ink"
-            title="Уверенность ИИ, что клип сработает как шортс"
+            title="AI confidence that this clip works as a short"
           >
             <Gauge className="size-3.5 text-muted" />
             {clip.score.toFixed(2)}
@@ -151,7 +151,7 @@ export function ClipCard({
         {/* почему сработает (структурно, не один blob) */}
         <div className="space-y-1">
           <p className="text-[10px] font-semibold uppercase tracking-wider text-muted">
-            Почему сработает
+            Why it works
           </p>
           <p className="text-sm leading-snug text-ink">{clip.why_works ?? clip.reason}</p>
         </div>
@@ -179,7 +179,7 @@ export function ClipCard({
             className="inline-flex items-center justify-center gap-1.5 rounded-sm border border-line bg-surface-2 px-3 py-2 text-sm font-semibold text-ink transition duration-200 ease-snappy hover:-translate-y-px hover:border-line-strong hover:bg-surface-3"
           >
             <Pencil className="size-4" />
-            Редактировать
+            Edit
           </Link>
         </div>
       </div>

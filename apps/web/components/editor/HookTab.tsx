@@ -53,10 +53,10 @@ export function HookTab({
       <section className="space-y-2">
         <div className="flex items-center justify-between">
           <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">
-            Топ-текст (хук)
+            Top text (hook)
           </p>
           <Checkbox
-            label="Показывать"
+            label="Show"
             className="text-xs"
             checked={enabled}
             disabled={busy}
@@ -71,7 +71,7 @@ export function HookTab({
           disabled={busy}
           rows={2}
           maxLength={80}
-          placeholder="Цепляющий заголовок сверху клипа…"
+          placeholder="Catchy headline at the top of the clip…"
           onChange={(e) => commitText(e.target.value)}
           onBlur={() => {
             if (timer.current) clearTimeout(timer.current);
@@ -81,13 +81,13 @@ export function HookTab({
         />
         <p className="flex items-center gap-1.5 text-[11px] leading-snug text-muted">
           <Sparkles className="size-3 shrink-0 text-accent" />
-          Короткий заголовок (≤6 слов), привязанный к сути момента. Останавливает скролл.
+          A short headline (≤6 words) tied to the moment. Stops the scroll.
         </p>
       </section>
 
       <section className="space-y-2">
         <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">
-          Когда показывать
+          When to show
         </p>
         <div className="grid grid-cols-2 gap-1.5">
           <button
@@ -100,7 +100,7 @@ export function HookTab({
                 : "border-line bg-surface-2 text-muted hover:border-line-strong hover:text-ink"
             }`}
           >
-            Весь клип
+            Whole clip
           </button>
           <button
             type="button"
@@ -112,15 +112,15 @@ export function HookTab({
                 : "border-line bg-surface-2 text-muted hover:border-line-strong hover:text-ink"
             }`}
           >
-            Первые секунды
+            First seconds
           </button>
         </div>
         {!fullClip && (
           <label className="flex flex-col gap-1 pt-1 text-xs text-muted">
             <span className="flex items-center justify-between">
-              Длительность показа
+              Show duration
               <span className="font-mono text-[11px] text-ink">
-                {(hook?.duration_sec ?? 4).toFixed(0)} с
+                {(hook?.duration_sec ?? 4).toFixed(0)} s
               </span>
             </span>
             <input
@@ -146,7 +146,7 @@ export function HookTab({
           className="self-start text-bad hover:bg-bad/10 hover:text-bad"
         >
           <Trash2 className="size-3.5" />
-          Убрать хук
+          Remove hook
         </Button>
       )}
     </div>

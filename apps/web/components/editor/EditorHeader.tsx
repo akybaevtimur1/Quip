@@ -53,7 +53,7 @@ export function EditorHeader({
           className="inline-flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-sm text-muted transition hover:border-accent/50 hover:text-ink focus:outline-none focus:ring-2 focus:ring-accent/40"
         >
           <ArrowLeft className="size-4" />
-          Все клипы
+          All clips
         </Link>
 
         <div className="flex items-center gap-1">
@@ -61,19 +61,19 @@ export function EditorHeader({
             type="button"
             disabled={!prevId || busy}
             onClick={() => prevId && goTo(prevId)}
-            title="Предыдущий клип"
+            title="Previous clip"
             className="inline-flex size-8 items-center justify-center rounded-lg border border-line text-muted transition enabled:hover:border-accent/50 enabled:hover:text-ink disabled:opacity-30"
           >
             <ChevronLeft className="size-4" />
           </button>
           <span className="min-w-[88px] text-center font-display text-sm font-semibold text-ink">
-            {idx >= 0 ? `Клип ${idx + 1} из ${clipIds.length}` : clipId}
+            {idx >= 0 ? `Clip ${idx + 1} of ${clipIds.length}` : clipId}
           </span>
           <button
             type="button"
             disabled={!nextId || busy}
             onClick={() => nextId && goTo(nextId)}
-            title="Следующий клип"
+            title="Next clip"
             className="inline-flex size-8 items-center justify-center rounded-lg border border-line text-muted transition enabled:hover:border-accent/50 enabled:hover:text-ink disabled:opacity-30"
           >
             <ChevronRight className="size-4" />
@@ -87,24 +87,24 @@ export function EditorHeader({
       <div className="flex shrink-0 items-center gap-2">
         {dirty && renderState.kind !== "rendering" && (
           <span
-            title="Превью уже показывает правки вживую. Скачиваемый файл — пока старый. Нажми «Рендер», чтобы записать правки в файл."
+            title="The preview already shows your edits live. The downloadable file is still the old one. Click “Render” to write edits to the file."
             className="inline-flex items-center gap-1.5 rounded-md border border-warn/40 bg-warn/10 px-2.5 py-1.5 text-xs text-warn"
           >
             <span className="size-1.5 animate-pulse rounded-full bg-warn" />
-            <span className="hidden sm:inline">Нажми «Рендер» — сохранить в файл</span>
-            <span className="sm:hidden">не в файле</span>
+            <span className="hidden sm:inline">Click “Render” to save to file</span>
+            <span className="sm:hidden">not saved</span>
           </span>
         )}
         {renderState.kind === "rendering" && (
           <span className="inline-flex items-center gap-1.5 rounded-md border border-accent/30 bg-surface-2 px-3 py-1.5 font-mono text-xs text-accent">
             <Loader2 className="size-3.5 animate-spin" />
-            Рендер… {renderState.elapsed}s
+            Rendering… {renderState.elapsed}s
           </span>
         )}
         {renderState.kind === "done" && (
           <span className="inline-flex items-center gap-1.5 rounded-md border border-ok/40 bg-ok/10 px-3 py-1.5 text-xs text-ok">
             <CheckCircle className="size-3.5" />
-            Готово
+            Done
           </span>
         )}
         <Button
@@ -115,7 +115,7 @@ export function EditorHeader({
           className={`relative ${dirty && renderState.kind === "idle" ? "ring-2 ring-warn/60" : ""}`}
         >
           <Film className="size-4" />
-          Рендер
+          Render
           {dirty && renderState.kind === "idle" && (
             <span className="absolute -right-1 -top-1 size-2.5 rounded-full bg-warn" />
           )}

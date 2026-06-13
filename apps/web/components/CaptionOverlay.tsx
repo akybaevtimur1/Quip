@@ -383,19 +383,19 @@ export function CaptionOverlay({
             className="mb-2 flex items-center justify-center gap-1"
             style={{ pointerEvents: "auto" }}
           >
-            <ToolbarBtn title="Текст" onClick={startEdit}>
+            <ToolbarBtn title="Text" onClick={startEdit}>
               ✎
             </ToolbarBtn>
             {onMarginChange && (
               <>
                 <ToolbarBtn
-                  title="Поднять субтитр"
+                  title="Move caption up"
                   onClick={() => onMarginChange(clampMargin(style.margin_v + 60))}
                 >
                   ↑
                 </ToolbarBtn>
                 <ToolbarBtn
-                  title="Опустить субтитр"
+                  title="Move caption down"
                   onClick={() => onMarginChange(clampMargin(style.margin_v - 60))}
                 >
                   ↓
@@ -403,7 +403,7 @@ export function CaptionOverlay({
               </>
             )}
             {onStyleClick && (
-              <ToolbarBtn title="Стиль" onClick={onStyleClick}>
+              <ToolbarBtn title="Style" onClick={onStyleClick}>
                 🎨
               </ToolbarBtn>
             )}

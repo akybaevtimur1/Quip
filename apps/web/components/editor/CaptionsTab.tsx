@@ -80,7 +80,7 @@ export function CaptionsTab({
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2">
       <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">
-        Реплики · клик — правка текста · ✂ — вырезать из клипа
+        Lines · click to edit text · ✂ to cut from clip
       </p>
 
       {/* T4 #8: видео уже с вшитыми субтитрами → не накладывать наши (без двойных) */}
@@ -89,7 +89,7 @@ export function CaptionsTab({
           checked={!burn}
           disabled={busy}
           onChange={(e) => onBurnChange(!e.target.checked)}
-          label="Видео уже с субтитрами — не накладывать наши"
+          label="Video already has captions — don’t overlay ours"
           className="w-full text-xs"
         />
       </div>
@@ -114,7 +114,7 @@ export function CaptionsTab({
                 <button
                   type="button"
                   onClick={() => onSeekReply(i)}
-                  title="Перемотать к реплике"
+                  title="Jump to line"
                   className="shrink-0 pt-0.5 font-mono text-[10px] tabular-nums text-muted transition hover:text-accent"
                 >
                   {fmtSec(group[0].start)}
@@ -148,7 +148,7 @@ export function CaptionsTab({
                     {text}
                     {reply.text_override != null && (
                       <span className="ml-1.5 align-middle rounded bg-accent px-1 py-px text-[9px] font-bold uppercase text-bg">
-                        правка
+                        edit
                       </span>
                     )}
                   </button>
@@ -160,8 +160,8 @@ export function CaptionsTab({
                       <IconButton
                         size="sm"
                         tone="accent"
-                        title="Вернуть оригинальный текст"
-                        aria-label="Вернуть оригинальный текст"
+                        title="Restore original text"
+                        aria-label="Restore original text"
                         onClick={() => onReplyTextChange(i, null)}
                       >
                         <RotateCcw className="size-3.5" />
@@ -170,8 +170,8 @@ export function CaptionsTab({
                     <IconButton
                       size="sm"
                       tone="danger"
-                      title="Вырезать эту реплику из клипа"
-                      aria-label="Вырезать эту реплику из клипа"
+                      title="Cut this line from the clip"
+                      aria-label="Cut this line from the clip"
                       disabled={busy}
                       onClick={() => onCutReply(i)}
                     >
@@ -184,7 +184,7 @@ export function CaptionsTab({
           );
         })}
         {rows.length === 0 && (
-          <p className="px-2 py-3 text-xs text-muted">Нет реплик в этом клипе.</p>
+          <p className="px-2 py-3 text-xs text-muted">No lines in this clip.</p>
         )}
       </div>
     </div>

@@ -61,7 +61,7 @@ export function ExportMenu({
         className="inline-flex w-full items-center justify-center gap-1.5 rounded-sm border border-line bg-surface-2 px-3 py-2 text-sm font-semibold text-ink transition duration-200 ease-snappy hover:-translate-y-px hover:border-line-strong hover:bg-surface-3"
       >
         <Download className="size-4" />
-        Скачать
+        Download
         <ChevronDown className={`size-3.5 transition ${open ? "rotate-180" : ""}`} />
       </button>
       {open && (
@@ -75,22 +75,22 @@ export function ExportMenu({
             href={subtitledUrl ?? undefined}
             disabled={!subtitledUrl}
             icon={<Captions className="size-4" />}
-            title="С субтитрами (MP4)"
-            sub={subtitledUrl ? "Готовый клип" : "Сначала нажми «Рендер»"}
+            title="With captions (MP4)"
+            sub={subtitledUrl ? "Rendered clip" : "Click “Render” first"}
             onPick={() => setOpen(false)}
           />
           <ExportItem
             href={cleanUrl}
             icon={<Film className="size-4" />}
-            title="Без субтитров (MP4)"
-            sub="Чистая вертикалка · ~неск. сек"
+            title="No captions (MP4)"
+            sub="Clean vertical · ~a few sec"
             onPick={() => setOpen(false)}
           />
           <ExportItem
             href={srtUrl}
             icon={<FileText className="size-4" />}
-            title="Субтитры (.SRT)"
-            sub="Для CapCut / Premiere / Resolve"
+            title="Captions (.SRT)"
+            sub="For CapCut / Premiere / Resolve"
             onPick={() => setOpen(false)}
           />
         </div>

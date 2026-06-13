@@ -54,10 +54,10 @@ export async function createJob(input: CreateJobInput): Promise<{ id: string }> 
 
 /** 401/402 от воркера → понятная ошибка (серверная причина квоты сохраняется). */
 async function throwOnAuthOrQuota(res: Response): Promise<void> {
-  if (res.status === 401) throw new Error("Войдите в аккаунт, чтобы создавать клипы.");
+  if (res.status === 401) throw new Error("Sign in to create clips.");
   if (res.status === 402) {
     const body = (await res.json().catch(() => null)) as { detail?: string } | null;
-    throw new Error(body?.detail ?? "Месячный лимит исчерпан. Обновите тариф на странице тарифов.");
+    throw new Error(body?.detail ?? "Monthly limit reached. Upgrade your plan on the pricing page.");
   }
 }
 

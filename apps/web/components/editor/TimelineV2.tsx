@@ -32,10 +32,10 @@ const TYPE_COLOR: Record<ClipType, string> = {
 };
 
 const TYPE_LABEL: Record<ClipType, string> = {
-  hook: "Хук",
-  strong_quote: "Цитата",
-  emotional_peak: "Пик эмоций",
-  complete_thought: "Мысль целиком",
+  hook: "Hook",
+  strong_quote: "Quote",
+  emotional_peak: "Emotional peak",
+  complete_thought: "Full thought",
 };
 
 const WAVE_BUCKETS = 160;
@@ -163,7 +163,7 @@ export function TimelineV2({
         setChapters(ch);
         if (ch.status === "pending") timer = setTimeout(() => poll(false), CHAPTERS_POLL_MS);
       } catch {
-        if (!cancelled) setChapters({ status: "failed", chapters: [], error: "недоступно" });
+        if (!cancelled) setChapters({ status: "failed", chapters: [], error: "unavailable" });
       }
     }
     void poll(chReloadKey > 0); // retry только при ручном «Повторить»
@@ -334,7 +334,7 @@ export function TimelineV2({
         <div className="flex items-center gap-1">
           <button
             type="button"
-            aria-label="Отдалить"
+            aria-label="Zoom out"
             disabled={zoom <= 1}
             onClick={() => setZoomAround(zoom / 1.5, viewStartClamped + viewLen / 2)}
             className="inline-flex size-6 items-center justify-center rounded-md border border-line text-muted transition enabled:hover:text-ink disabled:opacity-30"
@@ -346,7 +346,7 @@ export function TimelineV2({
           </span>
           <button
             type="button"
-            aria-label="Приблизить"
+            aria-label="Zoom in"
             disabled={zoom >= maxZoom}
             onClick={() => setZoomAround(zoom * 1.5, segStart + (segEnd - segStart) / 2)}
             className="inline-flex size-6 items-center justify-center rounded-md border border-line text-muted transition enabled:hover:text-ink disabled:opacity-30"
@@ -362,20 +362,20 @@ export function TimelineV2({
           <div className="flex h-full items-center gap-2 px-3">
             <span className="size-2 animate-pulse rounded-full bg-accent" />
             <span className="text-[11px] text-muted">
-              ИИ описывает моменты видео… (можно работать дальше)
+              AI is describing the video’s moments… (you can keep working)
             </span>
           </div>
         ) : chapters.status === "failed" ? (
           <div className="flex h-full items-center gap-2 px-3">
             <span className="truncate text-[11px] text-muted">
-              AI-карта недоступна: {chapters.error ?? "ошибка"}
+              AI map unavailable: {chapters.error ?? "error"}
             </span>
             <button
               type="button"
               onClick={retryChapters}
               className="shrink-0 rounded-md border border-line px-2 py-0.5 text-[11px] font-semibold text-accent transition hover:border-accent/50 hover:bg-surface-3"
             >
-              Повторить
+              Retry
             </button>
           </div>
         ) : (
@@ -446,7 +446,7 @@ export function TimelineV2({
                   jumpTo(s.start, s.end);
                 }}
                 title={`${TYPE_LABEL[s.type]} · ${s.score.toFixed(2)} · ${s.reason}`}
-                aria-label={`Перейти к моменту: ${TYPE_LABEL[s.type]}`}
+                aria-label={`Go to moment: ${TYPE_LABEL[s.type]}`}
                 className="absolute bottom-0 cursor-pointer rounded-sm opacity-80 transition hover:opacity-100"
                 style={{
                   left: pct(s.start),
@@ -483,7 +483,7 @@ export function TimelineV2({
               <span className="h-8 w-1 rounded-full bg-accent" />
             </div>
             <span className="pointer-events-none absolute inset-x-0 top-1 text-center font-mono text-[10px] font-semibold text-accent">
-              {busy ? "сохраняю…" : mmss(segEnd - segStart)}
+              {busy ? "saving…" : mmss(segEnd - segStart)}
             </span>
           </div>
 
@@ -544,7 +544,7 @@ export function TimelineV2({
           onChange={(e) =>
             setViewStart(((Number(e.target.value) / 1000) * (duration - viewLen)) | 0)
           }
-          aria-label="Прокрутка таймлайна"
+          aria-label="Scroll timeline"
           className="mt-1 h-1 w-full cursor-pointer appearance-none rounded-full bg-surface-2 accent-accent"
         />
       )}

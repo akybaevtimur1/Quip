@@ -81,10 +81,10 @@ function cxAt(points: { t: number; cx: number | null }[] | undefined, clipT: num
 }
 
 const TABS: { id: Tab; label: string; icon: typeof Captions }[] = [
-  { id: "captions", label: "Субтитры", icon: Captions },
-  { id: "hook", label: "Хук", icon: Type },
-  { id: "style", label: "Стиль", icon: Palette },
-  { id: "frame", label: "Кадр", icon: Crop },
+  { id: "captions", label: "Captions", icon: Captions },
+  { id: "hook", label: "Hook", icon: Type },
+  { id: "style", label: "Style", icon: Palette },
+  { id: "frame", label: "Frame", icon: Crop },
 ];
 
 export default function ClipEditorScreen({
@@ -156,7 +156,7 @@ export default function ClipEditorScreen({
       if (seq === assSeq.current) setAssText(ass);
     } catch (e) {
       if (seq === assSeq.current)
-        setError(`Не удалось обновить превью субтитров: ${String(e)}`);
+        setError(`Couldn’t refresh caption preview: ${String(e)}`);
     }
   }, [jobId, clipId]);
 
@@ -186,7 +186,7 @@ export default function ClipEditorScreen({
           setEdit(editData);
           setWords(analysisData.words);
           setAssText(ass);
-          if (!ass) setError("Не удалось загрузить субтитры превью — показываю упрощённый режим.");
+          if (!ass) setError("Couldn’t load caption preview — showing a simplified mode.");
           setPhase("ready");
           getTimeline(jobId)
             .then((t) => !cancelled && setTimeline(t))
@@ -231,7 +231,7 @@ export default function ClipEditorScreen({
   }, [jobId, clipId, loadKey, stopPoll]);
 
   const handleConflict = useCallback(() => {
-    setError("Данные обновились — перезагружаю редактор…");
+    setError("Data changed — reloading the editor…");
     setLoadKey((k) => k + 1);
   }, []);
 
@@ -517,7 +517,7 @@ export default function ClipEditorScreen({
         } else if (st.status === "failed") {
           stopPoll();
           setRenderState({ kind: "idle" });
-          setError(st.error ?? "Рендер не удался");
+          setError(st.error ?? "Render failed");
         }
       } catch {
         /* keep polling */
@@ -675,13 +675,13 @@ export default function ClipEditorScreen({
             onClick={() => setLoadKey((k) => k + 1)}
             className="rounded-lg border border-line px-4 py-2 text-sm text-muted transition hover:text-ink"
           >
-            Попробовать снова
+            Try again
           </button>
           <a
             href={`/dashboard?job=${jobId}`}
             className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white transition hover:bg-accent-2"
           >
-            ← Все клипы
+            ← All clips
           </a>
         </div>
       </div>
@@ -719,7 +719,7 @@ export default function ClipEditorScreen({
       {phase === "loading" ? (
         <div className="flex items-center justify-center gap-2 text-sm text-muted">
           <Loader2 className="size-4 animate-spin" />
-          Загружаю редактор…
+          Loading editor…
         </div>
       ) : (
         <main className="grid min-h-0 grid-cols-1 gap-4 p-4 lg:grid-cols-[minmax(280px,380px)_minmax(0,1fr)]">
@@ -765,7 +765,7 @@ export default function ClipEditorScreen({
                   {/* видимый бейдж деградации (не тихий фолбэк) */}
                   {!useLibass && (
                     <span className="absolute left-2 top-2 z-30 rounded bg-amber-600/85 px-1.5 py-0.5 text-[10px] font-semibold text-white">
-                      упрощённое превью
+                      simplified preview
                     </span>
                   )}
 
@@ -773,7 +773,7 @@ export default function ClipEditorScreen({
                   {useLibass && edit && replyRanges.length > 0 && editingReply === null && (
                     <button
                       type="button"
-                      aria-label="Субтитры: клик — правка текста, перетаскивание — позиция"
+                      aria-label="Captions: click to edit text, drag to reposition"
                       onPointerDown={onHitPointerDown}
                       onPointerMove={onHitPointerMove}
                       onPointerUp={onHitPointerUp}
@@ -789,7 +789,7 @@ export default function ClipEditorScreen({
                     >
                       <div className="h-px w-full bg-accent shadow-[0_0_8px_rgba(255,90,61,0.9)]" />
                       <span className="absolute right-2 top-1 rounded bg-accent px-1.5 py-0.5 font-mono text-[10px] text-white">
-                        позиция субтитров
+                        caption position
                       </span>
                     </div>
                   )}
@@ -812,11 +812,11 @@ export default function ClipEditorScreen({
                           }
                         }}
                         rows={2}
-                        placeholder="Текст субтитра…"
+                        placeholder="Caption text…"
                         className="w-full resize-none rounded-lg border border-accent/60 bg-black/80 p-2 text-center text-sm font-semibold text-white outline-none focus:ring-2 focus:ring-accent/50"
                       />
                       <p className="mt-1 text-center text-[10px] text-white/70">
-                        Enter — сохранить · Esc — отмена
+                        Enter to save · Esc to cancel
                       </p>
                     </div>
                   )}
@@ -828,9 +828,9 @@ export default function ClipEditorScreen({
           <div className="flex min-h-0 flex-col gap-3">
             {/* #1: явно про live-vs-рендер — частый вопрос «надо ли ререндерить» */}
             <p className="shrink-0 rounded-lg border border-line bg-surface-2 px-3 py-2 text-[11px] leading-snug text-muted">
-              <span className="font-semibold text-accent">Превью живое</span> — правки видно
-              сразу. <span className="font-semibold text-ink">«Рендер»</span> записывает их в
-              скачиваемый файл.
+              <span className="font-semibold text-accent">Preview is live</span> — edits show
+              instantly. <span className="font-semibold text-ink">“Render”</span> writes them to
+              the downloadable file.
             </p>
             <div className="flex shrink-0 gap-1 rounded-xl border border-line bg-surface p-1">
               {TABS.map(({ id, label, icon: Icon }) => (
@@ -908,7 +908,7 @@ export default function ClipEditorScreen({
           />
         ) : (
           <div className="rounded-xl border border-dashed border-line bg-surface-2 px-4 py-5 text-center text-xs text-muted">
-            {phase === "loading" ? "Загружаю таймлайн…" : "Таймлайн недоступен для этого клипа."}
+            {phase === "loading" ? "Loading timeline…" : "Timeline unavailable for this clip."}
           </div>
         )}
       </footer>

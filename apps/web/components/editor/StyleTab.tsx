@@ -17,15 +17,15 @@ import { PresetStrip } from "../PresetStrip";
 export const CAPTION_FONTS = ["Montserrat", "Unbounded", "Rubik"];
 
 const ANIMATIONS: { value: NonNullable<HighlightStyle["animation"]>; label: string }[] = [
-  { value: "karaoke_fill", label: "Караоке (заливка)" },
-  { value: "color_sweep", label: "Цвет-волна (по словам)" },
-  { value: "blur_in", label: "Фокус (из размытия)" },
-  { value: "spring", label: "Пружина (овершут)" },
-  { value: "pop", label: "Pop (вспышка слова)" },
-  { value: "punch", label: "Punch (сильный удар)" },
-  { value: "bounce", label: "Bounce (подскок)" },
-  { value: "fade", label: "Fade (проявление слов)" },
-  { value: "none", label: "Без анимации" },
+  { value: "karaoke_fill", label: "Karaoke (fill)" },
+  { value: "color_sweep", label: "Color sweep (word by word)" },
+  { value: "blur_in", label: "Focus (from blur)" },
+  { value: "spring", label: "Spring (overshoot)" },
+  { value: "pop", label: "Pop (word flash)" },
+  { value: "punch", label: "Punch (hard hit)" },
+  { value: "bounce", label: "Bounce" },
+  { value: "fade", label: "Fade (words appear)" },
+  { value: "none", label: "No animation" },
 ];
 
 export function StyleTab({
@@ -53,7 +53,7 @@ export function StyleTab({
       {/* ── пресеты ── */}
       <section className="space-y-2">
         <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">
-          Готовые стили
+          Presets
         </p>
         <PresetStrip activePresetId={activePresetId} onApply={onPresetApply} onError={onError} />
       </section>
@@ -61,30 +61,30 @@ export function StyleTab({
       {/* ── кастомизация ── */}
       <section className="space-y-3">
         <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">
-          Настроить под себя
+          Customize
         </p>
 
         <div className="grid grid-cols-2 gap-3">
           <ColorField
-            label="Цвет текста"
+            label="Text color"
             value={st.color ?? "#FFFFFF"}
             disabled={busy}
             onChange={(v) => onStyleChange({ color: v })}
           />
           <ColorField
-            label="Цвет подсветки"
+            label="Highlight color"
             value={hl?.color ?? "#FF5A3D"}
             disabled={busy || hl === null}
             onChange={(v) => onHighlightChange({ color: v })}
           />
           <ColorField
-            label="Контур"
+            label="Outline"
             value={st.outline_color ?? "#000000"}
             disabled={busy}
             onChange={(v) => onStyleChange({ outline_color: v })}
           />
           <label className="flex flex-col gap-1.5 text-xs text-muted">
-            Шрифт
+            Font
             <Select
               value={st.font ?? "Montserrat"}
               disabled={busy}
@@ -100,7 +100,7 @@ export function StyleTab({
         </div>
 
         <DebouncedSlider
-          label="Размер"
+          label="Size"
           min={40}
           max={140}
           value={st.size ?? 90}
@@ -109,17 +109,17 @@ export function StyleTab({
         />
 
         <DebouncedSlider
-          label="Позиция (от низа)"
+          label="Position (from bottom)"
           min={40}
           max={1200}
           value={st.margin_v ?? 260}
           disabled={busy}
           onCommit={(v) => onStyleChange({ margin_v: v })}
-          hint="Или просто перетащи субтитры на видео"
+          hint="Or just drag the captions on the video"
         />
 
         <label className="flex flex-col gap-1.5 text-xs text-muted">
-          Анимация активного слова
+          Active-word animation
           <Select
             value={hl === null ? "off" : (hl.animation ?? "karaoke_fill")}
             disabled={busy}
@@ -134,7 +134,7 @@ export function StyleTab({
                 {a.label}
               </option>
             ))}
-            <option value="off">Подсветка выключена</option>
+            <option value="off">Highlight off</option>
           </Select>
         </label>
 
@@ -142,7 +142,7 @@ export function StyleTab({
           checked={st.uppercase ?? true}
           disabled={busy}
           onChange={(e) => onStyleChange({ uppercase: e.target.checked })}
-          label="ЗАГЛАВНЫМИ БУКВАМИ"
+          label="UPPERCASE"
           className="text-xs"
         />
 
@@ -152,12 +152,12 @@ export function StyleTab({
             checked={!!st.emphasis_color}
             disabled={busy}
             onChange={(e) => onStyleChange({ emphasis_color: e.target.checked ? "#FF5A3D" : null })}
-            label="Подсвечивать ключевые слова"
+            label="Highlight keywords"
             className="text-xs"
           />
           {st.emphasis_color && (
             <ColorField
-              label="Цвет ключевых слов"
+              label="Keyword color"
               value={st.emphasis_color}
               disabled={busy}
               onChange={(v) => onStyleChange({ emphasis_color: v })}

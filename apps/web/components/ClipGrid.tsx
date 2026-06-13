@@ -10,10 +10,10 @@ import { ClipCard, resolveUrl } from "./ClipCard";
 function EmptyState() {
   return (
     <div className="rounded-lg border border-line bg-surface p-10 text-center">
-      <p className="font-display text-xl font-bold">Нечего нарезать</p>
+      <p className="font-display text-xl font-bold">Nothing to clip</p>
       <p className="mx-auto mt-2 max-w-sm text-sm text-muted">
-        Из этого видео не нашлось моментов, которые работают самостоятельно. Это не ошибка —
-        попробуй другое видео.
+        No standalone-worthy moments were found in this video. That’s not an error —
+        try a different video.
       </p>
     </div>
   );
@@ -71,18 +71,18 @@ export function ClipGrid({ job }: { job: Job }) {
     <div className="w-full">
       {m ? (
         <p className="mb-4 font-mono text-sm text-muted">
-          {clips.length} клипов · источник {mmss(m.duration_sec)} · {Math.round(m.elapsed_sec)}s ·{" "}
+          {clips.length} clips · source {mmss(m.duration_sec)} · {Math.round(m.elapsed_sec)}s ·{" "}
           {usd(m.cost_usd)}
         </p>
       ) : null}
 
       <div className="mb-5 flex flex-wrap items-center gap-3 rounded-lg border border-line bg-surface p-3">
         <span className="font-mono text-sm text-ink">
-          Выбрано {selected.size} из {clips.length}
+          {selected.size} of {clips.length} selected
         </span>
         <Button type="button" variant="secondary" size="sm" onClick={toggleAll}>
           {allSelected ? <Square className="size-4" /> : <CheckSquare className="size-4" />}
-          {allSelected ? "Снять все" : "Выбрать все"}
+          {allSelected ? "Deselect all" : "Select all"}
         </Button>
         <Button
           type="button"
@@ -93,7 +93,7 @@ export function ClipGrid({ job }: { job: Job }) {
           className="ml-auto"
         >
           <Download className="size-4" />
-          Скачать выбранные ({selected.size})
+          Download selected ({selected.size})
         </Button>
       </div>
 

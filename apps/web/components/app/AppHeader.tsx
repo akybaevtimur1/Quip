@@ -30,7 +30,7 @@ export function AppHeader() {
             href="/#pricing"
             className="hidden rounded-pill border border-line px-3 py-1.5 font-mono text-eyebrow uppercase text-muted transition-colors hover:text-ink sm:inline-flex"
           >
-            Бесплатный
+            Free
           </Link>
           <details className="group relative">
             <summary className="flex size-9 cursor-pointer list-none items-center justify-center rounded-full border border-line bg-surface-2 text-sm font-semibold text-ink [&::-webkit-details-marker]:hidden">
@@ -46,13 +46,13 @@ export function AppHeader() {
                 href="/#pricing"
                 className="mt-1 block rounded-md px-3 py-2 text-sm text-muted transition-colors hover:bg-surface-2 hover:text-ink"
               >
-                Тарифы
+                Pricing
               </Link>
               <div className="px-3 py-2">
                 {isSupabaseConfigured ? (
                   <SignOutButton />
                 ) : (
-                  <span className="text-xs text-faint">Dev-режим (без аккаунта)</span>
+                  <span className="text-xs text-faint">Dev mode (no account)</span>
                 )}
               </div>
             </div>

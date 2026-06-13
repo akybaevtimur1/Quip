@@ -54,7 +54,7 @@ export function useJob() {
         fails += 1;
         if (fails >= MAX_FAILS) {
           if (active) {
-            setError(`Потеряна связь с воркером (${MAX_FAILS} неудачных запроса подряд)`);
+            setError(`Lost connection to the worker (${MAX_FAILS} failed requests in a row)`);
           }
           clearInterval(tick);
           return;

@@ -234,7 +234,7 @@ export function PreviewPlayer({
         {!playing && !loading && (
           <button
             type="button"
-            aria-label="Воспроизвести"
+            aria-label="Play"
             onClick={togglePlay}
             className="absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2 rounded-full bg-black/60 p-4 text-white backdrop-blur transition hover:bg-accent"
           >
@@ -250,7 +250,7 @@ export function PreviewPlayer({
         >
           <button
             type="button"
-            aria-label={playing ? "Пауза" : "Воспроизвести"}
+            aria-label={playing ? "Pause" : "Play"}
             onClick={togglePlay}
             className="text-white/90 transition hover:text-white"
           >
@@ -267,13 +267,13 @@ export function PreviewPlayer({
             max={1000}
             value={Math.round((clipNow / clipDur) * 1000)}
             onChange={handleScrub}
-            aria-label="Перемотка клипа"
+            aria-label="Scrub clip"
             className="h-1 min-w-0 flex-1 cursor-pointer appearance-none rounded-full bg-white/25 accent-accent"
           />
 
           <button
             type="button"
-            aria-label={muted ? "Включить звук" : "Выключить звук"}
+            aria-label={muted ? "Unmute" : "Mute"}
             onClick={toggleMute}
             className="text-white/80 transition hover:text-white"
           >
@@ -281,7 +281,7 @@ export function PreviewPlayer({
           </button>
           <button
             type="button"
-            aria-label={isFullscreen ? "Выйти из полного экрана" : "Полный экран"}
+            aria-label={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
             onClick={toggleFullscreen}
             className="text-white/80 transition hover:text-white"
           >

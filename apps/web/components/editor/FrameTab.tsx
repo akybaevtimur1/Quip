@@ -7,9 +7,9 @@ import type { ClipEdit } from "@/lib/types";
 
 const ASPECTS: { value: Aspect; label: string; hint: string }[] = [
   { value: "9:16", label: "9:16", hint: "Reels / TikTok / Shorts" },
-  { value: "1:1", label: "1:1", hint: "Лента (квадрат)" },
-  { value: "4:5", label: "4:5", hint: "Instagram пост" },
-  { value: "16:9", label: "16:9", hint: "YouTube / горизонт" },
+  { value: "1:1", label: "1:1", hint: "Feed (square)" },
+  { value: "4:5", label: "4:5", hint: "Instagram post" },
+  { value: "16:9", label: "16:9", hint: "YouTube / landscape" },
 ];
 
 // ── Таб «Кадр»: режим кадрирования клипа вручную ──
@@ -22,10 +22,10 @@ const ASPECTS: { value: Aspect; label: string; hint: string }[] = [
 type FrameMode = "auto" | "fill" | "fit" | "split";
 
 const MODES: { value: FrameMode; title: string; desc: string }[] = [
-  { value: "auto", title: "Авто (ИИ)", desc: "Сам решает по шотам: тайт / широко / split" },
-  { value: "fill", title: "Тайт", desc: "Вертикальный кроп на человеке, full-bleed" },
-  { value: "fit", title: "Широко", desc: "Весь кадр + блюр-рамки (горизонтальный вид)" },
-  { value: "split", title: "Split 2 спикера", desc: "Экран пополам: один сверху, другой снизу" },
+  { value: "auto", title: "Auto (AI)", desc: "Decides per shot: tight / wide / split" },
+  { value: "fill", title: "Tight", desc: "Vertical crop on the person, full-bleed" },
+  { value: "fit", title: "Wide", desc: "Full frame + blurred bars (landscape look)" },
+  { value: "split", title: "Split (2 speakers)", desc: "Screen split: one on top, one below" },
 ];
 
 export function FrameTab({
@@ -79,7 +79,7 @@ export function FrameTab({
       {/* T5: соотношение сторон выхода */}
       <section className="space-y-2">
         <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">
-          Соотношение сторон
+          Aspect ratio
         </p>
         <div className="grid grid-cols-4 gap-1.5">
           {ASPECTS.map((a) => (
@@ -104,7 +104,7 @@ export function FrameTab({
 
       <section className="space-y-2">
         <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">
-          Режим кадра
+          Frame mode
         </p>
         <div className="space-y-1.5">
           {MODES.map((m) => (
@@ -136,14 +136,14 @@ export function FrameTab({
       {(mode === "fill" || mode === "split") && (
         <section className="space-y-3">
           <CenterSlider
-            label={mode === "split" ? "Спикер сверху (позиция в кадре)" : "Центр кропа"}
+            label={mode === "split" ? "Top speaker (position in frame)" : "Crop center"}
             value={center}
             disabled={busy || applying}
             onChange={setCenter}
           />
           {mode === "split" && (
             <CenterSlider
-              label="Спикер снизу (позиция в кадре)"
+              label="Bottom speaker (position in frame)"
               value={centerB}
               disabled={busy || applying}
               onChange={setCenterB}
@@ -161,16 +161,16 @@ export function FrameTab({
         disabled={busy || applying}
         onClick={apply}
       >
-        {applying ? "Применяю…" : "Применить к клипу"}
+        {applying ? "Applying…" : "Apply to clip"}
       </Button>
 
       {applied && (
         <p className="rounded-lg border border-warn/40 bg-warn/10 px-3 py-2 text-xs text-warn">
-          Режим сохранён. Точный кадр — после рендера (превью показывает приблизительный кроп).
+          Mode saved. Exact framing after render (preview shows an approximate crop).
         </p>
       )}
       <p className="text-[11px] leading-snug text-muted">
-        Кадрирование применяется на весь клип. «Авто» возвращает решение ИИ по шотам.
+        Framing applies to the whole clip. “Auto” restores the AI per-shot decision.
       </p>
     </div>
   );
@@ -210,7 +210,7 @@ function CenterSlider({
       <span className="flex items-center justify-between">
         {label}
         <span className="font-mono text-[11px] text-ink">
-          {value <= 0.35 ? "лево" : value >= 0.65 ? "право" : "центр"} · {value.toFixed(2)}
+          {value <= 0.35 ? "left" : value >= 0.65 ? "right" : "center"} · {value.toFixed(2)}
         </span>
       </span>
       <input

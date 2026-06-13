@@ -37,15 +37,15 @@ export function SourceForm({
       return;
     }
     if (!f.type.startsWith("video/")) {
-      setFileError("Нужен видеофайл");
+      setFileError("Please choose a video file");
       return;
     }
     if (f.size > MAX_UPLOAD_MB * 1024 * 1024) {
-      setFileError(`Файл больше ${MAX_UPLOAD_MB} МБ`);
+      setFileError(`File is larger than ${MAX_UPLOAD_MB} MB`);
       return;
     }
     setFile(f);
-    setUrl(""); // выбран файл → URL очищаем (файл приоритетнее)
+    setUrl(""); // file chosen → clear URL (file takes priority)
   }
 
   function handleSubmit(e: React.FormEvent) {
@@ -65,9 +65,9 @@ export function SourceForm({
             inputMode="url"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
-            placeholder="Вставь ссылку на YouTube-видео"
+            placeholder="Paste a YouTube video link"
             disabled={busy || file != null}
-            aria-label="Ссылка на YouTube-видео"
+            aria-label="YouTube video link"
             className="h-12 w-full rounded-sm border border-line bg-surface pl-10 pr-3 text-ink placeholder:text-faint outline-none transition-colors duration-200 ease-snappy hover:border-line-strong focus:border-accent/60 disabled:opacity-50"
           />
         </div>
@@ -80,7 +80,7 @@ export function SourceForm({
           className="h-12"
         >
           {!busy && <Scissors className="size-5" />}
-          {busy ? "Запуск…" : "Нарезать"}
+          {busy ? "Starting…" : "Make clips"}
         </Button>
       </div>
 
@@ -100,13 +100,13 @@ export function SourceForm({
           }}
           role="button"
           tabIndex={0}
-          aria-label="Загрузить видеофайл"
+          aria-label="Upload a video file"
           className={`mt-3 flex cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed px-4 py-3 text-sm text-muted transition duration-200 ease-snappy hover:border-line-strong hover:text-ink ${
             dragging ? "border-accent bg-surface-2" : "border-line bg-surface"
           } ${busy ? "pointer-events-none opacity-50" : ""}`}
         >
           <Upload className="size-4" />
-          Перетащи видео сюда или <span className="font-medium text-ink">выбери файл</span>
+          Drag a video here or <span className="font-medium text-ink">choose a file</span>
         </div>
       ) : (
         <div className="mt-3 flex items-center justify-between gap-2 rounded-md border border-line bg-surface px-4 py-3">
@@ -117,7 +117,7 @@ export function SourceForm({
           <IconButton
             onClick={() => pickFile(null)}
             disabled={busy}
-            aria-label="Убрать файл"
+            aria-label="Remove file"
             size="sm"
           >
             <X className="size-4" />
@@ -134,12 +134,12 @@ export function SourceForm({
       {fileError ? <p className="mt-1 pl-1 text-sm text-bad">{fileError}</p> : null}
 
       <div className="mt-3 flex items-center gap-3 pl-1">
-        <span className="text-sm text-muted">Сколько клипов:</span>
+        <span className="text-sm text-muted">Clips:</span>
         <div className="inline-flex items-center gap-1 rounded-md border border-line bg-surface p-1">
           <IconButton
             onClick={() => setCount((c) => clamp(c - 1))}
             disabled={busy || count <= MIN_CLIPS}
-            aria-label="Меньше клипов"
+            aria-label="Fewer clips"
             size="sm"
             className="text-ink hover:text-ink"
           >
@@ -151,17 +151,17 @@ export function SourceForm({
           <IconButton
             onClick={() => setCount((c) => clamp(c + 1))}
             disabled={busy || count >= MAX_CLIPS}
-            aria-label="Больше клипов"
+            aria-label="More clips"
             size="sm"
             className="text-ink hover:text-ink"
           >
             <Plus className="size-4" />
           </IconButton>
         </div>
-        <span className="text-xs text-muted">ИИ предложит — лишние снимешь сам</span>
+        <span className="text-xs text-muted">AI suggests — uncheck any you don’t want</span>
       </div>
       <p className="mt-2 pl-1 text-sm text-muted">
-        Один спикер, до 90 минут. YouTube-ссылка или файл с компа.
+        One speaker, up to 90 minutes. YouTube link or a file from your computer.
       </p>
     </form>
   );

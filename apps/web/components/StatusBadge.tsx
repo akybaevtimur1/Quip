@@ -1,13 +1,13 @@
 import type { JobStatus } from "@/lib/types";
 
 const LABEL: Record<JobStatus, string> = {
-  queued: "В очереди",
-  downloading: "Скачивание",
-  transcribing: "Транскрипция",
-  selecting: "Выбор моментов",
-  rendering: "Рендер",
-  done: "Готово",
-  failed: "Ошибка",
+  queued: "Queued",
+  downloading: "Downloading",
+  transcribing: "Transcribing",
+  selecting: "Selecting moments",
+  rendering: "Rendering",
+  done: "Done",
+  failed: "Error",
 };
 
 export function StatusBadge({ status }: { status: JobStatus }) {

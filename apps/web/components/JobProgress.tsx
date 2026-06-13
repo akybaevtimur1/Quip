@@ -4,10 +4,10 @@ import type { JobStatus } from "@/lib/types";
 
 const ORDER: JobStatus[] = ["queued", "downloading", "transcribing", "selecting", "rendering", "done"];
 const STEPS: { key: JobStatus; label: string }[] = [
-  { key: "downloading", label: "Скачивание" },
-  { key: "transcribing", label: "Транскрипция" },
-  { key: "selecting", label: "Выбор моментов" },
-  { key: "rendering", label: "Рендер" },
+  { key: "downloading", label: "Downloading" },
+  { key: "transcribing", label: "Transcribing" },
+  { key: "selecting", label: "Selecting moments" },
+  { key: "rendering", label: "Rendering" },
 ];
 
 export function JobProgress({ status, elapsed }: { status: JobStatus; elapsed: number }) {
@@ -16,7 +16,7 @@ export function JobProgress({ status, elapsed }: { status: JobStatus; elapsed: n
   return (
     <div className="w-full max-w-3xl">
       <div className="mb-6 flex items-baseline justify-between">
-        <h2 className="font-display text-2xl font-bold">Режем видео…</h2>
+        <h2 className="font-display text-2xl font-bold">Cutting your video…</h2>
         <span className="font-mono text-sm text-muted" aria-live="polite">
           {mmss(elapsed)}
         </span>
