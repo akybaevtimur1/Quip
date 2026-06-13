@@ -32,13 +32,15 @@ export function PricingCards() {
                 )}
               >
                 {recommended && (
-                  <span className="absolute -top-3 left-7 inline-flex items-center gap-1 rounded-pill bg-accent px-3 py-1 font-mono text-eyebrow uppercase text-white shadow-[0_8px_24px_-10px_rgba(255,90,61,.7)]">
+                  // Near-black on coral: white-on-coral is only 3.09:1 (fails AA for
+                  // small text); dark text on the same coral clears 5.5:1.
+                  <span className="absolute -top-3 left-7 inline-flex items-center gap-1 rounded-pill bg-accent px-3 py-1 font-mono text-eyebrow font-semibold uppercase text-bg shadow-[0_8px_24px_-10px_rgba(255,90,61,.7)]">
                     <Sparkles className="size-3" aria-hidden />
                     Recommended
                   </span>
                 )}
 
-                <h3 className="font-display text-h3 text-ink">{plan.name}</h3>
+                <h2 className="font-display text-h3 text-ink">{plan.name}</h2>
                 <p className="mt-1 text-sm text-muted">{plan.tagline}</p>
 
                 <div className="mt-5 flex items-baseline gap-1">
@@ -58,8 +60,11 @@ export function PricingCards() {
                   href={checkoutHref(plan.id)}
                   className={cn(
                     "mt-6 w-full",
+                    // Recommended CTA = near-white primary (highest contrast + the site's
+                    // established primary-CTA style). Coral emphasis lives in the ring +
+                    // badge, keeping the accent scarce and AA-clean.
                     buttonVariants({
-                      variant: recommended ? "accent" : "secondary",
+                      variant: recommended ? "primary" : "secondary",
                       size: "md",
                     }),
                   )}
