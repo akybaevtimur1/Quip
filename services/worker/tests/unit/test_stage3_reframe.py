@@ -407,6 +407,34 @@ class TestPlanRegions:
         regions = plan_regions([(0, 30)], [], fps=30.0, crop_w_frac=0.32)
         assert regions[0].mode == "fit"
 
+    def test_fill_continuity_across_cuts_no_teleport(self) -> None:
+        """Непрерывность центра поперёк склейки между двумя fill-шотами (анти-телепорт).
+
+        Шот1 говорящий @0.2, шот2 @0.8. Раньше 2-й регион стартовал с 0.8 → камера
+        «телепортировалась». Теперь стартует с конца 1-го (≈0.2) и EMA-едет к 0.8 →
+        плавно. Границы режима НЕ тронуты (инвариант REFRAME_FPS_GRID цел).
+        """
+        from app.pipeline.stage3_reframe import plan_regions
+
+        tracks = [
+            self._track(0, 25, 0.2, 0.12, 0.9),
+            self._track(25, 50, 0.8, 0.12, 0.9),
+        ]
+        regions = plan_regions(
+            [(0, 25), (25, 50)], tracks, fps=25.0, crop_w_frac=0.32, smoothing=0.15
+        )
+        assert len(regions) == 2
+        assert all(r.mode == "fill" for r in regions)
+        end_cx_1 = regions[0].points[-1].cx
+        start_cx_2 = regions[1].points[0].cx
+        assert end_cx_1 is not None and start_cx_2 is not None
+        # 2-й регион стартует близко к концу 1-го (≤ один EMA-шаг), НЕ прыгает сразу в 0.8:
+        assert abs(start_cx_2 - end_cx_1) <= 0.15
+        assert start_cx_2 < 0.45
+        # но к концу шота2 доезжает до говорящего (≈0.8):
+        last_cx = regions[1].points[-1].cx
+        assert last_cx is not None and last_cx > 0.7
+
     def test_split_two_spread_stable_tracks(self) -> None:
         from app.pipeline.stage3_reframe import plan_regions
 

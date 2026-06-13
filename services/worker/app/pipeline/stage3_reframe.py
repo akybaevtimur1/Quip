@@ -278,18 +278,24 @@ def _track_trajectory(
     fps: float,
     smoothing: float,
     min_delta: float = 0.03,
+    *,
+    init_cx: float | None = None,
 ) -> tuple[TrackPoint, ...]:
     """Сглаженная cx-траектория дорожки внутри шота → TrackPoint'ы (клип-время = кадр/fps). PURE.
 
-    init = первый реальный cx (пан не «течёт» от центра). Нет пересечения → точка-фолбэк cx=0.5.
+    init_cx (НЕ None) = центр, на котором закончился ПРЕДЫДУЩИЙ fill-регион → пан EMA-едет
+    от него к новому говорящему (непрерывность поперёк склейки, нет «телепорта»). None →
+    init = первый реальный cx (старое поведение, пан не «течёт» от центра).
     Dead-zone: новый кейфрейм только при сдвиге ≥ min_delta от последнего — убирает
     per-frame дрожание детектора, сохраняет следование реальному движению человека.
+    ⚠️ Границы режима (fill/fit) НЕ трогаем — инвариант docs/REFRAME_FPS_GRID_INVARIANT.md цел:
+    меняется только стартовое значение cx-выражения внутри fill-региона (рендер не меняется).
     """
     lo, hi = max(t.f0, f0), min(t.f1, f1)
     raw = [t.cx[f - t.f0] for f in range(lo, hi)]
     if not raw:
-        return (TrackPoint(t=f0 / fps, mode="fill", cx=0.5),)
-    sm = smooth_centers([c for c in raw], smoothing, init=raw[0])
+        return (TrackPoint(t=f0 / fps, mode="fill", cx=0.5 if init_cx is None else init_cx),)
+    sm = smooth_centers([c for c in raw], smoothing, init=raw[0] if init_cx is None else init_cx)
     last_cx = sm[0]
     pts: list[TrackPoint] = [TrackPoint(t=lo / fps, mode="fill", cx=last_cx)]
     for i, c in enumerate(sm[1:], 1):
@@ -324,11 +330,15 @@ def plan_regions(
     """
     spread_min = crop_w_frac if wide_spread_min is None else wide_spread_min
     regions: list[TrackRegion] = []
+    # cx конца предыдущего fill-региона → новый fill EMA-едет от него (непрерывность поперёк
+    # склейки, нет «телепорта» камеры). Сбрасывается на fit/split (реальная смена плана).
+    prev_fill_end_cx: float | None = None
     for f0, f1 in shots:
         active = [t for t in tracks if t.f0 < f1 and t.f1 > f0]
         t0, t1 = f0 / fps, f1 / fps
         if mode_setting == "fit":
             regions.append(TrackRegion(t0=t0, t1=t1, mode="fit", points=()))
+            prev_fill_end_cx = None
             continue
         if mode_setting != "fill" and (not active or _is_wide_shot(active, f0, f1, spread_min)):
             pair = _split_pair(active, f0, f1, spread_min) if split_enabled else None
@@ -343,16 +353,23 @@ def plan_regions(
                         points_b=_track_trajectory(tb, f0, f1, fps, smoothing),
                     )
                 )
+                prev_fill_end_cx = None
                 continue
             regions.append(TrackRegion(t0=t0, t1=t1, mode="fit", points=()))
+            prev_fill_end_cx = None
             continue
         target = _pick_target(active, speak_threshold)
         pts = (
-            _track_trajectory(target, f0, f1, fps, smoothing)
+            _track_trajectory(target, f0, f1, fps, smoothing, init_cx=prev_fill_end_cx)
             if target is not None
-            else (TrackPoint(t=t0, mode="fill", cx=0.5),)
+            else (
+                TrackPoint(
+                    t=t0, mode="fill", cx=0.5 if prev_fill_end_cx is None else prev_fill_end_cx
+                ),
+            )
         )
         regions.append(TrackRegion(t0=t0, t1=t1, mode="fill", points=pts))
+        prev_fill_end_cx = pts[-1].cx
     return regions
 
 
