@@ -58,7 +58,7 @@ export function ExportMenu({
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="menu"
         aria-expanded={open}
-        className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-line bg-surface-2 px-3 py-2 text-sm font-semibold text-ink transition hover:border-accent/50 hover:text-accent focus:outline-none focus:ring-2 focus:ring-accent/40"
+        className="inline-flex w-full items-center justify-center gap-1.5 rounded-sm border border-line bg-surface-2 px-3 py-2 text-sm font-semibold text-ink transition duration-200 ease-snappy hover:-translate-y-px hover:border-line-strong hover:bg-surface-3"
       >
         <Download className="size-4" />
         Скачать
@@ -67,7 +67,7 @@ export function ExportMenu({
       {open && (
         <div
           role="menu"
-          className={`absolute z-30 min-w-[238px] overflow-hidden rounded-xl border border-line bg-surface shadow-xl ${
+          className={`absolute z-30 min-w-[238px] overflow-hidden rounded-md border border-line-strong bg-surface shadow-[0_16px_40px_-12px_rgba(0,0,0,.7)] ${
             align === "right" ? "right-0" : "left-0"
           } ${placement === "up" ? "bottom-full mb-1" : "mt-1"}`}
         >

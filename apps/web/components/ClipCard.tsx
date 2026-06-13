@@ -51,14 +51,14 @@ export function ClipCard({
 
   return (
     <article
-      className={`flex flex-col rounded-2xl border bg-surface transition ${
-        selected ? "border-accent/60 ring-1 ring-accent/30" : "border-line opacity-55"
+      className={`flex flex-col rounded-lg border bg-surface transition duration-200 ease-snappy ${
+        selected ? "border-accent/60 ring-1 ring-accent/30" : "border-line opacity-55 hover:opacity-80"
       }`}
     >
       {/* ── video ── */}
       <div
         ref={containerRef}
-        className="relative overflow-hidden rounded-t-2xl bg-surface-2"
+        className="relative overflow-hidden rounded-t-lg bg-surface-2"
         style={isFullscreen ? { background: "#000", display: "flex", alignItems: "center", justifyContent: "center" } : {}}
       >
         <video
@@ -84,12 +84,13 @@ export function ClipCard({
           <ReasonChip type={clip.type} />
         </span>
 
-        {/* Fullscreen toggle — fullscreens the container so the overlay travels with it */}
+        {/* Fullscreen toggle — fullscreens the container so the overlay travels with it.
+            Dark scrim is intentional: these controls overlay arbitrary video frames. */}
         <button
           type="button"
           onClick={toggleFullscreen}
           title={isFullscreen ? "Выйти из полного экрана" : "Полный экран"}
-          className="absolute bottom-14 right-10 rounded-md p-1 bg-black/60 text-white/70 hover:text-white transition"
+          className="absolute bottom-14 right-10 rounded-sm bg-black/60 p-1 text-white/70 backdrop-blur-sm transition duration-150 ease-snappy hover:bg-black/75 hover:text-white active:scale-95"
         >
           {isFullscreen ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
         </button>
@@ -100,26 +101,26 @@ export function ClipCard({
             type="button"
             onClick={() => setShowCaptions((v) => !v)}
             title={showCaptions ? "Скрыть анимированные субтитры" : "Показать анимированные субтитры"}
-            className={`absolute bottom-14 right-2 rounded-md px-2 py-0.5 text-[11px] font-bold transition ${
+            className={`absolute bottom-14 right-2 rounded-sm px-2 py-0.5 text-[11px] font-bold backdrop-blur-sm transition duration-150 ease-snappy active:scale-95 ${
               showCaptions
                 ? "bg-accent text-white"
-                : "bg-black/60 text-white/70 hover:text-white"
+                : "bg-black/60 text-white/70 hover:bg-black/75 hover:text-white"
             }`}
           >
             CC
           </button>
         )}
 
-        {/* select button */}
+        {/* select button (custom-styled checkbox affordance over the video) */}
         <button
           type="button"
           onClick={onToggle}
           aria-pressed={selected}
           aria-label={selected ? "Убрать из выбора" : "Добавить в выбор"}
-          className={`absolute right-2 top-2 inline-flex size-7 items-center justify-center rounded-lg border transition focus:outline-none focus:ring-2 focus:ring-accent/50 ${
+          className={`absolute right-2 top-2 inline-flex size-7 items-center justify-center rounded-sm border transition duration-150 ease-snappy active:scale-95 ${
             selected
               ? "border-accent bg-accent text-white"
-              : "border-line bg-surface/80 text-transparent backdrop-blur hover:border-accent/60"
+              : "border-line-strong bg-bg/70 text-transparent backdrop-blur hover:border-accent/60 hover:text-white/30"
           }`}
         >
           <Check className="size-4" strokeWidth={3} />
@@ -175,7 +176,7 @@ export function ClipCard({
               грид восстанавливается deep-link'ом, ничего не теряется. */}
           <Link
             href={`/edit/${jobId}/${clip.id}`}
-            className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-line bg-surface-2 px-3 py-2 text-sm font-semibold text-ink transition hover:border-accent/50 hover:text-accent focus:outline-none"
+            className="inline-flex items-center justify-center gap-1.5 rounded-sm border border-line bg-surface-2 px-3 py-2 text-sm font-semibold text-ink transition duration-200 ease-snappy hover:-translate-y-px hover:border-line-strong hover:bg-surface-3"
           >
             <Pencil className="size-4" />
             Редактировать

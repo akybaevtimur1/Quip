@@ -160,44 +160,55 @@ export default function ClipEditorScreen({
       setRenderState({ kind: "idle" });
       setRawRegions(null);
       setOrigStart(null);
-      try {
-        const [editData, analysisData, ass] = await Promise.all([
-          getClipEdit(jobId, clipId),
-          getClipAnalysis(jobId, clipId),
-          getClipAss(jobId, clipId).catch(() => ""),
-        ]);
-        if (cancelled) return;
-        setEdit(editData);
-        setWords(analysisData.words);
-        setAssText(ass);
-        if (!ass) setError("Не удалось загрузить субтитры превью — показываю упрощённый режим.");
-        setPhase("ready");
-        getTimeline(jobId)
-          .then((t) => !cancelled && setTimeline(t))
-          .catch(() => !cancelled && setTimeline(null));
-        getJob(jobId)
-          .then((job) => {
+      // Авто-ретрай с backoff: воркер мог ещё подниматься (cold start torch/MediaPipe)
+      // или сетевой блип на первом запросе → не показываем ошибку сразу, тихо повторяем.
+      const MAX_ATTEMPTS = 4;
+      for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+        try {
+          const [editData, analysisData, ass] = await Promise.all([
+            getClipEdit(jobId, clipId),
+            getClipAnalysis(jobId, clipId),
+            getClipAss(jobId, clipId).catch(() => ""),
+          ]);
+          if (cancelled) return;
+          setEdit(editData);
+          setWords(analysisData.words);
+          setAssText(ass);
+          if (!ass) setError("Не удалось загрузить субтитры превью — показываю упрощённый режим.");
+          setPhase("ready");
+          getTimeline(jobId)
+            .then((t) => !cancelled && setTimeline(t))
+            .catch(() => !cancelled && setTimeline(null));
+          getJob(jobId)
+            .then((job) => {
+              if (cancelled) return;
+              const ids = (job.clips ?? []).map((c) => c.id);
+              setClipIds(ids.length > 0 ? ids : [clipId]);
+              const me = (job.clips ?? []).find((c) => c.id === clipId);
+              if (me) {
+                setDownloadUrl(resolveUrl(me.video_url));
+                setOrigStart(me.start);
+              }
+            })
+            .catch(() => !cancelled && setClipIds([clipId]));
+          // план кадра пайплайна (нефатально): превью уважает реальные режимы fit/fill/split
+          fetch(resolveUrl(`media/${jobId}/reframe_${clipId}.json`), { cache: "no-store" })
+            .then((r) => (r.ok ? r.json() : null))
+            .then((data) => {
+              if (!cancelled) setRawRegions((data?.regions as RawRegion[]) ?? null);
+            })
+            .catch(() => !cancelled && setRawRegions(null));
+          return; // успех
+        } catch (e) {
+          if (cancelled) return;
+          if (attempt < MAX_ATTEMPTS - 1) {
+            await new Promise((r) => setTimeout(r, 600 * (attempt + 1)));
             if (cancelled) return;
-            const ids = (job.clips ?? []).map((c) => c.id);
-            setClipIds(ids.length > 0 ? ids : [clipId]);
-            const me = (job.clips ?? []).find((c) => c.id === clipId);
-            if (me) {
-              setDownloadUrl(resolveUrl(me.video_url));
-              setOrigStart(me.start);
-            }
-          })
-          .catch(() => !cancelled && setClipIds([clipId]));
-        // план кадра пайплайна (нефатально): превью уважает реальные режимы fit/fill/split
-        fetch(resolveUrl(`media/${jobId}/reframe_${clipId}.json`), { cache: "no-store" })
-          .then((r) => (r.ok ? r.json() : null))
-          .then((data) => {
-            if (!cancelled) setRawRegions((data?.regions as RawRegion[]) ?? null);
-          })
-          .catch(() => !cancelled && setRawRegions(null));
-      } catch (e) {
-        if (cancelled) return;
-        setError(String(e));
-        setPhase("error");
+            continue; // повторяем (воркер ещё поднимается)
+          }
+          setError(String(e));
+          setPhase("error");
+        }
       }
     }
     void fetchData();

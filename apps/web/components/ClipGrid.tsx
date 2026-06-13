@@ -2,13 +2,14 @@
 
 import { CheckSquare, Download, Square } from "lucide-react";
 import { useMemo, useState } from "react";
+import { Button } from "@/components/ui/Button";
 import { mmss, usd } from "@/lib/format";
 import type { Job } from "@/lib/types";
 import { ClipCard, resolveUrl } from "./ClipCard";
 
 function EmptyState() {
   return (
-    <div className="rounded-2xl border border-line bg-surface p-10 text-center">
+    <div className="rounded-lg border border-line bg-surface p-10 text-center">
       <p className="font-display text-xl font-bold">Нечего нарезать</p>
       <p className="mx-auto mt-2 max-w-sm text-sm text-muted">
         Из этого видео не нашлось моментов, которые работают самостоятельно. Это не ошибка —
@@ -75,27 +76,25 @@ export function ClipGrid({ job }: { job: Job }) {
         </p>
       ) : null}
 
-      <div className="mb-5 flex flex-wrap items-center gap-3 rounded-xl border border-line bg-surface p-3">
+      <div className="mb-5 flex flex-wrap items-center gap-3 rounded-lg border border-line bg-surface p-3">
         <span className="font-mono text-sm text-ink">
           Выбрано {selected.size} из {clips.length}
         </span>
-        <button
-          type="button"
-          onClick={toggleAll}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-sm text-muted transition hover:text-ink"
-        >
+        <Button type="button" variant="secondary" size="sm" onClick={toggleAll}>
           {allSelected ? <Square className="size-4" /> : <CheckSquare className="size-4" />}
           {allSelected ? "Снять все" : "Выбрать все"}
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
+          variant="accent"
+          size="sm"
           onClick={downloadSelected}
           disabled={selected.size === 0}
-          className="ml-auto inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-1.5 text-sm font-semibold text-white transition hover:bg-accent-2 focus:outline-none focus:ring-2 focus:ring-accent/50 disabled:cursor-not-allowed disabled:opacity-40"
+          className="ml-auto"
         >
           <Download className="size-4" />
           Скачать выбранные ({selected.size})
-        </button>
+        </Button>
       </div>
 
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">

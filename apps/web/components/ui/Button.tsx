@@ -1,7 +1,7 @@
 import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/cn";
 
-export type ButtonVariant = "primary" | "secondary" | "ghost";
+export type ButtonVariant = "primary" | "secondary" | "ghost" | "accent";
 export type ButtonSize = "sm" | "md" | "lg";
 
 const base =
@@ -18,6 +18,11 @@ const variantClass: Record<ButtonVariant, string> = {
   secondary:
     "bg-surface-2 text-ink border border-line hover:border-line-strong hover:bg-surface-3 hover:-translate-y-px",
   ghost: "text-muted hover:text-ink hover:bg-surface-2",
+  // coral CTA for in-product moments (run, apply, retry). White-on-coral passes AA;
+  // use sparingly per DESIGN.md (one or two per view). Lifts on hover, settles on press.
+  accent:
+    "bg-accent text-white shadow-[0_1px_0_rgba(255,255,255,.18)_inset,0_12px_34px_-18px_rgba(255,90,61,.6)] " +
+    "hover:bg-accent-2 hover:-translate-y-px",
 };
 
 const sizeClass: Record<ButtonSize, string> = {

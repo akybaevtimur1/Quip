@@ -1,6 +1,8 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { Checkbox } from "@/components/ui/Checkbox";
+import { Select } from "@/components/ui/Select";
 import type { CaptionStyle, ClipEdit, HighlightStyle } from "@/lib/types";
 import { PresetStrip } from "../PresetStrip";
 
@@ -82,18 +84,17 @@ export function StyleTab({
           />
           <label className="flex flex-col gap-1 text-xs text-muted">
             Шрифт
-            <select
+            <Select
               value={st.font ?? "Montserrat"}
               disabled={busy}
               onChange={(e) => onStyleChange({ font: e.target.value })}
-              className="rounded-lg border border-line bg-surface-2 px-2 py-1.5 text-sm text-ink outline-none focus:ring-2 focus:ring-accent/40"
             >
               {CAPTION_FONTS.map((f) => (
                 <option key={f} value={f}>
                   {f}
                 </option>
               ))}
-            </select>
+            </Select>
           </label>
         </div>
 
@@ -118,7 +119,7 @@ export function StyleTab({
 
         <label className="flex flex-col gap-1 text-xs text-muted">
           Анимация активного слова
-          <select
+          <Select
             value={hl === null ? "off" : (hl.animation ?? "karaoke_fill")}
             disabled={busy}
             onChange={(e) => {
@@ -126,7 +127,6 @@ export function StyleTab({
               if (v === "off") onHighlightChange(null);
               else onHighlightChange({ animation: v as HighlightStyle["animation"] });
             }}
-            className="rounded-lg border border-line bg-surface-2 px-2 py-1.5 text-sm text-ink outline-none focus:ring-2 focus:ring-accent/40"
           >
             {ANIMATIONS.map((a) => (
               <option key={a.value} value={a.value}>
@@ -134,34 +134,26 @@ export function StyleTab({
               </option>
             ))}
             <option value="off">Подсветка выключена</option>
-          </select>
+          </Select>
         </label>
 
-        <label className="flex items-center gap-2 text-xs text-muted">
-          <input
-            type="checkbox"
-            checked={st.uppercase ?? true}
-            disabled={busy}
-            onChange={(e) => onStyleChange({ uppercase: e.target.checked })}
-            className="size-3.5 accent-accent"
-          />
-          ЗАГЛАВНЫМИ БУКВАМИ
-        </label>
+        <Checkbox
+          checked={st.uppercase ?? true}
+          disabled={busy}
+          onChange={(e) => onStyleChange({ uppercase: e.target.checked })}
+          label="ЗАГЛАВНЫМИ БУКВАМИ"
+          className="text-xs"
+        />
 
         {/* T3: авто-подсветка ключевых слов (числа + длинные контентные) */}
-        <div className="space-y-2 border-t border-line/60 pt-3">
-          <label className="flex items-center gap-2 text-xs text-muted">
-            <input
-              type="checkbox"
-              checked={!!st.emphasis_color}
-              disabled={busy}
-              onChange={(e) =>
-                onStyleChange({ emphasis_color: e.target.checked ? "#FF5A3D" : null })
-              }
-              className="size-3.5 accent-accent"
-            />
-            Подсвечивать ключевые слова
-          </label>
+        <div className="space-y-2 border-t border-line pt-3">
+          <Checkbox
+            checked={!!st.emphasis_color}
+            disabled={busy}
+            onChange={(e) => onStyleChange({ emphasis_color: e.target.checked ? "#FF5A3D" : null })}
+            label="Подсвечивать ключевые слова"
+            className="text-xs"
+          />
           {st.emphasis_color && (
             <ColorField
               label="Цвет ключевых слов"
@@ -198,14 +190,14 @@ function ColorField({
   return (
     <label className="flex flex-col gap-1 text-xs text-muted">
       {label}
-      <span className="flex items-center gap-2 rounded-lg border border-line bg-surface-2 px-2 py-1">
+      <span className="flex items-center gap-2 rounded-sm border border-line bg-surface-2 px-2 py-1 transition-colors hover:border-line-strong">
         <input
           type="color"
           value={local}
           disabled={disabled}
           onInput={(e) => setLocal((e.target as HTMLInputElement).value)}
           onChange={(e) => onChange(e.target.value.toUpperCase())}
-          className="size-6 cursor-pointer rounded border-0 bg-transparent p-0 disabled:cursor-not-allowed"
+          className="size-6 cursor-pointer rounded-sm border-0 bg-transparent p-0 disabled:cursor-not-allowed"
         />
         <span className="font-mono text-[11px] uppercase text-ink">{local}</span>
       </span>

@@ -10,6 +10,8 @@ const MAX = 12;
 const listeners = new Set<() => void>();
 let snapshot: RecentProject[] = [];
 let loaded = false;
+// Stable reference for SSR/hydration (useSyncExternalStore caches by identity).
+const EMPTY_SNAPSHOT: readonly RecentProject[] = [];
 
 function readStorage(): RecentProject[] {
   if (typeof window === "undefined") return [];
@@ -41,7 +43,7 @@ export function getRecentSnapshot(): RecentProject[] {
 }
 
 export function getRecentServerSnapshot(): RecentProject[] {
-  return [];
+  return EMPTY_SNAPSHOT as RecentProject[];
 }
 
 export function subscribeRecent(cb: () => void): () => void {

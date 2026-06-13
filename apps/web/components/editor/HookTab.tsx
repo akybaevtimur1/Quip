@@ -1,7 +1,9 @@
 "use client";
 
-import { Sparkles } from "lucide-react";
+import { Sparkles, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { Button } from "@/components/ui/Button";
+import { Checkbox } from "@/components/ui/Checkbox";
 import type { ClipEdit, HookOverlay } from "@/lib/types";
 
 // ── Таб «Хук»: топ-текст клипа (T1, наш отличитель — объяснимый цепляющий заголовок) ──
@@ -53,18 +55,15 @@ export function HookTab({
           <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">
             Топ-текст (хук)
           </p>
-          <label className="flex cursor-pointer items-center gap-2 text-xs text-muted">
-            <input
-              type="checkbox"
-              checked={enabled}
-              disabled={busy}
-              onChange={(e) =>
-                onHookChange(e.target.checked ? { enabled: true } : { enabled: false })
-              }
-              className="size-3.5 accent-accent"
-            />
-            Показывать
-          </label>
+          <Checkbox
+            label="Показывать"
+            className="text-xs"
+            checked={enabled}
+            disabled={busy}
+            onChange={(e) =>
+              onHookChange(e.target.checked ? { enabled: true } : { enabled: false })
+            }
+          />
         </div>
 
         <textarea
@@ -138,14 +137,17 @@ export function HookTab({
       </section>
 
       {hook && (
-        <button
+        <Button
           type="button"
+          variant="ghost"
+          size="sm"
           disabled={busy}
           onClick={() => onHookChange(null)}
-          className="self-start text-xs text-muted underline-offset-2 transition hover:text-red-400 hover:underline"
+          className="self-start text-bad hover:bg-bad/10 hover:text-bad"
         >
+          <Trash2 className="size-3.5" />
           Убрать хук
-        </button>
+        </Button>
       )}
     </div>
   );
