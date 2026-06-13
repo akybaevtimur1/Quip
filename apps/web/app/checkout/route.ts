@@ -12,22 +12,33 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 export async function GET(req: NextRequest) {
   const token = process.env.POLAR_ACCESS_TOKEN;
   const products = req.nextUrl.searchParams.get("products");
-  if (!token || !products) {
-    return NextResponse.redirect(new URL("/signup", req.url));
-  }
 
-  // Привязка покупки к аккаунту: external_id = supabase user.id (читаем сессию на сервере).
-  const url = new URL(req.url);
-  if (isSupabaseConfigured && !url.searchParams.get("customerExternalId")) {
+  // Сессию читаем СНАЧАЛА: нужна и для external_id, и для разумного фолбэка без Polar.
+  let userId: string | null = null;
+  if (isSupabaseConfigured) {
     try {
       const supabase = await createSupabaseServerClient();
       const {
         data: { user },
       } = await supabase.auth.getUser();
-      if (user) url.searchParams.set("customerExternalId", user.id);
+      userId = user?.id ?? null;
     } catch {
-      // нет сессии → анонимный checkout; вебхук свяжет по email
+      // нет сессии → анонимный checkout позже свяжется по email
     }
+  }
+
+  if (!token || !products) {
+    // Polar ещё не сконфигурирован (фаундер впишет POLAR_ACCESS_TOKEN). НЕ кидаем
+    // залогиненного на /dashboard (через /signup): держим его на /pricing с пометкой;
+    // незалогиненного — в воронку регистрации.
+    const dest = userId ? "/pricing?checkout=unavailable" : "/signup";
+    return NextResponse.redirect(new URL(dest, req.url));
+  }
+
+  // Привязка покупки к аккаунту: external_id = supabase user.id.
+  const url = new URL(req.url);
+  if (userId && !url.searchParams.get("customerExternalId")) {
+    url.searchParams.set("customerExternalId", userId);
   }
 
   const handler = Checkout({

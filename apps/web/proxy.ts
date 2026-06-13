@@ -14,6 +14,13 @@ function isProtected(path: string): boolean {
 export async function proxy(request: NextRequest) {
   if (!isSupabaseConfigured) return NextResponse.next();
 
+  // Only pay the Supabase getUser() round-trip where the session matters: protected app
+  // routes (the gate) + auth pages (bounce logged-in users). Public marketing pages
+  // (/, /pricing, /terms, …) skip it → no per-navigation latency (fixes slow /pricing).
+  const path = request.nextUrl.pathname;
+  const isAuthPage = path === "/login" || path === "/signup";
+  if (!isProtected(path) && !isAuthPage) return NextResponse.next();
+
   let response = NextResponse.next({ request });
   const supabase = createServerClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     cookies: {
@@ -34,7 +41,6 @@ export async function proxy(request: NextRequest) {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  const path = request.nextUrl.pathname;
 
   if (!user && isProtected(path)) {
     const url = request.nextUrl.clone();
@@ -42,7 +48,7 @@ export async function proxy(request: NextRequest) {
     url.searchParams.set("next", path);
     return NextResponse.redirect(url);
   }
-  if (user && (path === "/login" || path === "/signup")) {
+  if (user && isAuthPage) {
     const url = request.nextUrl.clone();
     url.pathname = "/dashboard";
     return NextResponse.redirect(url);

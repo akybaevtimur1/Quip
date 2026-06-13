@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
+import { CheckoutNotice } from "@/components/marketing/CheckoutNotice";
 import { Comparison } from "@/components/marketing/Comparison";
 import { Faq } from "@/components/marketing/Faq";
 import { PricingCards } from "@/components/marketing/PricingCards";
@@ -15,6 +17,9 @@ export const metadata: Metadata = {
 export default function PricingPage() {
   return (
     <>
+      <Suspense fallback={null}>
+        <CheckoutNotice />
+      </Suspense>
       <Container className="pt-16 text-center sm:pt-24">
         <Eyebrow>Pricing</Eyebrow>
         <h1 className="mx-auto mt-5 max-w-2xl font-display text-display-lg text-ink sm:text-display-xl">
