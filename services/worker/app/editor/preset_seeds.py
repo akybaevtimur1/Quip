@@ -18,9 +18,12 @@ def seed_presets() -> list[CaptionPreset]:
     return [
         CaptionPreset(
             id="preset_a",
-            name="Караоке-бокс",
+            name="Активное слово",
+            # Дефолт = вирусный стандарт (OpusClip/Submagic): активное слово вспыхивает
+            # кораллом + подскок (pop) РОВНО в момент произнесения. box=False — per-word
+            # плашка в libass не рисуется (нет примитива фона под спан), не обещаем её.
             style=CaptionStyle(size=84, color="#FFFFFF", outline_color="#000000", outline_w=7),
-            highlight=HighlightStyle(color="#FF5A3D", scale=1.0, box=True),
+            highlight=HighlightStyle(color="#FF5A3D", scale=1.0, box=False, animation="pop"),
         ),
         CaptionPreset(
             id="preset_b",

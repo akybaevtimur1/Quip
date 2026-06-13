@@ -198,3 +198,12 @@ class TestDefaultCaptionTrackHook:
         intervals = [SourceInterval(source_start=0.0, source_end=0.4)]
         track = default_caption_track(words, intervals, hook=None)
         assert track.hook is None
+
+    def test_default_highlight_is_active_word_pop(self) -> None:
+        # #4: дефолт = активное слово вспыхивает + pop (вирусный вид), НЕ плоская заливка
+        words = [_w("раз", 0.0, 0.4), _w("два", 0.4, 0.8)]
+        intervals = [SourceInterval(source_start=0.0, source_end=0.8)]
+        track = default_caption_track(words, intervals)
+        assert track.highlight is not None
+        assert track.highlight.animation == "pop"
+        assert track.highlight.box is False  # per-word плашка в libass не рисуется → не обещаем
