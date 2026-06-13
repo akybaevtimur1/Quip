@@ -48,7 +48,7 @@ export function EditorHeader({
       {/* лево: назад + навигация по клипам */}
       <div className="flex min-w-0 items-center gap-3">
         <Link
-          href={`/?job=${jobId}`}
+          href={`/dashboard?job=${jobId}`}
           className="inline-flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-sm text-muted transition hover:border-accent/50 hover:text-ink focus:outline-none focus:ring-2 focus:ring-accent/40"
         >
           <ArrowLeft className="size-4" />

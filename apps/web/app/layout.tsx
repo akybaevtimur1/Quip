@@ -55,8 +55,19 @@ export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" className={`${onest.variable} ${plexMono.variable} h-full`}>
-      <body className="min-h-full bg-bg text-ink antialiased">{children}</body>
+    <html
+      lang="en"
+      className={`${onest.variable} ${plexMono.variable} h-full`}
+      suppressHydrationWarning
+    >
+      <body className="min-h-full bg-bg text-ink antialiased">
+        {/* Mark JS active before paint so scroll-reveal only hides content when it
+            can actually animate it back in (no-JS / crawlers see everything). */}
+        <script
+          dangerouslySetInnerHTML={{ __html: "document.documentElement.classList.add('js')" }}
+        />
+        {children}
+      </body>
     </html>
   );
 }
