@@ -699,3 +699,35 @@ accurate) и форк `if reframe_speaker:` — два отдельных пут
   `job_9cae49a1103c` почищен → re-render показывает reframe-фикс за $0 (транскрипт/сегменты кэшированы).
 - ⚠️ Открыто для след. сессии: линейный рендер-expr (по запросу), живой auth+оплата (ждём ключи Supabase/
   Polar), JWT-валидация гейта (замена X-User-Id), запись usage в пайплайне, i18n ядра.
+
+### Дизайн-чистка видео-флоу + финальный прайсинг (ветка `feat/production-shell`, 2026-06-13)
+Запрос фаундера: «флоу работы с видео выглядят ублюдски — глобальный рефактор дизайна», дизайн-скиллами.
+Затем — внедрить финальный прайсинг (кредит-модель). 3 коммита.
+- **Дизайн (`5b8db44`)**: аудит редактора/дашборда через Playwright + скиллы ui-ux-pro-max/frontend-design.
+  КОРЕНЬ «ублюдскости» = системный анти-паттерн `bg-accent/10..25` для active/selected: коралл #ff5a3d
+  на 10-25% альфы поверх near-black = грязно-бордовое пятно (нарушает DESIGN.md «коралл скуп, элевация =
+  поверхности+хайрлайны»). Лечение: нейтральная приподнятая поверхность (`surface-3`) + чёткий коралл в
+  тексте/рамке/рельсе (как CapCut/Descript), НЕ полупрозрачная заливка. Затронуто 17 фронт-файлов:
+  таб-бар редактора, активная реплика (коралл-рельс), FrameTab/HookTab/PresetStrip/EditorHeader
+  (ad-hoc коралл-кнопки → `Button`), JobProgress/StatusBadge/ErrorPanel (ошибка коралл→`bad`), Button
+  (disabled accent → нейтр. поверхность, был мутный «сломанный» CTA «Нарезать»). Радиусы редактора xl→lg.
+  Язык: дашборд-шелл был EN поверх русского инструмента (мешанина) → русифицирован (лендинг не трогал).
+  Урок: примитивы (Checkbox/Switch/Button) были ПРАВИЛЬНЫЕ (solid coral); болезнь — ad-hoc классы в обход.
+- **Прайсинг бэкенд (`616e895`, TDD)**: кредит-модель в `billing.py` (источник правды). 1 кредит = 1 видео
+  ≤60 мин; длиннее → `credits=max(1,ceil(мин/60))`. Free $0/2кр/≤30мин/wm/720; Starter $10/10кр/1080;
+  Pro $25/30кр/приоритет; PAYG $2/кредит (не сгорает). `check_quota` возвращает решение + split списания
+  (from_monthly/from_payg — тянет месячный, затем PAYG). `db.py`: profiles.payg_credits + usage_events.credits
+  (+ALTER-миграция старых SQLite) + get_profile/add_payg_credits. `polar.py`: parse_payg_order (разовый
+  заказ→кредиты) + metadata.plan-фолбэк. `main.py`: гейт на кредиты+PAYG, вебхук обрабатывает PAYG.
+  migrations/0002_credits.sql. **421 тест зелёный.**
+- **Прайсинг фронт (`616e895`+`85b572e`)**: `lib/plans.ts` зеркалит billing; `lib/polar.ts` PAYG-checkout +
+  Polar product IDs задокументированы (dual-mode→/signup). `PricingCards` редизайн (скиллы taste/emil):
+  hairline-карточки, Pro=RECOMMENDED (бейдж+ринг), PAYG-полоса. Копирайт/FAQ/Comparison под кредиты,
+  em-dash вычищен. **Lighthouse /pricing desktop a11y/BP/SEO/agentic = 100/100/100/100.**
+  ⚠️ Грабля: DESIGN.md врал «white-on-coral проходит AA» — #fff на #ff5a3d = 3.09:1 (фейл <18px). Фикс:
+  рекомендованный CTA → `primary` (near-white), бейдж → near-black на коралле. Глобальный accent-Button
+  (white-on-coral, в редакторе) НЕ трогал — не на аудируемых страницах + брендовое решение фаундера;
+  но это РЕАЛЬНЫЙ app-wide a11y-долг (Рендер/Применить/Нарезать) — фиксить если важна строгая AA в продукте.
+- ⚠️ Фаундеру: (1) Founding Pass $5 — решить ЧТО даёт (TODO в billing.py; в UI не показан); (2) Polar
+  hosted-checkout ссылки в `NEXT_PUBLIC_POLAR_CHECKOUT_*` + `POLAR_PRODUCT_PAYG`; (3) числа на сайте
+  зеркалят `billing.py` — менять в ОБОИХ местах.
