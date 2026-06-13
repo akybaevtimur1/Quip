@@ -1,3 +1,5 @@
+import { createSupabaseBrowserClient } from "./supabase/client";
+import { isSupabaseConfigured } from "./supabase/config";
 import type {
   CaptionPreset,
   CaptionTrack,
@@ -11,20 +13,52 @@ import type {
 // База воркера: реальный worker через env, иначе встроенный мок (/api/mock).
 const BASE = process.env.NEXT_PUBLIC_WORKER_URL ?? "/api/mock";
 
+/** Заголовок авторизации для воркера: текущий Supabase access_token (когда auth настроен).
+ *  Воркер валидирует JWT (JWKS проекта) и достаёт user_id. Без auth → пустой объект (dev). */
+async function authHeaders(): Promise<Record<string, string>> {
+  if (!isSupabaseConfigured) return {};
+  try {
+    const { data } = await createSupabaseBrowserClient().auth.getSession();
+    const token = data.session?.access_token;
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  } catch {
+    return {};
+  }
+}
+
 export type CreateJobInput = {
   source_type: "youtube";
   source_ref: string;
   max_clips?: number;
 };
 
+export interface UsageInfo {
+  plan: string;
+  plan_name: string;
+  monthly_credits: number;
+  used_credits: number;
+  remaining_credits: number;
+  payg_credits: number;
+}
+
 export async function createJob(input: CreateJobInput): Promise<{ id: string }> {
   const res = await fetch(`${BASE}/jobs`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...(await authHeaders()) },
     body: JSON.stringify(input),
   });
+  await throwOnAuthOrQuota(res);
   if (!res.ok) throw new Error(`createJob failed: ${res.status}`);
   return res.json();
+}
+
+/** 401/402 от воркера → понятная ошибка (серверная причина квоты сохраняется). */
+async function throwOnAuthOrQuota(res: Response): Promise<void> {
+  if (res.status === 401) throw new Error("Войдите в аккаунт, чтобы создавать клипы.");
+  if (res.status === 402) {
+    const body = (await res.json().catch(() => null)) as { detail?: string } | null;
+    throw new Error(body?.detail ?? "Месячный лимит исчерпан. Обновите тариф на странице тарифов.");
+  }
 }
 
 export async function createUploadJob(
@@ -35,8 +69,21 @@ export async function createUploadJob(
   form.append("file", file);
   if (maxClips != null) form.append("max_clips", String(maxClips));
   // НЕ задаём Content-Type вручную — браузер сам выставит multipart boundary.
-  const res = await fetch(`${BASE}/jobs/upload`, { method: "POST", body: form });
+  const res = await fetch(`${BASE}/jobs/upload`, {
+    method: "POST",
+    headers: await authHeaders(),
+    body: form,
+  });
+  await throwOnAuthOrQuota(res);
   if (!res.ok) throw new Error(`createUploadJob failed: ${res.status}`);
+  return res.json();
+}
+
+/** Живой расход (план + остаток кредитов) для UsageMeter. Бросает при недоступности —
+ *  UsageMeter откатывается на дефолт free (dual-mode без воркера/auth). */
+export async function getUsage(): Promise<UsageInfo> {
+  const res = await fetch(`${BASE}/usage`, { cache: "no-store", headers: await authHeaders() });
+  if (!res.ok) throw new Error(`getUsage failed: ${res.status}`);
   return res.json();
 }
 

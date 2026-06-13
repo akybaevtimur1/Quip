@@ -1,0 +1,137 @@
+"""Persist плана/расхода в Supabase Postgres через PostgREST (service_role).
+
+Активен ⇔ ``BILLING_ENABLED`` + ``SUPABASE_URL`` + ``SUPABASE_SERVICE_ROLE_KEY``. Привязка
+к ``BILLING_ENABLED`` намеренная: пока биллинг выключен — всё идёт в SQLite, а миграцию
+0002 (payg_credits/credits) фаундеру не обязательно применять. Когда фаундер применит
+0002 и включит ``BILLING_ENABLED`` — план/usage начинают писаться в Postgres.
+
+``service_role`` обходит RLS → план и usage пишет ТОЛЬКО сервер (у юзера нет таких прав).
+PURE-агрегаторы (``_sum_usage`` / ``_profile_from_rows``) покрыты тестами; httpx-вызовы тонкие.
+
+Схема (миграции 0001+0002): ``profiles(id uuid PK, plan, payg_credits)``,
+``usage_events(user_id uuid, job_id, source_minutes, credits, month)``.
+"""
+
+from __future__ import annotations
+
+import os
+from typing import Any
+
+import httpx
+
+_TIMEOUT = httpx.Timeout(connect=5.0, read=10.0, write=10.0, pool=5.0)
+
+
+def supa_enabled() -> bool:
+    """Писать ли в Supabase (vs SQLite). Гейт = BILLING_ENABLED + URL + service_role."""
+    billing = os.environ.get("BILLING_ENABLED", "").strip().lower() in ("1", "true", "yes")
+    return bool(
+        billing and os.environ.get("SUPABASE_URL") and os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+    )
+
+
+def _base() -> str:
+    return f"{os.environ['SUPABASE_URL'].rstrip('/')}/rest/v1"
+
+
+def _headers(extra: dict[str, str] | None = None) -> dict[str, str]:
+    key = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+    headers = {"apikey": key, "Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+    if extra:
+        headers.update(extra)
+    return headers
+
+
+# ─────────────────────────── PURE-агрегаторы (тестируемые) ───────────────────────────
+
+
+def _sum_usage(rows: list[dict[str, Any]]) -> dict[str, float]:
+    """Строки usage_events за месяц → {videos, minutes, credits}. PURE."""
+    return {
+        "videos": len(rows),
+        "minutes": float(sum(float(r.get("source_minutes") or 0) for r in rows)),
+        "credits": int(sum(int(r.get("credits") or 0) for r in rows)),
+    }
+
+
+def _profile_from_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Ответ PostgREST на profiles → {plan, payg_credits}. Пусто → free / 0. PURE."""
+    if not rows:
+        return {"plan": "free", "payg_credits": 0}
+    r = rows[0]
+    return {"plan": str(r.get("plan") or "free"), "payg_credits": int(r.get("payg_credits") or 0)}
+
+
+# ─────────────────────────── I/O (тонкие обёртки) ───────────────────────────
+
+
+def get_profile(user_id: str) -> dict[str, Any]:
+    r = httpx.get(
+        f"{_base()}/profiles",
+        params={"id": f"eq.{user_id}", "select": "plan,payg_credits"},
+        headers=_headers(),
+        timeout=_TIMEOUT,
+    )
+    r.raise_for_status()
+    return _profile_from_rows(r.json())
+
+
+def get_user_plan(user_id: str) -> str:
+    return str(get_profile(user_id)["plan"])
+
+
+def set_user_plan(user_id: str, plan: str) -> None:
+    r = httpx.patch(
+        f"{_base()}/profiles",
+        params={"id": f"eq.{user_id}"},
+        headers=_headers({"Prefer": "return=minimal"}),
+        json={"plan": plan},
+        timeout=_TIMEOUT,
+    )
+    r.raise_for_status()
+
+
+def add_payg_credits(user_id: str, credits: int) -> None:
+    # GET текущий баланс + PATCH (вебхук последователен → гонка маловероятна).
+    current = int(get_profile(user_id)["payg_credits"])
+    r = httpx.patch(
+        f"{_base()}/profiles",
+        params={"id": f"eq.{user_id}"},
+        headers=_headers({"Prefer": "return=minimal"}),
+        json={"payg_credits": current + int(credits)},
+        timeout=_TIMEOUT,
+    )
+    r.raise_for_status()
+
+
+def record_usage(
+    user_id: str, job_id: str | None, source_minutes: float, month: str, credits: int
+) -> None:
+    r = httpx.post(
+        f"{_base()}/usage_events",
+        headers=_headers({"Prefer": "return=minimal"}),
+        json={
+            "user_id": user_id,
+            "job_id": job_id,
+            "source_minutes": source_minutes,
+            "credits": int(credits),
+            "month": month,
+        },
+        timeout=_TIMEOUT,
+    )
+    r.raise_for_status()
+
+
+def get_monthly_usage(user_id: str, month: str) -> dict[str, float]:
+    r = httpx.get(
+        f"{_base()}/usage_events",
+        params={
+            "user_id": f"eq.{user_id}",
+            "month": f"eq.{month}",
+            "select": "source_minutes,credits",
+        },
+        headers=_headers(),
+        timeout=_TIMEOUT,
+    )
+    r.raise_for_status()
+    return _sum_usage(r.json())

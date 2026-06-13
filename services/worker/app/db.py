@@ -12,6 +12,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from app import supa
 from app.billing import credits_per_video
 from app.models import Job
 
@@ -211,6 +212,9 @@ def record_usage(
     может передать фактически списанное (месячный+PAYG) число для точного учёта.
     """
     n = credits if credits is not None else credits_per_video(source_minutes)
+    if supa.supa_enabled():
+        supa.record_usage(user_id, job_id, source_minutes, month, int(n))
+        return
     with _conn() as c:
         c.execute(
             "INSERT INTO usage_events (user_id, job_id, source_minutes, credits, month, created_at)"
@@ -221,6 +225,8 @@ def record_usage(
 
 def get_monthly_usage(user_id: str, month: str) -> dict[str, float]:
     """Месячный расход → {"videos", "minutes", "credits"} (credits = списано с месячного лимита)."""
+    if supa.supa_enabled():
+        return supa.get_monthly_usage(user_id, month)
     with _conn() as c:
         row = c.execute(
             "SELECT COUNT(*) AS videos, COALESCE(SUM(source_minutes), 0) AS minutes,"
@@ -241,6 +247,9 @@ def get_monthly_usage(user_id: str, month: str) -> dict[str, float]:
 
 def set_user_plan(user_id: str, plan: str) -> None:
     """Установить план пользователя (вебхук подписки Polar → plan). Upsert (PAYG не трогаем)."""
+    if supa.supa_enabled():
+        supa.set_user_plan(user_id, plan)
+        return
     with _conn() as c:
         c.execute(
             "INSERT INTO profiles (user_id, plan, updated_at) VALUES (?,?,?)"
@@ -252,6 +261,9 @@ def set_user_plan(user_id: str, plan: str) -> None:
 
 def add_payg_credits(user_id: str, credits: int) -> None:
     """Начислить не сгорающие PAYG-кредиты (вебхук разовой оплаты Polar). Upsert (+=)."""
+    if supa.supa_enabled():
+        supa.add_payg_credits(user_id, credits)
+        return
     with _conn() as c:
         c.execute(
             "INSERT INTO profiles (user_id, plan, payg_credits, updated_at) VALUES (?,?,?,?)"
@@ -264,6 +276,8 @@ def add_payg_credits(user_id: str, credits: int) -> None:
 
 def get_user_plan(user_id: str) -> str:
     """План пользователя для гейта квоты. Нет записи → "free" (безопасный дефолт)."""
+    if supa.supa_enabled():
+        return supa.get_user_plan(user_id)
     with _conn() as c:
         row = c.execute("SELECT plan FROM profiles WHERE user_id=?", (user_id,)).fetchone()
     return str(row["plan"]) if row is not None else "free"
@@ -271,6 +285,8 @@ def get_user_plan(user_id: str) -> str:
 
 def get_profile(user_id: str) -> dict[str, Any]:
     """Профиль для гейта квоты → {"plan", "payg_credits"}. Нет записи → free / 0."""
+    if supa.supa_enabled():
+        return supa.get_profile(user_id)
     with _conn() as c:
         row = c.execute(
             "SELECT plan, payg_credits FROM profiles WHERE user_id=?", (user_id,)

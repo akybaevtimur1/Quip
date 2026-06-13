@@ -6,10 +6,27 @@
 
 from __future__ import annotations
 
-from app import db
+import logging
+
+from app import billing, db
 from app.errors import JobError
-from app.models import JobStatus
+from app.models import Job, JobStatus
 from app.run import run_pipeline
+
+_log = logging.getLogger("clipflow.billing")
+
+
+def _meter(user_id: str | None, job_id: str, job: Job) -> None:
+    """Записать расход обработанного видео (минуты исходника → кредиты) для авторизованного
+    юзера. Best-effort ПОСЛЕ set_done: метеринг не должен ронять готовый клип, но и не
+    глотается молча — провал логируется с контекстом (правило №8: видимая ошибка)."""
+    if not user_id:
+        return
+    minutes = (job.metrics.duration_sec / 60.0) if job.metrics else 0.0
+    try:
+        db.record_usage(user_id, job_id, minutes, billing.current_month())
+    except Exception:
+        _log.exception("usage record failed: job=%s user=%s", job_id, user_id)
 
 
 def render_edit_to_file(job_id: str, clip_id: str, *, with_subtitles: bool, out_rel: str) -> None:
@@ -124,7 +141,11 @@ def generate_chapters_job(job_id: str) -> None:
 
 
 def run_pipeline_job(
-    job_id: str, source_type: str, source_ref: str, max_clips: int | None = None
+    job_id: str,
+    source_type: str,
+    source_ref: str,
+    max_clips: int | None = None,
+    user_id: str | None = None,
 ) -> None:
     def on_status(status: JobStatus, progress: int) -> None:
         db.update_status(job_id, status.value, progress)
@@ -132,13 +153,20 @@ def run_pipeline_job(
     try:
         job = run_pipeline(job_id, source_url=source_ref, on_status=on_status, max_clips=max_clips)
         db.set_done(job_id, job)
+        _meter(user_id, job_id, job)
     except JobError as e:
         db.set_failed(job_id, str(e))
     except Exception as e:  # noqa: BLE001 — фон-таск: любое падение → статус failed, не молча
         db.set_failed(job_id, f"unexpected: {e}")
 
 
-def run_upload_job(job_id: str, upload_path: str, title: str, max_clips: int | None = None) -> None:
+def run_upload_job(
+    job_id: str,
+    upload_path: str,
+    title: str,
+    max_clips: int | None = None,
+    user_id: str | None = None,
+) -> None:
     """Фон-таск для загруженного файла: импорт файла → тот же run_pipeline (без скачивания).
 
     import_upload готовит source.mp4/wav/meta.json → run_pipeline(source_url=None) видит их
@@ -157,6 +185,7 @@ def run_upload_job(job_id: str, upload_path: str, title: str, max_clips: int | N
         import_upload(Path(upload_path), DATA_ROOT / job_id, job_id=job_id, title=title)
         job = run_pipeline(job_id, source_url=None, on_status=on_status, max_clips=max_clips)
         db.set_done(job_id, job)
+        _meter(user_id, job_id, job)
     except JobError as e:
         db.set_failed(job_id, str(e))
     except Exception as e:  # noqa: BLE001 — фон-таск: любое падение → статус failed, не молча

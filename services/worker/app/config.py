@@ -102,3 +102,17 @@ class Settings(BaseSettings):
 def get_settings() -> Settings:
     """Закэшированный синглтон настроек. Бросает ValidationError при отсутствии ключа."""
     return Settings()
+
+
+def bootstrap_env() -> None:
+    """Загрузить ``.env`` в ``os.environ`` (override=False) при ЛОКАЛЬНОМ запуске воркера.
+
+    Гейты auth/billing (``app.auth``/``app.supa``/``_billing_enabled``) читают ``os.environ``
+    напрямую (чтобы unit-тесты держали dual-mode через monkeypatch). В проде env-переменные
+    ставит платформа (Modal/Vercel); локально они живут в ``.env`` → этот мост активирует
+    JWT-гейт и BILLING из ``.env`` как в проде. НЕ вызывать под pytest (main.py делает guard).
+    """
+    if _ENV_FILE.exists():
+        from dotenv import load_dotenv
+
+        load_dotenv(_ENV_FILE, override=False)
