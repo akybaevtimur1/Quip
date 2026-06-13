@@ -58,6 +58,7 @@ export function PricingCards() {
 
                 <Link
                   href={checkoutHref(plan.id)}
+                  prefetch={false}
                   className={cn(
                     "mt-6 w-full",
                     // Recommended CTA = near-white primary (highest contrast + the site's
@@ -105,7 +106,11 @@ export function PricingCards() {
               </span>
               <span className="text-sm text-faint">/ video</span>
             </div>
-            <Link href={paygCheckoutHref()} className={buttonVariants({ variant: "secondary", size: "md" })}>
+            <Link
+              href={paygCheckoutHref()}
+              prefetch={false}
+              className={buttonVariants({ variant: "secondary", size: "md" })}
+            >
               {PAYG.cta}
             </Link>
           </div>
