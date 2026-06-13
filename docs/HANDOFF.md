@@ -44,10 +44,22 @@ LCP 173ms, CLS 0.00**.
   + чёткий коралл), русифицировал дашборд-шелл. **Финальный прайсинг = кредит-модель** (1 кредит = 1 видео
   ≤60 мин): Free $0/2 · Starter $10/10 · Pro $25/30 · PAYG $2/кредит. Источник правды чисел —
   `services/worker/app/billing.py`, фронт `apps/web/lib/plans.ts` зеркалит (менять в ОБОИХ). Lighthouse
-  /pricing = 100/100/100/100. ⚠️ Фаундеру: Founding Pass $5 (решить что даёт — TODO в billing.py), Polar
-  hosted-checkout ссылки (`NEXT_PUBLIC_POLAR_CHECKOUT_*` + `POLAR_PRODUCT_PAYG`). ⚠️ App-wide a11y-долг:
-  accent-Button (white-on-coral, в редакторе) = 3.09:1, фейл строгой AA — фиксить если нужно (на /pricing
-  обойдено: рекомендованный CTA near-white).
+  /pricing = 100/100/100/100. ⚠️ App-wide a11y-долг: accent-Button (white-on-coral, в редакторе) = 3.09:1,
+  фейл строгой AA — фиксить если нужно (на /pricing обойдено: рекомендованный CTA near-white).
+- **Auth (Supabase) + оплата (Polar) — ПРОВОД ДО РАБОЧЕГО dual-mode (2026-06-13, коммит `после 85b572e`)**:
+  ключи Supabase вписаны фаундером. Воркер: `app/auth.py` валидирует Supabase access_token по **JWKS
+  проекта (ES256)** → user_id; create_job/upload требуют `Authorization: Bearer` (401 без токена когда
+  `SUPABASE_URL` задан; иначе dual-mode X-User-Id). `app/supa.py` пишет plan/usage в Supabase через
+  service_role (активен ⇔ `BILLING_ENABLED`; иначе SQLite). `GET /usage` живой → `UsageMeter`. Фронт:
+  `lib/api.ts` шлёт Bearer; `app/checkout/route.ts` (@polar-sh/nextjs) динамический checkout с
+  external_id=supabase user.id (без `POLAR_ACCESS_TOKEN` → /signup). `config.bootstrap_env()` грузит .env
+  в os.environ при локальном старте (под pytest НЕ → тесты dual-mode). Проверено вживую: гейт
+  (/dashboard→/login), регистрация→confirm-email, воркер 401 без токена, checkout→/signup. just check
+  зелёный (450 тестов). ⚠️ **Фаундеру для полного оживления:** (1) подтвердить email тест-юзера ИЛИ
+  выключить confirm в Supabase Auth (локалка) → увидеть авторизованный дашборд; (2) применить
+  `services/worker/migrations/0002_credits.sql` к Supabase (payg_credits/credits); (3) `BILLING_ENABLED=true`
+  (квота 402 + Postgres-персистенс); (4) `POLAR_ACCESS_TOKEN`+`POLAR_SERVER` (реальный checkout) +
+  `POLAR_WEBHOOK_SECRET` (вебхук). ⚠️ Воркер перезапущен мной (:8000, auth активен — нужен Bearer на /jobs).
 
 ---
 
