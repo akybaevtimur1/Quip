@@ -7,10 +7,10 @@ import { SectionHeading } from "./SectionHeading";
 
 const rows: { dim: string; quip: string; them: string }[] = [
   { dim: "Clips per video", quip: "A few, ranked by confidence", them: "30+ to scroll through" },
-  { dim: "Why post each one", quip: "Hook, score, reason & type", them: "No idea — you guess" },
+  { dim: "Why post each one", quip: "Hook, score, reason & type", them: "No idea, you guess" },
   { dim: "Vertical reframe", quip: "Follows the speaker, zero flash frames", them: "Jumpy, often off-center" },
   { dim: "Captions", quip: "Active word pops, your style", them: "Generic, one look" },
-  { dim: "Pricing", quip: "Source minutes, shown up front", them: "Credit casino + surprise paywalls" },
+  { dim: "Pricing", quip: "One credit = one video, shown up front", them: "Credit casino + surprise paywalls" },
   { dim: "The result", quip: "Post with intent", them: "Post and hope" },
 ];
 
@@ -22,7 +22,7 @@ export function Comparison() {
           <SectionHeading
             eyebrow="Quip vs. the volume combine"
             title="More clips was never the problem."
-            lead="The bottleneck isn't quantity — it's knowing which moment is worth your audience's attention. Quip optimizes for that."
+            lead="The bottleneck isn't quantity. It's knowing which moment is worth your audience's attention, and Quip optimizes for that."
           />
         </Reveal>
 

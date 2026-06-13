@@ -28,6 +28,8 @@ _ACTIVE_EVENTS = frozenset(
 )
 # События, после которых план сбрасывается во free.
 _DOWNGRADE_EVENTS = frozenset({"subscription.canceled", "subscription.revoked"})
+# Разовая оплата (PAYG-кредиты): одноразовый заказ, НЕ подписка.
+_ORDER_PAID_EVENTS = frozenset({"order.created", "order.paid", "order.updated"})
 
 
 def verify_signature(
@@ -82,6 +84,19 @@ def product_to_plan(product_id: str, *, starter: str, pro: str) -> str | None:
     return None
 
 
+def _metadata_plan(data: dict[str, Any]) -> str | None:
+    """Фолбэк-маппинг плана через ``metadata.plan`` продукта/заказа (forward-compat:
+    фаундер может выставить metadata.plan=starter|pro на продукте в Polar). PURE."""
+    for src in (data.get("product"), data):
+        if isinstance(src, dict):
+            meta = src.get("metadata")
+            if isinstance(meta, dict):
+                plan = str(meta.get("plan", "")).lower()
+                if plan in ("starter", "pro"):
+                    return plan
+    return None
+
+
 def _extract_user_id(data: dict[str, Any]) -> str | None:
     """user_id из Polar-payload: customer.external_id (предпочтительно), затем
     metadata.user_id, затем customer_external_id на уровне подписки."""
@@ -119,5 +134,32 @@ def parse_plan_change(
         str(data.get("product_id", "")), starter=product_starter, pro=product_pro
     )
     if plan is None:
+        plan = _metadata_plan(data)  # фолбэк: metadata.plan на продукте/заказе
+    if plan is None:
         return None
     return (user_id, plan)
+
+
+def parse_payg_order(
+    payload: dict[str, Any], *, product_payg: str, credits_per_order: int = 1
+) -> tuple[str, int] | None:
+    """Из Polar webhook-payload разовой оплаты достать ``(user_id, credits)``. PURE.
+
+    PAYG = одноразовый заказ продукта ``product_payg`` (НЕ подписка) → начисляем
+    ``credits_per_order`` НЕ-сгорающих кредитов (с учётом quantity заказа, если задан).
+    None, если ивент не про разовую оплату, продукт не наш, или нет user_id.
+    """
+    event = str(payload.get("type", ""))
+    if event not in _ORDER_PAID_EVENTS or not product_payg:
+        return None
+    data = payload.get("data") or {}
+    if not isinstance(data, dict):
+        return None
+    if str(data.get("product_id", "")) != product_payg:
+        return None
+    user_id = _extract_user_id(data)
+    if not user_id:
+        return None
+    qty = data.get("quantity")
+    units = int(qty) if isinstance(qty, int) and qty > 0 else 1
+    return (user_id, credits_per_order * units)

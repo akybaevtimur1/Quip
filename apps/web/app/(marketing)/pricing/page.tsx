@@ -8,7 +8,7 @@ import { Eyebrow } from "@/components/ui/Eyebrow";
 export const metadata: Metadata = {
   title: "Pricing",
   description:
-    "Simple, honest pricing for Quip — pay for source minutes, not credits. Free, Starter ($12/mo), and Pro ($29/mo). No surprise paywalls.",
+    "Simple, honest pricing for Quip. One credit is one video (up to 60 min). Free, Starter ($10/mo), and Pro ($25/mo), plus pay-as-you-go at $2 a video. No surprise paywalls.",
   alternates: { canonical: "/pricing" },
 };
 
@@ -21,8 +21,8 @@ export default function PricingPage() {
           Pricing that respects your wallet.
         </h1>
         <p className="mx-auto mt-4 max-w-lg text-lead text-muted">
-          Pay for source minutes — the thing that actually costs money. No credits to ration, no
-          surprise paywalls, no dark patterns. Start free.
+          One credit is one video, up to 60 minutes. No tokens to ration, no surprise paywalls, no
+          dark patterns. Start free.
         </p>
       </Container>
       <Container className="pb-8 pt-14">

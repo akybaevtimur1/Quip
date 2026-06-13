@@ -134,6 +134,60 @@ def test_parse_plan_change_no_user_id() -> None:
     assert polar.parse_plan_change(payload, product_starter="p_s", product_pro="p_p") is None
 
 
+def test_parse_plan_change_via_metadata_plan_fallback() -> None:
+    # product_id не совпал с env, но product.metadata.plan задан → маппим по нему
+    payload = {
+        "type": "subscription.created",
+        "data": {
+            "product_id": "unknown",
+            "customer": {"external_id": "user_md"},
+            "product": {"metadata": {"plan": "pro"}},
+        },
+    }
+    assert polar.parse_plan_change(payload, product_starter="p_s", product_pro="p_p") == (
+        "user_md",
+        "pro",
+    )
+
+
+# ─────────────────────────── parse_payg_order (разовая оплата) ───────────────────────────
+
+
+def test_parse_payg_order_grants_credit() -> None:
+    payload = {
+        "type": "order.paid",
+        "data": {"product_id": "p_payg", "customer": {"external_id": "user_p"}},
+    }
+    assert polar.parse_payg_order(payload, product_payg="p_payg") == ("user_p", 1)
+
+
+def test_parse_payg_order_respects_quantity() -> None:
+    payload = {
+        "type": "order.created",
+        "data": {"product_id": "p_payg", "quantity": 3, "customer": {"external_id": "user_q"}},
+    }
+    assert polar.parse_payg_order(payload, product_payg="p_payg", credits_per_order=1) == (
+        "user_q",
+        3,
+    )
+
+
+def test_parse_payg_order_ignores_other_product() -> None:
+    payload = {
+        "type": "order.paid",
+        "data": {"product_id": "p_other", "customer": {"external_id": "u"}},
+    }
+    assert polar.parse_payg_order(payload, product_payg="p_payg") is None
+
+
+def test_parse_payg_order_ignores_subscription_event() -> None:
+    payload = {
+        "type": "subscription.created",
+        "data": {"product_id": "p_payg", "customer": {"external_id": "u"}},
+    }
+    assert polar.parse_payg_order(payload, product_payg="p_payg") is None
+
+
 # ─────────────────────────── webhook endpoint ───────────────────────────
 
 
@@ -166,6 +220,32 @@ def test_polar_webhook_applies_plan(monkeypatch) -> None:
     assert r.status_code == 200
     assert r.json() == {"ok": True, "applied": True, "user_id": "user_wh", "plan": "starter"}
     assert db.get_user_plan("user_wh") == "starter"
+
+
+def test_polar_webhook_grants_payg_credits(monkeypatch) -> None:
+    from app.main import app
+
+    monkeypatch.setenv("POLAR_WEBHOOK_SECRET", _SW_SECRET)
+    monkeypatch.setenv("POLAR_PRODUCT_PAYG", "prod_payg")
+    body = json.dumps(
+        {
+            "type": "order.paid",
+            "data": {"product_id": "prod_payg", "customer": {"external_id": "user_payg"}},
+        }
+    )
+    ts = str(int(time.time()))
+    headers = {
+        "webhook-id": "msg_payg",
+        "webhook-timestamp": ts,
+        "webhook-signature": _sign(_SW_SECRET, "msg_payg", ts, body),
+        "content-type": "application/json",
+    }
+    before = db.get_profile("user_payg")["payg_credits"]
+    with TestClient(app) as client:
+        r = client.post("/webhooks/polar", content=body, headers=headers)
+    assert r.status_code == 200
+    assert r.json()["applied"] is True
+    assert db.get_profile("user_payg")["payg_credits"] == before + 1
 
 
 def test_polar_webhook_rejects_bad_signature(monkeypatch) -> None:

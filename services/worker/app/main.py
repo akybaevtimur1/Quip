@@ -116,9 +116,11 @@ def _enforce_quota(user_id: str | None, est_minutes: float) -> None:
         return
     from app import billing
 
-    plan = db.get_user_plan(user_id)
+    profile = db.get_profile(user_id)
     used = db.get_monthly_usage(user_id, billing.current_month())
-    decision = billing.check_quota(plan, int(used["videos"]), used["minutes"], est_minutes)
+    decision = billing.check_quota(
+        profile["plan"], int(used["credits"]), int(profile["payg_credits"]), est_minutes
+    )
     if not decision.allowed:
         raise HTTPException(status_code=402, detail=decision.reason or "Quota exceeded")
 
@@ -174,7 +176,7 @@ async def polar_webhook(request: Request) -> dict[str, Any]:
     """
     import json
 
-    from app import polar
+    from app import billing, polar
 
     secret = os.environ.get("POLAR_WEBHOOK_SECRET", "")
     if not secret:
@@ -197,11 +199,23 @@ async def polar_webhook(request: Request) -> dict[str, Any]:
         product_starter=os.environ.get("POLAR_PRODUCT_STARTER", ""),
         product_pro=os.environ.get("POLAR_PRODUCT_PRO", ""),
     )
-    if change is None:
-        return {"ok": True, "applied": False}
-    user_id, plan = change
-    db.set_user_plan(user_id, plan)
-    return {"ok": True, "applied": True, "user_id": user_id, "plan": plan}
+    if change is not None:
+        user_id, plan = change
+        db.set_user_plan(user_id, plan)
+        return {"ok": True, "applied": True, "user_id": user_id, "plan": plan}
+
+    # Разовая оплата PAYG → начислить не сгорающие кредиты.
+    payg = polar.parse_payg_order(
+        payload,
+        product_payg=os.environ.get("POLAR_PRODUCT_PAYG", ""),
+        credits_per_order=billing.PAYG_CREDITS_PER_ORDER,
+    )
+    if payg is not None:
+        user_id, credits = payg
+        db.add_payg_credits(user_id, credits)
+        return {"ok": True, "applied": True, "user_id": user_id, "payg_credits": credits}
+
+    return {"ok": True, "applied": False}
 
 
 @app.get("/jobs/{job_id}")

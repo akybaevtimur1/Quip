@@ -13,7 +13,7 @@ export function Pricing() {
             align="center"
             eyebrow="Pricing"
             title="Simple plans. No credit casino."
-            lead="Pay for source minutes, the thing that actually costs money. No tokens to ration, no surprise paywalls — you always know your limit up front."
+            lead="One credit is one video, up to 60 minutes. No tokens to ration, no surprise paywalls. You always know your limit up front, and pay-as-you-go credits never expire."
           />
         </Reveal>
         <div className="mt-14">

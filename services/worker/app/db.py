@@ -12,6 +12,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from app.billing import credits_per_video
 from app.models import Job
 
 _DB_PATH = Path(__file__).resolve().parents[1] / "tmp" / "jobs.db"
@@ -22,6 +23,13 @@ def _conn() -> sqlite3.Connection:
     conn = sqlite3.connect(_DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
+
+
+def _ensure_column(c: sqlite3.Connection, table: str, col: str, decl: str) -> None:
+    """Добавить колонку, если её ещё нет (миграция старых SQLite-БД). Идемпотентно."""
+    cols = {row["name"] for row in c.execute(f"PRAGMA table_info({table})")}
+    if col not in cols:
+        c.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
 
 
 def init_db() -> None:
@@ -42,25 +50,32 @@ def init_db() -> None:
                 PRIMARY KEY (job_id, clip_id)
             )"""
         )
-        # T6: учёт расхода для лимитов (зеркало Postgres usage_events, см.
-        # migrations/0001_init_billing.sql). 1 строка = 1 обработанное видео.
+        # Кредит-модель: учёт расхода для лимитов (зеркало Postgres usage_events, см.
+        # migrations/0001_init_billing.sql). 1 строка = 1 обработанное видео + его кредиты.
         c.execute(
             """CREATE TABLE IF NOT EXISTS usage_events (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id TEXT NOT NULL, job_id TEXT,
-                source_minutes REAL NOT NULL, month TEXT NOT NULL, created_at REAL
+                source_minutes REAL NOT NULL, credits INTEGER NOT NULL DEFAULT 1,
+                month TEXT NOT NULL, created_at REAL
             )"""
         )
         c.execute(
             "CREATE INDEX IF NOT EXISTS idx_usage_user_month ON usage_events (user_id, month)"
         )
-        # P1: план пользователя (зеркало Postgres profiles.plan). Пишет вебхук оплаты
-        # (Lemon → set_user_plan) через service-role; гейт квоты читает get_user_plan.
+        # Профиль: план + не сгорающий баланс PAYG-кредитов (зеркало Postgres profiles).
+        # Пишет вебхук оплаты Polar (set_user_plan / add_payg_credits) через service-role;
+        # гейт квоты читает get_profile.
         c.execute(
             """CREATE TABLE IF NOT EXISTS profiles (
-                user_id TEXT PRIMARY KEY, plan TEXT NOT NULL, updated_at REAL
+                user_id TEXT PRIMARY KEY, plan TEXT NOT NULL,
+                payg_credits INTEGER NOT NULL DEFAULT 0, updated_at REAL
             )"""
         )
+        # Миграция существующих БД (CREATE TABLE IF NOT EXISTS не добавляет колонки):
+        # добавить новые поля, если их ещё нет. Идемпотентно.
+        _ensure_column(c, "usage_events", "credits", "INTEGER NOT NULL DEFAULT 1")
+        _ensure_column(c, "profiles", "payg_credits", "INTEGER NOT NULL DEFAULT 0")
 
 
 def insert_job(job_id: str, source_type: str, source_ref: str) -> None:
@@ -183,33 +198,49 @@ def set_render_status(
 # (через service-role, RLS обходится сервером). См. docs/SUPABASE_SETUP.md.
 
 
-def record_usage(user_id: str, job_id: str | None, source_minutes: float, month: str) -> None:
-    """Записать расход одного обработанного видео (минуты исходника) в месячное окно."""
+def record_usage(
+    user_id: str,
+    job_id: str | None,
+    source_minutes: float,
+    month: str,
+    credits: int | None = None,
+) -> None:
+    """Записать расход одного обработанного видео (минуты + кредиты) в месячное окно.
+
+    ``credits`` по умолчанию выводится из длины (``credits_per_video``); вызывающий
+    может передать фактически списанное (месячный+PAYG) число для точного учёта.
+    """
+    n = credits if credits is not None else credits_per_video(source_minutes)
     with _conn() as c:
         c.execute(
-            "INSERT INTO usage_events (user_id, job_id, source_minutes, month, created_at)"
-            " VALUES (?,?,?,?,?)",
-            (user_id, job_id, source_minutes, month, time.time()),
+            "INSERT INTO usage_events (user_id, job_id, source_minutes, credits, month, created_at)"
+            " VALUES (?,?,?,?,?,?)",
+            (user_id, job_id, source_minutes, int(n), month, time.time()),
         )
 
 
 def get_monthly_usage(user_id: str, month: str) -> dict[str, float]:
-    """Месячный расход пользователя → {"videos": кол-во, "minutes": сумма минут исходника}."""
+    """Месячный расход → {"videos", "minutes", "credits"} (credits = списано с месячного лимита)."""
     with _conn() as c:
         row = c.execute(
-            "SELECT COUNT(*) AS videos, COALESCE(SUM(source_minutes), 0) AS minutes"
+            "SELECT COUNT(*) AS videos, COALESCE(SUM(source_minutes), 0) AS minutes,"
+            " COALESCE(SUM(credits), 0) AS credits"
             " FROM usage_events WHERE user_id=? AND month=?",
             (user_id, month),
         ).fetchone()
-    return {"videos": int(row["videos"]), "minutes": float(row["minutes"])}
+    return {
+        "videos": int(row["videos"]),
+        "minutes": float(row["minutes"]),
+        "credits": int(row["credits"]),
+    }
 
 
-# ─────────────────────────── P1: план пользователя (profiles.plan) ───────────────────────────
+# ─────────────────── Профиль: план + баланс PAYG (profiles) ───────────────────
 # Тот же интерфейс на SQLite (локально) и Postgres (Supabase profiles, service-role).
 
 
 def set_user_plan(user_id: str, plan: str) -> None:
-    """Установить план пользователя (вебхук оплаты Lemon → plan). Upsert."""
+    """Установить план пользователя (вебхук подписки Polar → plan). Upsert (PAYG не трогаем)."""
     with _conn() as c:
         c.execute(
             "INSERT INTO profiles (user_id, plan, updated_at) VALUES (?,?,?)"
@@ -219,8 +250,31 @@ def set_user_plan(user_id: str, plan: str) -> None:
         )
 
 
+def add_payg_credits(user_id: str, credits: int) -> None:
+    """Начислить не сгорающие PAYG-кредиты (вебхук разовой оплаты Polar). Upsert (+=)."""
+    with _conn() as c:
+        c.execute(
+            "INSERT INTO profiles (user_id, plan, payg_credits, updated_at) VALUES (?,?,?,?)"
+            " ON CONFLICT(user_id) DO UPDATE SET"
+            " payg_credits=profiles.payg_credits+excluded.payg_credits,"
+            " updated_at=excluded.updated_at",
+            (user_id, "free", int(credits), time.time()),
+        )
+
+
 def get_user_plan(user_id: str) -> str:
     """План пользователя для гейта квоты. Нет записи → "free" (безопасный дефолт)."""
     with _conn() as c:
         row = c.execute("SELECT plan FROM profiles WHERE user_id=?", (user_id,)).fetchone()
     return str(row["plan"]) if row is not None else "free"
+
+
+def get_profile(user_id: str) -> dict[str, Any]:
+    """Профиль для гейта квоты → {"plan", "payg_credits"}. Нет записи → free / 0."""
+    with _conn() as c:
+        row = c.execute(
+            "SELECT plan, payg_credits FROM profiles WHERE user_id=?", (user_id,)
+        ).fetchone()
+    if row is None:
+        return {"plan": "free", "payg_credits": 0}
+    return {"plan": str(row["plan"]), "payg_credits": int(row["payg_credits"])}
