@@ -826,10 +826,10 @@ export default function ClipEditorScreen({
           {/* ПРАВО: табы */}
           <div className="flex min-h-0 flex-col gap-3">
             {/* #1: явно про live-vs-рендер — частый вопрос «надо ли ререндерить» */}
-            <p className="shrink-0 rounded-lg border border-line bg-surface-2 px-3 py-1.5 text-[11px] leading-snug text-muted">
-              <span className="text-accent">Превью живое</span> — субтитры, хук, стиль и кадр
-              видно сразу, рендерить не нужно. Кнопка <span className="font-semibold text-ink">«Рендер»</span> записывает
-              правки в скачиваемый файл (мигает жёлтым, когда файл отстал от превью).
+            <p className="shrink-0 rounded-lg border border-line bg-surface-2 px-3 py-2 text-[11px] leading-snug text-muted">
+              <span className="font-semibold text-accent">Превью живое</span> — правки видно
+              сразу. <span className="font-semibold text-ink">«Рендер»</span> записывает их в
+              скачиваемый файл.
             </p>
             <div className="flex shrink-0 gap-1 rounded-xl border border-line bg-surface p-1">
               {TABS.map(({ id, label, icon: Icon }) => (
@@ -839,7 +839,7 @@ export default function ClipEditorScreen({
                   onClick={() => setTab(id)}
                   className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-sm font-semibold transition ${
                     tab === id
-                      ? "bg-accent/15 text-accent"
+                      ? "bg-surface-3 text-accent shadow-[0_1px_2px_rgba(0,0,0,.4)]"
                       : "text-muted hover:bg-surface-2 hover:text-ink"
                   }`}
                 >

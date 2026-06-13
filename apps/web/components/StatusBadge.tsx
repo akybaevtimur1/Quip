@@ -13,9 +13,9 @@ const LABEL: Record<JobStatus, string> = {
 export function StatusBadge({ status }: { status: JobStatus }) {
   const cls =
     status === "failed"
-      ? "text-accent border-accent/40 bg-accent/10"
+      ? "text-bad border-bad/40 bg-bad/10"
       : status === "done"
-        ? "text-thought border-thought/40 bg-thought/10"
+        ? "text-ok border-ok/40 bg-ok/10"
         : "text-muted border-line bg-surface-2";
   return (
     <span

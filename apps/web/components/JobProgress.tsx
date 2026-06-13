@@ -32,7 +32,7 @@ export function JobProgress({ status, elapsed }: { status: JobStatus; elapsed: n
               key={step.key}
               className={`flex items-center gap-3 rounded-xl border px-4 py-3 transition ${
                 active
-                  ? "border-accent/50 bg-accent/10"
+                  ? "border-accent bg-surface-3"
                   : done
                     ? "border-line bg-surface"
                     : "border-line bg-surface opacity-50"

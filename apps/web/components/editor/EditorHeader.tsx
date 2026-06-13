@@ -4,6 +4,7 @@ import { ArrowLeft, CheckCircle, ChevronLeft, ChevronRight, Film, Loader2 } from
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ExportMenu } from "@/components/ExportMenu";
+import { Button } from "@/components/ui/Button";
 
 // ── Хедер страницы редактора ──
 // «← Все клипы» ведёт на /?job=<id> (deep-link главной восстанавливает грид —
@@ -87,39 +88,38 @@ export function EditorHeader({
         {dirty && renderState.kind !== "rendering" && (
           <span
             title="Превью уже показывает правки вживую. Скачиваемый файл — пока старый. Нажми «Рендер», чтобы записать правки в файл."
-            className="inline-flex items-center gap-1.5 rounded-lg border border-amber-600/40 bg-amber-900/20 px-2.5 py-1.5 text-xs text-amber-300"
+            className="inline-flex items-center gap-1.5 rounded-md border border-warn/40 bg-warn/10 px-2.5 py-1.5 text-xs text-warn"
           >
-            <span className="size-1.5 animate-pulse rounded-full bg-amber-400" />
+            <span className="size-1.5 animate-pulse rounded-full bg-warn" />
             <span className="hidden sm:inline">Нажми «Рендер» — сохранить в файл</span>
             <span className="sm:hidden">не в файле</span>
           </span>
         )}
         {renderState.kind === "rendering" && (
-          <span className="inline-flex items-center gap-1.5 rounded-lg border border-accent/30 bg-accent/10 px-3 py-1.5 font-mono text-xs text-accent">
+          <span className="inline-flex items-center gap-1.5 rounded-md border border-accent/30 bg-surface-2 px-3 py-1.5 font-mono text-xs text-accent">
             <Loader2 className="size-3.5 animate-spin" />
             Рендер… {renderState.elapsed}s
           </span>
         )}
         {renderState.kind === "done" && (
-          <span className="inline-flex items-center gap-1.5 rounded-lg border border-green-700/40 bg-green-900/25 px-3 py-1.5 text-xs text-green-400">
+          <span className="inline-flex items-center gap-1.5 rounded-md border border-ok/40 bg-ok/10 px-3 py-1.5 text-xs text-ok">
             <CheckCircle className="size-3.5" />
             Готово
           </span>
         )}
-        <button
-          type="button"
+        <Button
+          variant="accent"
+          size="sm"
           disabled={busy || renderState.kind === "rendering"}
           onClick={onRender}
-          className={`relative inline-flex items-center gap-1.5 rounded-lg bg-accent px-4 py-1.5 text-sm font-semibold text-white transition hover:bg-accent-2 disabled:opacity-40 ${
-            dirty && renderState.kind === "idle" ? "ring-2 ring-amber-400/60" : ""
-          }`}
+          className={`relative ${dirty && renderState.kind === "idle" ? "ring-2 ring-warn/60" : ""}`}
         >
           <Film className="size-4" />
           Рендер
           {dirty && renderState.kind === "idle" && (
-            <span className="absolute -right-1 -top-1 size-2.5 rounded-full bg-amber-400" />
+            <span className="absolute -right-1 -top-1 size-2.5 rounded-full bg-warn" />
           )}
-        </button>
+        </Button>
         <ExportMenu jobId={jobId} clipId={clipId} subtitledUrl={downloadUrl} align="right" />
       </div>
     </header>

@@ -83,10 +83,10 @@ export function PresetStrip({ activePresetId, onApply, onError }: PresetStripPro
             disabled={!!applyingId}
             onClick={() => handleApply(preset.id)}
             aria-pressed={isActive}
-            className={`flex shrink-0 flex-col items-stretch gap-1 rounded-xl border p-1.5 transition focus:outline-none focus:ring-2 focus:ring-accent/50 ${
+            className={`flex shrink-0 flex-col items-stretch gap-1 rounded-lg border p-1.5 transition focus:outline-none focus:ring-2 focus:ring-accent/50 ${
               isActive
-                ? "border-accent bg-accent/10"
-                : "border-line bg-surface-2 hover:border-accent/50"
+                ? "border-accent bg-surface-3"
+                : "border-line bg-surface-2 hover:border-line-strong"
             } ${applyingId && !isApplying ? "opacity-50" : ""}`}
           >
             <PresetThumb preset={preset} />

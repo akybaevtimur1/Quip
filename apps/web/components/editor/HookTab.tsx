@@ -77,7 +77,7 @@ export function HookTab({
             if (timer.current) clearTimeout(timer.current);
             onHookChange({ text, enabled: text.trim() ? true : enabled });
           }}
-          className="w-full resize-none rounded-xl border border-line bg-surface-2 px-3 py-2 text-sm font-semibold text-ink outline-none focus:ring-2 focus:ring-accent/40"
+          className="w-full resize-none rounded-lg border border-line bg-surface-2 px-3 py-2 text-sm font-semibold text-ink outline-none transition-colors focus:border-accent/60"
         />
         <p className="flex items-center gap-1.5 text-[11px] leading-snug text-muted">
           <Sparkles className="size-3 shrink-0 text-accent" />
@@ -94,10 +94,10 @@ export function HookTab({
             type="button"
             disabled={busy}
             onClick={() => onHookChange({ full_clip: true })}
-            className={`rounded-xl border px-3 py-2.5 text-sm font-semibold transition ${
+            className={`rounded-lg border px-3 py-2.5 text-sm font-semibold transition ${
               fullClip
-                ? "border-accent/60 bg-accent/10 text-accent"
-                : "border-line bg-surface-2 text-muted hover:border-accent/30"
+                ? "border-accent bg-surface-3 text-accent"
+                : "border-line bg-surface-2 text-muted hover:border-line-strong hover:text-ink"
             }`}
           >
             Весь клип
@@ -106,10 +106,10 @@ export function HookTab({
             type="button"
             disabled={busy}
             onClick={() => onHookChange({ full_clip: false })}
-            className={`rounded-xl border px-3 py-2.5 text-sm font-semibold transition ${
+            className={`rounded-lg border px-3 py-2.5 text-sm font-semibold transition ${
               !fullClip
-                ? "border-accent/60 bg-accent/10 text-accent"
-                : "border-line bg-surface-2 text-muted hover:border-accent/30"
+                ? "border-accent bg-surface-3 text-accent"
+                : "border-line bg-surface-2 text-muted hover:border-line-strong hover:text-ink"
             }`}
           >
             Первые секунды

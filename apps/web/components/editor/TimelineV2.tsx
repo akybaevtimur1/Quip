@@ -373,7 +373,7 @@ export function TimelineV2({
             <button
               type="button"
               onClick={retryChapters}
-              className="shrink-0 rounded-md border border-line px-2 py-0.5 text-[11px] font-semibold text-accent transition hover:border-accent/50 hover:bg-accent/10"
+              className="shrink-0 rounded-md border border-line px-2 py-0.5 text-[11px] font-semibold text-accent transition hover:border-accent/50 hover:bg-surface-3"
             >
               Повторить
             </button>
@@ -389,7 +389,7 @@ export function TimelineV2({
                 type="button"
                 onClick={() => jumpTo(c.start, c.end)}
                 title={`${c.title}\n${c.summary}`}
-                className={`absolute top-0 h-full truncate border-r border-line/60 px-1.5 text-left text-[10px] leading-7 transition hover:bg-accent/15 hover:text-ink ${
+                className={`absolute top-0 h-full truncate border-r border-line/60 px-1.5 text-left text-[10px] leading-7 transition hover:bg-surface-3 hover:text-ink ${
                   i % 2 === 0 ? "bg-surface text-muted" : "bg-surface-2 text-muted"
                 }`}
                 style={{ left: pct(c.start), width: `${Math.max(widthFrac * 100, 0.5)}%` }}

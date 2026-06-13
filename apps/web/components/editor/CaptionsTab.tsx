@@ -104,8 +104,10 @@ export function CaptionsTab({
             <div
               key={i}
               ref={isActive ? activeRef : undefined}
-              className={`group/reply rounded-lg border px-2.5 py-1.5 transition ${
-                isActive ? "border-accent/50 bg-accent/10" : "border-transparent hover:border-line"
+              className={`group/reply rounded-md border-l-2 px-2.5 py-1.5 transition ${
+                isActive
+                  ? "border-l-accent bg-surface-3"
+                  : "border-l-transparent hover:bg-surface-2"
               }`}
             >
               <div className="flex items-start gap-2">
@@ -145,7 +147,7 @@ export function CaptionsTab({
                   >
                     {text}
                     {reply.text_override != null && (
-                      <span className="ml-1.5 align-middle rounded bg-accent/20 px-1 py-px text-[9px] font-semibold uppercase text-accent">
+                      <span className="ml-1.5 align-middle rounded bg-accent px-1 py-px text-[9px] font-bold uppercase text-bg">
                         правка
                       </span>
                     )}

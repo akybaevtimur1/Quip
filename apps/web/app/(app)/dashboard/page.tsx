@@ -46,7 +46,7 @@ export default function DashboardPage() {
       addRecentProject({ id, label: labelFromUrl(url), at: Date.now() });
       start(id);
     } catch (e) {
-      setSubmitError(e instanceof Error ? e.message : "Couldn't create the project");
+      setSubmitError(e instanceof Error ? e.message : "Не удалось создать проект");
     } finally {
       setSubmitting(false);
     }
@@ -60,7 +60,7 @@ export default function DashboardPage() {
       addRecentProject({ id, label: file.name, at: Date.now() });
       start(id);
     } catch (e) {
-      setSubmitError(e instanceof Error ? e.message : "Couldn't upload the file");
+      setSubmitError(e instanceof Error ? e.message : "Не удалось загрузить файл");
     } finally {
       setSubmitting(false);
     }
@@ -90,17 +90,17 @@ export default function DashboardPage() {
             className="mb-6 inline-flex items-center gap-1.5 rounded-md border border-line px-3 py-1.5 text-sm text-muted transition hover:border-line-strong hover:text-ink"
           >
             <Plus className="size-4" />
-            New project
+            Новый проект
           </button>
         )}
 
         {phase === "idle" ? (
           <div className="grid gap-10 lg:grid-cols-[1fr_320px] lg:gap-12">
             <section>
-              <h1 className="font-display text-h2 text-ink sm:text-display-lg">Create clips</h1>
+              <h1 className="font-display text-h2 text-ink sm:text-display-lg">Создать клипы</h1>
               <p className="mt-3 max-w-md text-lead text-muted">
-                Paste a link or upload a video. Quip finds the moments, cuts vertical clips, and
-                explains why each one will land.
+                Вставь ссылку или загрузи видео. Quip находит сильные моменты, нарезает
+                вертикальные клипы и объясняет, почему каждый зайдёт.
               </p>
               <div className="mt-8">
                 <SourceForm onSubmit={handleSubmit} onSubmitFile={handleSubmitFile} busy={submitting} />

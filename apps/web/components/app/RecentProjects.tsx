@@ -15,10 +15,10 @@ export function RecentProjects() {
 
   return (
     <div className="rounded-xl border border-line bg-surface p-5">
-      <h2 className="font-display text-base font-semibold text-ink">Recent projects</h2>
+      <h2 className="font-display text-base font-semibold text-ink">Недавние проекты</h2>
       {items.length === 0 ? (
         <p className="mt-3 text-sm leading-relaxed text-muted">
-          Projects you create on this device show up here.
+          Проекты, созданные на этом устройстве, появятся здесь.
         </p>
       ) : (
         <ul className="mt-3 space-y-1">
@@ -34,7 +34,7 @@ export function RecentProjects() {
               <button
                 type="button"
                 onClick={() => removeRecentProject(p.id)}
-                aria-label="Remove from recent"
+                aria-label="Убрать из недавних"
                 className="shrink-0 rounded-md p-1.5 text-faint opacity-0 transition hover:text-ink group-hover:opacity-100"
               >
                 <X className="size-3.5" />

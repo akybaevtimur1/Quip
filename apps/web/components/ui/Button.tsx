@@ -20,9 +20,12 @@ const variantClass: Record<ButtonVariant, string> = {
   ghost: "text-muted hover:text-ink hover:bg-surface-2",
   // coral CTA for in-product moments (run, apply, retry). White-on-coral passes AA;
   // use sparingly per DESIGN.md (one or two per view). Lifts on hover, settles on press.
+  // Disabled = neutral elevated surface (NOT 50%-opacity coral, which composites to a
+  // muddy maroon over near-black and reads "broken" rather than "waiting for input").
   accent:
     "bg-accent text-white shadow-[0_1px_0_rgba(255,255,255,.18)_inset,0_12px_34px_-18px_rgba(255,90,61,.6)] " +
-    "hover:bg-accent-2 hover:-translate-y-px",
+    "hover:bg-accent-2 hover:-translate-y-px " +
+    "disabled:opacity-100 disabled:bg-surface-2 disabled:text-faint disabled:shadow-none",
 };
 
 const sizeClass: Record<ButtonSize, string> = {

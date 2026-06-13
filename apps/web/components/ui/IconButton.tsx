@@ -8,7 +8,7 @@ export type IconButtonSize = "sm" | "md";
 
 const toneClass: Record<IconButtonTone, string> = {
   default: "text-muted hover:text-ink hover:bg-surface-3",
-  accent: "text-muted hover:text-accent hover:bg-accent-tint",
+  accent: "text-muted hover:text-accent hover:bg-surface-3",
   danger: "text-muted hover:text-bad hover:bg-bad/10",
 };
 

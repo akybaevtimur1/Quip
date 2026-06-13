@@ -36,7 +36,7 @@ function Quota({
 }
 
 export function UsageMeter({
-  planName = "Free",
+  planName = "Бесплатный",
   videosUsed = 0,
   videosLimit = 2,
   minutesUsed = 0,
@@ -53,17 +53,17 @@ export function UsageMeter({
   return (
     <div className={cn("rounded-xl border border-line bg-surface p-5", className)}>
       <div className="flex items-center justify-between">
-        <h2 className="font-display text-base font-semibold text-ink">This month</h2>
+        <h2 className="font-display text-base font-semibold text-ink">В этом месяце</h2>
         <span className="rounded-pill border border-line px-2.5 py-1 font-mono text-eyebrow uppercase text-muted">
-          {planName} plan
+          {planName}
         </span>
       </div>
       <div className="mt-4 space-y-4">
-        <Quota label="Videos" used={videosUsed} limit={videosLimit} />
-        <Quota label="Source minutes" used={minutesUsed} limit={minutesLimit} unit="min" />
+        <Quota label="Видео" used={videosUsed} limit={videosLimit} />
+        <Quota label="Минуты источника" used={minutesUsed} limit={minutesLimit} unit="мин" />
       </div>
       <Link href="/#pricing" className="mt-4 inline-block text-sm text-accent hover:underline">
-        Upgrade for more &rarr;
+        Расширить лимиты &rarr;
       </Link>
     </div>
   );

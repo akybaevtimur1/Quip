@@ -1,7 +1,7 @@
 "use client";
 
-import { Loader2 } from "lucide-react";
 import { useState } from "react";
+import { Button } from "@/components/ui/Button";
 import type { Aspect } from "@/lib/api";
 import type { ClipEdit } from "@/lib/types";
 
@@ -89,10 +89,10 @@ export function FrameTab({
               disabled={busy}
               onClick={() => onAspectChange(a.value)}
               title={a.hint}
-              className={`flex flex-col items-center gap-1 rounded-xl border py-2 transition ${
+              className={`flex flex-col items-center gap-1 rounded-lg border py-2 transition ${
                 aspect === a.value
-                  ? "border-accent/60 bg-accent/10 text-accent"
-                  : "border-line bg-surface-2 text-muted hover:border-accent/30"
+                  ? "border-accent bg-surface-3 text-accent"
+                  : "border-line bg-surface-2 text-muted hover:border-line-strong hover:text-ink"
               }`}
             >
               <AspectGlyph aspect={a.value} active={aspect === a.value} />
@@ -110,10 +110,10 @@ export function FrameTab({
           {MODES.map((m) => (
             <label
               key={m.value}
-              className={`flex cursor-pointer items-start gap-2.5 rounded-xl border p-3 transition ${
+              className={`flex cursor-pointer items-start gap-2.5 rounded-lg border p-3 transition ${
                 mode === m.value
-                  ? "border-accent/60 bg-accent/10"
-                  : "border-line bg-surface-2 hover:border-accent/30"
+                  ? "border-accent bg-surface-3"
+                  : "border-line bg-surface-2 hover:border-line-strong"
               }`}
             >
               <input
@@ -152,23 +152,20 @@ export function FrameTab({
         </section>
       )}
 
-      <button
+      <Button
         type="button"
+        variant="accent"
+        size="md"
+        className="w-full"
+        loading={applying}
         disabled={busy || applying}
         onClick={apply}
-        className="flex w-full items-center justify-center gap-2 rounded-xl bg-accent py-2.5 text-sm font-semibold text-white transition hover:bg-accent-2 disabled:opacity-40"
       >
-        {applying ? (
-          <>
-            <Loader2 className="size-4 animate-spin" /> Применяю…
-          </>
-        ) : (
-          "Применить к клипу"
-        )}
-      </button>
+        {applying ? "Применяю…" : "Применить к клипу"}
+      </Button>
 
       {applied && (
-        <p className="rounded-lg border border-amber-700/40 bg-amber-900/20 px-3 py-2 text-xs text-amber-300">
+        <p className="rounded-lg border border-warn/40 bg-warn/10 px-3 py-2 text-xs text-warn">
           Режим сохранён. Точный кадр — после рендера (превью показывает приблизительный кроп).
         </p>
       )}

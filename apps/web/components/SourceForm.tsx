@@ -102,7 +102,7 @@ export function SourceForm({
           tabIndex={0}
           aria-label="Загрузить видеофайл"
           className={`mt-3 flex cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed px-4 py-3 text-sm text-muted transition duration-200 ease-snappy hover:border-line-strong hover:text-ink ${
-            dragging ? "border-accent bg-accent-tint" : "border-line bg-surface"
+            dragging ? "border-accent bg-surface-2" : "border-line bg-surface"
           } ${busy ? "pointer-events-none opacity-50" : ""}`}
         >
           <Upload className="size-4" />
