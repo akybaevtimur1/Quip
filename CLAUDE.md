@@ -615,3 +615,29 @@ accurate) и форк `if reframe_speaker:` — два отдельных пут
 
 > ✅ **ИТОГ НОЧИ T1–T6:** все шесть задач закрыты (T4 частично: #4 scale без box, #2 пропущен).
 > just check зелёный (388 тестов). 7 коммитов на `feat/mvp-launch`. Отчёт — docs/OVERNIGHT_REPORT_2026-06-13.md.
+
+### Фиксы по живому фидбеку фаундера (2026-06-13, та же ветка, коммиты `3d41ca2`…`9a4c41d`)
+Фаундер тестил через UI на **29.97fps** видео (3 джоба в data/, source.mp4 есть). 4 бага,
+найдены systematic-debugging (не угадывал):
+- **Корень «ничего не работало» (до фиксов):** воркер крутил СТАРЫЙ код (uvicorn без --reload,
+  старт до коммитов) → старый pydantic молча отбрасывал hook/burn/emphasis_auto, /edit/aspect=404.
+  Перезапустил воркер+фронт; проверил HTTP-раундтрипом (hook сохраняется, /ass его несёт). HANDOFF §3.
+- **#2 аспект ломал страницу** (`3d41ca2`): PreviewPlayer ЖЁСТКО зашивал aspect-[9/16], T5-aspectClass
+  висел на обёртке без ограничения ширины → 16:9 = высота×16/9 распирала пол-страницы. Фикс:
+  PreviewPlayer принимает aspectClass и сам contain'ится (w-full + max-h-full + aspect).
+- **#3 рывки/флеши наведения В РЕДАКТОРЕ** (`3d41ca2`, главное): editor-путь был ОТДЕЛЬНЫМ
+  инфериором — detect_cuts в СЕКУНДАХ (не frame-accurate) + sample_faces 5fps БЕЗ ASD + EMA-пан.
+  На ≠25fps границы регионов мимо кадра-склейки → флеш. REFRAME_FPS_GRID_INVARIANT §«Известное»
+  это предсказывал. Фикс: `resolve_regions_accurate` (reframe_cache) проводит editor через ЕДИНЫЙ
+  batch `reframe_segment` (PySceneDetect frame-accurate + ASD + held-crop), кэш по диапазону.
+  DoD `tmp/dod_editor_reframe.py` на реальном 29.97fps: 18 границ, MAX Δ=0.00000. Урок: editor и
+  batch ДОЛЖНЫ быть единым путём (два пути = два бага).
+- **#1 live-vs-рендер** (`0f0c9bd`): dirty-чип был hidden на узких экранах. Персистентный хинт
+  над табами + чип «Нажми Рендер» всегда виден.
+- **#4 подсветка убогая** (`9a4c41d`): по OSS-ресёрчу (clipify/captify/OpusClip) вирусный стандарт =
+  АКТИВНОЕ слово вспыхивает + pop, а НЕ статичное угадывание keyword'ов (моя T3). Фаундер выбрал
+  «слово на лету + pop». Дефолт preset_a: karaoke_fill → **pop** (активное слово \fscy-подпрыгивает +
+  коралл-заливка), box=False. Статичный keyword (T3) → опция, не дефолт. DoD `tmp/dod_highlight.py`
+  (кадры hl_dod_a/b.png). Демо clip_01 (job_9cae49a1103c) очищен apply-preset'ом.
+- **Урок от фаундера (зафиксирован):** СНАЧАЛА гуглить готовое OSS, потом писать своё (ASD взят из
+  репо и лучше самописа). just check зелёный (391 тест), next build зелёный.
