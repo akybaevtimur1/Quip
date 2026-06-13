@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { Checkbox } from "@/components/ui/Checkbox";
 import { Select } from "@/components/ui/Select";
+import { cn } from "@/lib/cn";
 import type { CaptionStyle, ClipEdit, HighlightStyle } from "@/lib/types";
 import { PresetStrip } from "../PresetStrip";
 
@@ -82,7 +83,7 @@ export function StyleTab({
             disabled={busy}
             onChange={(v) => onStyleChange({ outline_color: v })}
           />
-          <label className="flex flex-col gap-1 text-xs text-muted">
+          <label className="flex flex-col gap-1.5 text-xs text-muted">
             Шрифт
             <Select
               value={st.font ?? "Montserrat"}
@@ -117,7 +118,7 @@ export function StyleTab({
           hint="Или просто перетащи субтитры на видео"
         />
 
-        <label className="flex flex-col gap-1 text-xs text-muted">
+        <label className="flex flex-col gap-1.5 text-xs text-muted">
           Анимация активного слова
           <Select
             value={hl === null ? "off" : (hl.animation ?? "karaoke_fill")}
@@ -188,18 +189,27 @@ function ColorField({
     setLocal(value);
   }
   return (
-    <label className="flex flex-col gap-1 text-xs text-muted">
+    <label className="flex flex-col gap-1.5 text-xs text-muted">
       {label}
-      <span className="flex items-center gap-2 rounded-sm border border-line bg-surface-2 px-2 py-1 transition-colors hover:border-line-strong">
+      {/* h-10 matches Select/Input so grid rows line up (color + select side by side). */}
+      <span
+        className={cn(
+          "flex h-10 items-center gap-2.5 rounded-sm border border-line bg-surface-2 px-2.5",
+          "transition-colors focus-within:border-accent/60",
+          disabled ? "opacity-50" : "hover:border-line-strong",
+        )}
+      >
+        {/* ring keeps a dark swatch (e.g. #000000) visible against the dark field */}
         <input
           type="color"
           value={local}
           disabled={disabled}
           onInput={(e) => setLocal((e.target as HTMLInputElement).value)}
           onChange={(e) => onChange(e.target.value.toUpperCase())}
-          className="size-6 cursor-pointer rounded-sm border-0 bg-transparent p-0 disabled:cursor-not-allowed"
+          aria-label={label}
+          className="size-6 shrink-0 cursor-pointer rounded bg-transparent p-0 outline outline-1 -outline-offset-1 outline-line-strong disabled:cursor-not-allowed [&::-webkit-color-swatch-wrapper]:p-0.5 [&::-webkit-color-swatch]:rounded-[3px] [&::-webkit-color-swatch]:border-0"
         />
-        <span className="font-mono text-[11px] uppercase text-ink">{local}</span>
+        <span className="font-mono text-xs uppercase tracking-wide text-ink">{local}</span>
       </span>
     </label>
   );

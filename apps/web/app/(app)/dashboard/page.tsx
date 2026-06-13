@@ -1,7 +1,8 @@
 "use client";
 
 import { Plus } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
 import { AppHeader } from "@/components/app/AppHeader";
 import { RecentProjects } from "@/components/app/RecentProjects";
 import { UsageMeter } from "@/components/app/UsageMeter";
@@ -25,18 +26,21 @@ function labelFromUrl(url: string): string {
   }
 }
 
-export default function DashboardPage() {
+function DashboardInner() {
   const { job, error: pollError, elapsed, start, reset } = useJob();
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const error = submitError ?? pollError;
 
-  // Deep-link: open an existing job via ?job=<id>.
+  // Deep-link: open an existing job via ?job=<id>. Reactive to the query param so
+  // navigating from /dashboard to /dashboard?job=X (e.g. clicking a recent project
+  // while already on the dashboard) loads it immediately — no manual refresh. The
+  // mount-only effect missed this: same route + new query doesn't remount the page.
+  const jobParam = useSearchParams().get("job");
   useEffect(() => {
-    const j = new URLSearchParams(window.location.search).get("job");
-    if (j) start(j);
+    if (jobParam) start(jobParam);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [jobParam]);
 
   async function handleSubmit(url: string, maxClips: number) {
     setSubmitError(null);
@@ -122,5 +126,21 @@ export default function DashboardPage() {
         ) : null}
       </main>
     </div>
+  );
+}
+
+// useSearchParams() requires a Suspense boundary (Next App Router). The shell renders
+// instantly; the tool hydrates inside.
+export default function DashboardPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-dvh">
+          <AppHeader />
+        </div>
+      }
+    >
+      <DashboardInner />
+    </Suspense>
   );
 }
