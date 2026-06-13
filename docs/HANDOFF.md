@@ -31,6 +31,13 @@ LCP 173ms, CLS 0.00**.
 - ⚠️ **i18n:** новые поверхности английские; ядро редактора/SourceForm — русское (не ломал).
 - Скрины: `design-md/_research/landing_*.png`, `pricing_page.png`, `dashboard.png`, `auth_login.png`,
   `og_card.png`, `concepts.html` (3 концепта D1).
+- **Фидбек-фиксы фаундера (вечер, подтверждено им)** — детали в CLAUDE.md журнале:
+  reframe «телепорт камеры» → непрерывный центр поперёк склеек (`ebfc3dc`, инвариант цел);
+  редактор-превью прыгало (≠ главная: главная = готовый mp4, редактор = live-кроп исходника) →
+  линейный `cxAt` + CSS-glide (`b571b55`); editor auto-retry загрузки + дизайн-примитивы
+  Checkbox/Switch/Select/IconButton (`2aef9f6`). ⚠️ Воркер перезапущен (:8000, новый reframe-код);
+  `acc_*.json` кэш job_9cae49a1103c почищен. **Открыто:** линейный рендер-expr (по запросу),
+  ключи Supabase/Polar для живого auth/оплаты, JWT-гейт вместо X-User-Id, i18n ядра.
 
 ---
 
