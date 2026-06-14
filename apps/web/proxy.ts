@@ -42,16 +42,26 @@ export async function proxy(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
+  // Build a redirect that PRESERVES any session cookies getUser() just rotated.
+  // A bare NextResponse.redirect() drops the Set-Cookie headers written onto
+  // `response`, so a refreshed token would be lost → next request re-refreshes
+  // (churn) or, after the old token expires, an auth bounce.
+  const redirectWithCookies = (url: URL) => {
+    const redirect = NextResponse.redirect(url);
+    for (const cookie of response.cookies.getAll()) redirect.cookies.set(cookie);
+    return redirect;
+  };
+
   if (!user && isProtected(path)) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     url.searchParams.set("next", path);
-    return NextResponse.redirect(url);
+    return redirectWithCookies(url);
   }
   if (user && isAuthPage) {
     const url = request.nextUrl.clone();
     url.pathname = "/dashboard";
-    return NextResponse.redirect(url);
+    return redirectWithCookies(url);
   }
 
   return response;

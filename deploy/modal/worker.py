@@ -103,8 +103,10 @@ image = (
         {
             "PYTHONPATH": "/root",
             "MODAL_SPAWN": "1",  # app.dispatch → spawn (не BackgroundTask)
-            # cookies для yt-dlp (обход YouTube bot-защиты с DC-IP). Файл добавляется ниже.
-            "YTDLP_COOKIES_FILE": "/root/cookies.txt",
+            # На Modal (DC-IP) браузерных cookies нет → НЕ ставим YTDLP_COOKIES_BROWSER
+            # (дефолт config = "edge" — на Linux-контейнере его нет, yt-dlp упал бы).
+            # YTDLP_COOKIES_FILE ставится НИЖЕ, ТОЛЬКО если файл реально кладётся в образ
+            # (иначе yt-dlp с несуществующим --cookies путём падает / тянет пустой jar).
             "YTDLP_COOKIES_BROWSER": "",
             # R2 кастомный домен (production, кэш CDN, без rate-limit) → клипы получают вечный
             # публичный URL вместо presigned (D6 re-presign больше не нужен для новых джоб).
@@ -115,8 +117,13 @@ image = (
 )
 
 # cookies.txt — gitignored, кладём в образ если есть локально (иначе скачивание упрётся в бот-гейт).
+# ⚠️ YTDLP_COOKIES_FILE ставим ТОЛЬКО когда файл реально добавлен: yt-dlp с указанным, но
+# отсутствующим --cookies путём падает (cookie-jar save в несуществующий каталог) ИЛИ тянет
+# пустой jar (нулевой обход бот-гейта). Нет файла → переменная не задаётся, yt-dlp идёт без cookies.
 if _COOKIES.exists():
-    image = image.add_local_file(str(_COOKIES), "/root/cookies.txt", copy=True)
+    image = image.add_local_file(str(_COOKIES), "/root/cookies.txt", copy=True).env(
+        {"YTDLP_COOKIES_FILE": "/root/cookies.txt"}
+    )
 
 app = modal.App("quip-worker", image=image, include_source=False)
 

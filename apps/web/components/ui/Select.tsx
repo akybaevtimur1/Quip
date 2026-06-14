@@ -13,7 +13,7 @@ export function Select({ className, children, disabled, ...props }: SelectProps)
       <select
         disabled={disabled}
         className={cn(
-          "h-10 w-full appearance-none rounded-sm border border-line bg-surface-2 pl-3 pr-9 text-sm text-ink",
+          "peer h-10 w-full appearance-none rounded-sm border border-line bg-surface-2 pl-3 pr-9 text-sm text-ink",
           "transition-colors duration-200 ease-snappy outline-none",
           "hover:border-line-strong focus:border-accent/60",
           "disabled:cursor-not-allowed disabled:opacity-50",

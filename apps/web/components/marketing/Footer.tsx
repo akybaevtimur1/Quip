@@ -6,10 +6,10 @@ const cols: { title: string; links: { href: string; label: string }[] }[] = [
   {
     title: "Product",
     links: [
-      { href: "#how-it-works", label: "How it works" },
-      { href: "#why", label: "Why Quip" },
-      { href: "#pricing", label: "Pricing" },
-      { href: "#faq", label: "FAQ" },
+      { href: "/#how-it-works", label: "How it works" },
+      { href: "/#why", label: "Why Quip" },
+      { href: "/#pricing", label: "Pricing" },
+      { href: "/#faq", label: "FAQ" },
     ],
   },
   {
