@@ -191,6 +191,30 @@ def resolve_regions_accurate(
     return out
 
 
+def regions_to_clip_time(
+    region_lists: list[list[TrackRegion]], intervals: list[SourceInterval]
+) -> list[dict[str, Any]]:
+    """Per-interval (0-based) регионы → ПЛОСКИЙ список регионов в КЛИП-времени. PURE.
+
+    Клип-время = конкатенация интервалов (как режет/склеивает render_timeline): регион i-го
+    интервала сдвигается на сумму длительностей предыдущих интервалов. Формат совпадает с
+    reframe_<clip>.json (`{t0,t1,mode,points,points_b}`) → фронт-превью читает один и тот же
+    контракт и для batch-плана, и для этого эндпоинта (D2: один источник плана = что у рендера).
+    """
+    out: list[dict[str, Any]] = []
+    offset = 0.0
+    for iv, regions in zip(intervals, region_lists, strict=True):
+        for r in regions:
+            d = _region_to_dict(r)
+            d["t0"] = round(r.t0 + offset, 3)
+            d["t1"] = round(r.t1 + offset, 3)
+            d["points"] = [{**p, "t": round(p["t"] + offset, 3)} for p in d["points"]]
+            d["points_b"] = [{**p, "t": round(p["t"] + offset, 3)} for p in d["points_b"]]
+            out.append(d)
+        offset += round(iv.source_end - iv.source_start, 3)
+    return out
+
+
 def _cache_path(cache_dir: Path, src_start: float, src_end: float) -> Path:
     return cache_dir / f"reframe_{src_start:.2f}_{src_end:.2f}.json"
 

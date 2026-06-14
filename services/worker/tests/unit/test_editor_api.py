@@ -198,6 +198,52 @@ def test_export_clean_mp4_404_missing_clip(monkeypatch, tmp_path):
     assert r.status_code == 404
 
 
+def test_reframe_endpoint_returns_flat_clip_time_regions(monkeypatch, tmp_path):
+    # D2: /reframe считает план единым путём (resolve_regions_accurate) и отдаёт КЛИП-время.
+    client, job = _client(monkeypatch, tmp_path)
+    from app import artifacts
+    from app.editor import reframe_cache
+    from app.pipeline.stage0_import import SourceMeta
+    from app.pipeline.stage3_reframe import TrackPoint, TrackRegion
+
+    src = tmp_path / "data" / job / "source.mp4"
+    src.write_bytes(b"\x00")
+    monkeypatch.setattr(artifacts, "ensure_source", lambda jid: src)
+    monkeypatch.setattr(
+        artifacts,
+        "load_meta",
+        lambda jid: SourceMeta(
+            job_id=jid,
+            source="youtube",
+            url=None,
+            title="t",
+            duration=30.0,
+            fps=30.0,
+            width=1920,
+            height=1080,
+        ),
+    )
+
+    def fake_accurate(*a, **k):
+        # один интервал → один fill-регион (как для исходного сегмента)
+        pt = TrackPoint(t=0.0, mode="fill", cx=0.4)
+        return [[TrackRegion(t0=0.0, t1=3.0, mode="fill", points=(pt,))]]
+
+    monkeypatch.setattr(reframe_cache, "resolve_regions_accurate", fake_accurate)
+    r = client.get(f"/jobs/{job}/clips/clip_01/reframe")
+    assert r.status_code == 200
+    regions = r.json()["regions"]
+    assert len(regions) == 1
+    assert regions[0]["mode"] == "fill" and regions[0]["t0"] == 0.0
+    assert regions[0]["points"][0]["cx"] == 0.4
+
+
+def test_reframe_endpoint_404_missing_clip(monkeypatch, tmp_path):
+    client, job = _client(monkeypatch, tmp_path)
+    r = client.get(f"/jobs/{job}/clips/clip_09/reframe")
+    assert r.status_code == 404
+
+
 def test_export_captioned_mp4_serves_file(monkeypatch, tmp_path):
     # D1: "With captions" = on-demand рендер ТЕКУЩИХ правок С субтитрами в ОТДЕЛЬНЫЙ файл.
     client, job = _client(monkeypatch, tmp_path)

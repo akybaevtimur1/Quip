@@ -203,6 +203,26 @@ export async function getClipAss(jobId: string, clipId: string): Promise<string>
   return res.text();
 }
 
+export interface ReframeRegion {
+  t0: number;
+  t1: number;
+  mode: string;
+  points: { t: number; mode?: string; cx: number | null }[];
+  points_b?: { t: number; mode?: string; cx: number | null }[];
+}
+
+export async function getClipReframe(
+  jobId: string,
+  clipId: string,
+): Promise<{ regions: ReframeRegion[] }> {
+  // D2: reframe-план (fit/fill/split + центры) от ЕДИНОГО frame-accurate пути (как у рендера).
+  // Заменяет прямой fetch media/<job>/reframe_<clip>.json — тот 404-ил на облаке (файл только
+  // на scratch batch-контейнера) → превью откатывалось в центр-кроп ≠ рендер.
+  const res = await fetch(`${BASE}/jobs/${jobId}/clips/${clipId}/reframe`, { cache: "no-store" });
+  if (!res.ok) throw new Error(`getClipReframe failed: ${res.status}`);
+  return res.json();
+}
+
 export async function getClipEdit(jobId: string, clipId: string): Promise<ClipEdit> {
   const res = await fetch(`${BASE}/jobs/${jobId}/clips/${clipId}/edit`, { cache: "no-store" });
   if (!res.ok) throw new Error(`getClipEdit failed: ${res.status}`);

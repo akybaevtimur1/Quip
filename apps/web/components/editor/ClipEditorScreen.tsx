@@ -8,6 +8,7 @@ import {
   getClipAnalysis,
   getClipAss,
   getClipEdit,
+  getClipReframe,
   getJob,
   getRenderStatus,
   getTimeline,
@@ -105,9 +106,9 @@ export default function ClipEditorScreen({
   const [clipIds, setClipIds] = useState<string[]>([]);
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
   const [activePresetId, setActivePresetId] = useState<string | null>(null);
-  // reframe-план пайплайна (для честного превью кадра) + исходный старт сегмента
+  // reframe-план для честного превью кадра (D2: от эндпоинта /reframe = единый путь рендера;
+  // отражает ТЕКУЩИЕ интервалы → не устаревает после сдвига/трима, и работает на облаке)
   const [rawRegions, setRawRegions] = useState<RawRegion[] | null>(null);
-  const [origStart, setOrigStart] = useState<number | null>(null);
 
   const [renderState, setRenderState] = useState<RenderState>({ kind: "idle" });
   // есть правки после последнего рендера → юзеру явно видно, что скачивание/результат
@@ -148,6 +149,17 @@ export default function ClipEditorScreen({
   // ── общий хелпер: перезапрос ASS после любой правки ──
   // Секвенсирование: быстрые правки подряд → ответы могут прийти не по порядку,
   // устаревший НЕ должен перетирать свежий (иначе субтитры «прыгают» назад).
+  // reframe-план превью: единый путь /reframe (как рендер), отражает текущие интервалы.
+  // Нефатально: ошибка/таймаут → null → превью fallback в центр (как было), без поломки.
+  const loadReframe = useCallback(async () => {
+    try {
+      const data = await getClipReframe(jobId, clipId);
+      setRawRegions((data.regions as RawRegion[]) ?? null);
+    } catch {
+      setRawRegions(null);
+    }
+  }, [jobId, clipId]);
+
   const assSeq = useRef(0);
   const refreshAss = useCallback(async () => {
     const seq = ++assSeq.current;
@@ -171,7 +183,6 @@ export default function ClipEditorScreen({
       setEditingReply(null);
       setRenderState({ kind: "idle" });
       setRawRegions(null);
-      setOrigStart(null);
       // Авто-ретрай с backoff: воркер мог ещё подниматься (cold start torch/MediaPipe)
       // или сетевой блип на первом запросе → не показываем ошибку сразу, тихо повторяем.
       const MAX_ATTEMPTS = 4;
@@ -199,21 +210,12 @@ export default function ClipEditorScreen({
               // (highest score) showed "Clip 2 of 5".
               const ids = [...(job.clips ?? [])].sort((a, b) => b.score - a.score).map((c) => c.id);
               setClipIds(ids.length > 0 ? ids : [clipId]);
-              const me = (job.clips ?? []).find((c) => c.id === clipId);
-              if (me) {
-                // D1: НЕ берём me.video_url (это ЧИСТЫЙ клип без субтитров) как download.
-                // downloadUrl остаётся null до рендера → ExportMenu рендерит captioned на лету.
-                setOrigStart(me.start);
-              }
+              // D1: НЕ берём me.video_url (ЧИСТЫЙ клип без субтитров) как download —
+              // downloadUrl остаётся null до рендера → ExportMenu рендерит captioned на лету.
             })
             .catch(() => !cancelled && setClipIds([clipId]));
-          // план кадра пайплайна (нефатально): превью уважает реальные режимы fit/fill/split
-          fetch(resolveUrl(`media/${jobId}/reframe_${clipId}.json`), { cache: "no-store" })
-            .then((r) => (r.ok ? r.json() : null))
-            .then((data) => {
-              if (!cancelled) setRawRegions((data?.regions as RawRegion[]) ?? null);
-            })
-            .catch(() => !cancelled && setRawRegions(null));
+          // D2: план кадра от эндпоинта /reframe (единый путь рендера, работает и на облаке)
+          if (!cancelled) void loadReframe();
           return; // успех
         } catch (e) {
           if (cancelled) return;
@@ -232,7 +234,7 @@ export default function ClipEditorScreen({
       cancelled = true;
       stopPoll();
     };
-  }, [jobId, clipId, loadKey, stopPoll]);
+  }, [jobId, clipId, loadKey, stopPoll, loadReframe]);
 
   const handleConflict = useCallback(() => {
     setError("Data changed — reloading the editor…");
@@ -268,8 +270,11 @@ export default function ClipEditorScreen({
       setPhase("ready");
       setDirty(true);
       if (ass !== null && seq === assSeq.current) setAssText(ass);
+      // D2: интервал изменился → пере-считать reframe-план для НОВОГО окна (превью-кроп
+      // больше не устаревает после сдвига/трима — эндпоинт отражает текущие интервалы).
+      void loadReframe();
     },
-    [jobId, clipId],
+    [jobId, clipId, loadReframe],
   );
 
   const handleSetInterval = useCallback(
@@ -630,8 +635,8 @@ export default function ClipEditorScreen({
   );
 
   // ── РЕАЛЬНЫЙ режим кадра для превью на текущий момент ──
-  // Приоритет: ручной override (таб «Кадр», виден сразу) → план пайплайна
-  // (reframe_<clip>.json; валиден пока интервал не сдвинут) → дефолт fill-центр.
+  // Приоритет: ручной override (таб «Кадр», виден сразу) → план от /reframe (D2: единый
+  // путь рендера, всегда для ТЕКУЩИХ интервалов) → дефолт fill-центр.
   const frame = useMemo<FrameState | null>(() => {
     const ovs = (edit?.reframe_overrides ?? []).filter(
       (ov) => ov.source_start < outerEnd && ov.source_end > outerStart,
@@ -645,8 +650,7 @@ export default function ClipEditorScreen({
         cxB: ov.center_b ?? 0.7,
       };
     }
-    // план пайплайна устаревает, если шортс сдвинули с исходного сегмента
-    if (rawRegions && origStart !== null && Math.abs(outerStart - origStart) < 0.5) {
+    if (rawRegions) {
       const clipT = Math.max(0, nowSec - outerStart);
       const reg =
         rawRegions.find((r) => clipT >= r.t0 && clipT < r.t1) ?? rawRegions.at(-1) ?? null;
@@ -659,7 +663,7 @@ export default function ClipEditorScreen({
       }
     }
     return null;
-  }, [edit, outerStart, outerEnd, rawRegions, origStart, nowSec]);
+  }, [edit, outerStart, outerEnd, rawRegions, nowSec]);
 
   // T5: аспект превью-контейнера (литералы → Tailwind JIT их видит)
   const aspectClass =

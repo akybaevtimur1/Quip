@@ -19,6 +19,7 @@ render-crop, `NotSupportedError`, cloud 404s, "With captions" downloads a captio
 |------|--------|--------------|-------|-------|
 | 2026-06-14 | `main` | ✅ exit 0 | **459 passed** | Untracked WIP in `deploy/modal/worker.py`, `stage0_import.py`, `BENCHMARKS.md` = unrelated yt-dlp/Deno/AV1 reliability work — left untouched. |
 | 2026-06-14 | `main` | ✅ exit 0 | **462 passed** | After D1 fix (clean clip + captioned artifact). |
+| 2026-06-14 | `main` | ✅ exit 0 | **465 passed** | After D2 fix (reframe plan endpoint). |
 
 ---
 
@@ -102,7 +103,20 @@ file. Delete the `burned`-detection band-aid in `ClipPreview`. (Detailed plan be
 is fixed first.)
 </details>
 
-### D2 — Editor reframe plan 404 on cloud  ·  L4/L6  ·  🔬
+### D2 — Editor reframe plan 404 on cloud  ·  L4/L6  ·  ✅ fixed (local-verified)
+**FIX:** new `GET /jobs/{job}/clips/{clip}/reframe` computes the plan via the **same**
+`resolve_regions_accurate` the render uses (cache `analysis/acc_*.json`, source pulled from R2 via
+`artifacts.ensure_source`) for the *current* edit intervals, flattened to clip-time by the pure
+`regions_to_clip_time`. Frontend (`ClipEditorScreen`) fetches it via `api.getClipReframe` instead of
+the raw `/media/...json`, re-fetches after interval edits, and the old `origStart` staleness guard is
+gone — so preview-crop == render-crop in **both** environments and after a drag/trim (also resolves
+HANDOFF §0.1 #2). Fetch stays non-fatal (falls back to center on error). **Evidence:** `just check`
+green; `test_reframe_endpoint_returns_flat_clip_time_regions`, `test_reframe_endpoint_404_missing_clip`,
+`test_regions_to_clip_time_offsets_by_interval_durations`. ⚠️ **Cost:** editor-open may run the heavy
+ASD planner once per interval if `acc_*.json` is cold (shared with render). Cheaper-but-divergent
+alternative (persist batch plan to R2/Postgres) noted as follow-up. Cloud not yet exercised (secrets).
+
+<details><summary>original investigation</summary>
 **Evidence:** `ClipEditorScreen.tsx:210` does `fetch(media/<job>/reframe_<clip>.json)` straight off
 `/media` StaticFiles. The file is written by the batch reframe to the **run_job** container's scratch
 disk (`stage3_reframe.py:653`), and is **never** uploaded to R2 nor stored in Postgres. On cloud the
@@ -117,6 +131,7 @@ on the batch container's disk, instead of a durable, env-agnostic source.
 **same** `resolve_regions_accurate` the editor render uses — so editor-preview plan == editor-render
 plan == one source (and it reflects the *current* edit intervals, also fixing the stale-after-drag
 issue, HANDOFF §0.1 #2). Frontend fetches that endpoint instead of the raw `/media/...json`.
+</details>
 
 ### D3 — PreviewPlayer mounts the source video 4×  ·  L6  ·  🔬
 **Evidence:** `PreviewPlayer.tsx` renders four `<video src={src}>`: master (`videoRef`, line 201),
@@ -162,7 +177,8 @@ fix opportunistically.
       unchanged by D1.
 - [x] **L6** grid preview == editor preview (both always overlay libass on the clean clip); no
       double captions after an editor render (clean clip never overwritten).
-- [ ] **L6** editor frame preview crop == rendered crop incl. cloud (D2, pending).
+- [x] **L6** editor frame preview crop == rendered crop (D2: both via `resolve_regions_accurate`;
+      cloud serves it from the endpoint not a missing `/media` file). Cloud live-check pending secrets.
 - [ ] **L6** Source video mounted once unless split/fit needs aux; no `NotSupportedError` (D3, pending).
 
 ---

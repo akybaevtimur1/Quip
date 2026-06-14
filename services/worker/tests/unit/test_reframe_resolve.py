@@ -5,10 +5,28 @@ from app.editor.reframe_cache import (
     _region_from_dict,
     _region_to_dict,
     analyze_source_range,
+    regions_to_clip_time,
     resolve_regions,
 )
 from app.models import CropOverride, SourceInterval
 from app.pipeline.stage3_reframe import TrackPoint, TrackRegion
+
+
+def test_regions_to_clip_time_offsets_by_interval_durations():
+    # D2: per-interval (0-based) регионы → клип-время = конкатенация интервалов.
+    iv = [
+        SourceInterval(source_start=10.0, source_end=13.0),  # длительность 3.0
+        SourceInterval(source_start=40.0, source_end=42.0),  # длительность 2.0
+    ]
+    pt = TrackPoint(t=1.0, mode="fill", cx=0.4)
+    region_lists = [
+        [TrackRegion(t0=0.0, t1=3.0, mode="fill", points=(pt,))],
+        [TrackRegion(t0=0.0, t1=2.0, mode="fit", points=())],
+    ]
+    flat = regions_to_clip_time(region_lists, iv)
+    assert [(r["t0"], r["t1"], r["mode"]) for r in flat] == [(0.0, 3.0, "fill"), (3.0, 5.0, "fit")]
+    # точки второго интервала сдвинуты на 3.0 (длительность первого)
+    assert flat[0]["points"][0]["t"] == 1.0  # первый интервал: без сдвига
 
 
 def test_region_json_roundtrip():

@@ -633,6 +633,49 @@ def get_render(job_id: str, clip_id: str) -> dict[str, Any]:
     }
 
 
+@app.get("/jobs/{job_id}/clips/{clip_id}/reframe")
+def get_clip_reframe(job_id: str, clip_id: str) -> dict[str, Any]:
+    """Reframe-план клипа (fit/fill/split + центры) для честного превью кадра в редакторе.
+
+    D2: раньше фронт тянул ``media/<job>/reframe_<clip>.json`` напрямую со StaticFiles —
+    на облаке (Modal/R2) этот файл лежит только на scratch-диске batch-контейнера → 404 →
+    превью откатывалось в центр-кроп (≠ рендер). Теперь план считает ЕДИНЫЙ frame-accurate
+    путь ``resolve_regions_accurate`` (тот же, что у рендера; кэш ``analysis/acc_*.json``,
+    источник из R2 через artifacts.ensure_source) для ТЕКУЩИХ интервалов edit-state →
+    превью-план == рендер-план, и в обоих средах, и после сдвига/трима интервала.
+    """
+    from app import artifacts
+    from app.editor.reframe_cache import regions_to_clip_time, resolve_regions_accurate
+
+    try:
+        edit = store.ensure_edit(job_id, clip_id)
+    except (FileNotFoundError, KeyError, JobError) as e:
+        raise HTTPException(status_code=404, detail="clip/segment not found") from e
+    out = artifacts.ensure_source(job_id).parent
+    meta = artifacts.load_meta(job_id)
+    s = get_settings()
+    region_lists = resolve_regions_accurate(
+        out / "source.mp4",
+        edit.source_intervals,
+        edit.reframe_overrides,
+        src_w=meta.width,
+        src_h=meta.height,
+        fps=meta.fps,
+        clip_id=clip_id,
+        out_dir=out,
+        cache_dir=out / "analysis",
+        mode_setting=s.reframe_mode,
+        speaker_crop_scale=s.reframe_speaker_crop_scale,
+        face_fps=s.reframe_face_fps,
+        smoothing=s.reframe_smoothing,
+        min_hold_sec=s.reframe_min_hold_sec,
+        speak_threshold=s.reframe_speak_threshold,
+        scene_threshold=s.reframe_scene_threshold,
+        split_enabled=s.reframe_split_enabled,
+    )
+    return {"regions": regions_to_clip_time(region_lists, edit.source_intervals)}
+
+
 @app.get("/jobs/{job_id}/clips/{clip_id}/analysis")
 def get_analysis(job_id: str, clip_id: str) -> dict[str, Any]:
     """Интервалы + слова клипа (для клиент-превью субтитров/таймлайна)."""
