@@ -54,6 +54,17 @@ image = (
         "libxext6",
         "wget",
         "xz-utils",
+        "unzip",  # распаковать deno-zip
+        "ca-certificates",  # https-загрузки deno/ffmpeg/ejs
+    )
+    # Deno — JS-рантайм для yt-dlp (решение YouTube nsig/«n»-челленджа). Без него скачивание
+    # падает: «n challenge solving failed». yt-dlp находит deno на PATH (/usr/local/bin).
+    .run_commands(
+        "wget -q https://github.com/denoland/deno/releases/latest/download/deno-x86_64-unknown-linux-gnu.zip -O /tmp/deno.zip",
+        "unzip -o /tmp/deno.zip -d /usr/local/bin",
+        "chmod +x /usr/local/bin/deno",
+        "rm /tmp/deno.zip",
+        "/usr/local/bin/deno --version",  # доказать в логах сборки
     )
     # СТАТИК-ffmpeg ≥7 в /usr/local/bin (НЕ apt-ffmpeg — он крашит crop-рендер).
     .run_commands(
