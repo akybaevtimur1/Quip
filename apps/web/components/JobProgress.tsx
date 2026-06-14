@@ -4,7 +4,9 @@ import type { JobStatus } from "@/lib/types";
 
 const ORDER: JobStatus[] = ["queued", "downloading", "transcribing", "selecting", "rendering", "done"];
 const STEPS: { key: JobStatus; label: string }[] = [
-  { key: "downloading", label: "Downloading" },
+  // "Preparing" (not "Downloading"): for an uploaded file there's nothing to download
+  // — showing "Downloading" right after the upload screen read like a second download.
+  { key: "downloading", label: "Preparing video" },
   { key: "transcribing", label: "Transcribing" },
   { key: "selecting", label: "Selecting moments" },
   { key: "rendering", label: "Rendering" },
