@@ -1,12 +1,11 @@
 "use client";
 
-import { Check, Gauge, Maximize2, Minimize2, Pencil, Sparkles } from "lucide-react";
+import { Check, Gauge, Pencil, Sparkles } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
 import { ExportMenu } from "@/components/ExportMenu";
 import { clipRange } from "@/lib/format";
 import type { ClipOut } from "@/lib/types";
-import { CaptionOverlay } from "./CaptionOverlay";
+import { ClipPreview } from "./ClipPreview";
 import { ReasonChip } from "./ReasonChip";
 
 const WORKER_BASE = process.env.NEXT_PUBLIC_WORKER_URL ?? "";
@@ -27,27 +26,7 @@ export function ClipCard({
   selected: boolean;
   onToggle: () => void;
 }) {
-  const [videoSrc] = useState(() => resolveUrl(clip.video_url));
-  const [showCaptions, setShowCaptions] = useState(false);
-  const [isFullscreen, setIsFullscreen] = useState(false);
-
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  // Track fullscreen state so overlay remains synced.
-  useEffect(() => {
-    const onFsChange = () => setIsFullscreen(!!document.fullscreenElement);
-    document.addEventListener("fullscreenchange", onFsChange);
-    return () => document.removeEventListener("fullscreenchange", onFsChange);
-  }, []);
-
-  const toggleFullscreen = () => {
-    if (document.fullscreenElement) {
-      document.exitFullscreen();
-    } else {
-      containerRef.current?.requestFullscreen();
-    }
-  };
+  const videoSrc = resolveUrl(clip.video_url);
 
   return (
     <article
@@ -55,69 +34,26 @@ export function ClipCard({
         selected ? "border-accent/60 ring-1 ring-accent/30" : "border-line opacity-55 hover:opacity-80"
       }`}
     >
-      {/* ── video ── */}
-      <div
-        ref={containerRef}
-        className="relative overflow-hidden rounded-t-lg bg-surface-2"
-        style={isFullscreen ? { background: "#000", display: "flex", alignItems: "center", justifyContent: "center" } : {}}
-      >
-        <video
-          ref={videoRef}
-          key={videoSrc}
+      {/* ── video preview: SAME caption engine as the editor (libass + the real ASS),
+          so the grid shows the hook + captions exactly like the editor / export ── */}
+      <div className="relative">
+        <ClipPreview
           src={videoSrc}
-          controls
-          preload="metadata"
-          playsInline
-          // Remove native fullscreen button — we supply our own that fullscreens the container
-          // so the caption overlay stays visible.
-          controlsList="nofullscreen"
-          className={
-            isFullscreen
-              ? "h-full max-h-screen w-auto bg-black object-contain"
-              : "aspect-[9/16] w-full bg-black object-contain"
-          }
+          jobId={jobId}
+          clipId={clip.id}
+          words={clip.words}
+          clipStart={clip.start}
         />
-        {showCaptions && clip.words.length > 0 && (
-          <CaptionOverlay words={clip.words} clipStart={clip.start} videoRef={videoRef} />
-        )}
-        <span className="absolute left-2 top-2">
+        <span className="pointer-events-none absolute left-2 top-2 z-40">
           <ReasonChip type={clip.type} />
         </span>
-
-        {/* Fullscreen toggle — fullscreens the container so the overlay travels with it.
-            Dark scrim is intentional: these controls overlay arbitrary video frames. */}
-        <button
-          type="button"
-          onClick={toggleFullscreen}
-          title={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
-          className="absolute bottom-14 right-10 rounded-sm bg-black/60 p-1 text-white/70 backdrop-blur-sm transition duration-150 ease-snappy hover:bg-black/75 hover:text-white active:scale-95"
-        >
-          {isFullscreen ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
-        </button>
-
-        {/* CC toggle */}
-        {clip.words.length > 0 && (
-          <button
-            type="button"
-            onClick={() => setShowCaptions((v) => !v)}
-            title={showCaptions ? "Hide animated captions" : "Show animated captions"}
-            className={`absolute bottom-14 right-2 rounded-sm px-2 py-0.5 text-[11px] font-bold backdrop-blur-sm transition duration-150 ease-snappy active:scale-95 ${
-              showCaptions
-                ? "bg-accent text-white"
-                : "bg-black/60 text-white/70 hover:bg-black/75 hover:text-white"
-            }`}
-          >
-            CC
-          </button>
-        )}
-
         {/* select button (custom-styled checkbox affordance over the video) */}
         <button
           type="button"
           onClick={onToggle}
           aria-pressed={selected}
           aria-label={selected ? "Deselect" : "Select"}
-          className={`absolute right-2 top-2 inline-flex size-7 items-center justify-center rounded-sm border transition duration-150 ease-snappy active:scale-95 ${
+          className={`absolute right-2 top-2 z-40 inline-flex size-7 items-center justify-center rounded-sm border transition duration-150 ease-snappy active:scale-95 ${
             selected
               ? "border-accent bg-accent text-white"
               : "border-line-strong bg-bg/70 text-transparent backdrop-blur hover:border-accent/60 hover:text-white/30"
