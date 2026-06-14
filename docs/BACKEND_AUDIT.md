@@ -20,6 +20,7 @@ render-crop, `NotSupportedError`, cloud 404s, "With captions" downloads a captio
 | 2026-06-14 | `main` | ✅ exit 0 | **459 passed** | Untracked WIP in `deploy/modal/worker.py`, `stage0_import.py`, `BENCHMARKS.md` = unrelated yt-dlp/Deno/AV1 reliability work — left untouched. |
 | 2026-06-14 | `main` | ✅ exit 0 | **462 passed** | After D1 fix (clean clip + captioned artifact). |
 | 2026-06-14 | `main` | ✅ exit 0 | **465 passed** | After D2 fix (reframe plan endpoint). |
+| 2026-06-14 | `main` | ✅ exit 0 | **465 passed** | After D3 fix (lazy preview videos; frontend-only). |
 
 ---
 
@@ -133,7 +134,13 @@ plan == one source (and it reflects the *current* edit intervals, also fixing th
 issue, HANDOFF §0.1 #2). Frontend fetches that endpoint instead of the raw `/media/...json`.
 </details>
 
-### D3 — PreviewPlayer mounts the source video 4×  ·  L6  ·  🔬
+### D3 — PreviewPlayer mounts the source video 4×  ·  L6  ·  ✅ fixed (local-verified)
+**FIX:** the blur-bg `<video>` is now rendered only when `mode === "fit"`; each `SplitHalf` sets
+`src` only when `active` (split). The master video stays always-on. So in the common `fill` case only
+1 decoder loads the source — on cloud that's 1 presigned-R2 fetch, not 4 → no `NotSupportedError ×N`.
+**Evidence:** `just check` green (tsc/eslint). Cloud playback across all elements pending live secrets.
+
+<details><summary>original investigation</summary>
 **Evidence:** `PreviewPlayer.tsx` renders four `<video src={src}>`: master (`videoRef`, line 201),
 blur-bg `auxARef` (line 188), and two `SplitHalf` (line 220-221, src at line 344). The blur-bg and
 split halves set `src` **unconditionally** (only hidden via CSS `hidden`/`opacity-0`). All four
@@ -144,6 +151,7 @@ decode/fetch the source — on cloud that's 4× presigned-R2 fetches of a large 
 
 **Planned fix:** lazy `src` — set it on blur-bg only in `fit` mode and on split halves only in `split`
 mode (mount/unmount or conditional `src`). Master stays always-on.
+</details>
 
 ### D4 — Duplicate reframe resolver (legacy)  ·  L3  ·  🔬 (low)
 **Evidence:** `app/editor/reframe_cache.py` has TWO planners: `resolve_regions` + `analyze_source_range`
@@ -179,7 +187,8 @@ fix opportunistically.
       double captions after an editor render (clean clip never overwritten).
 - [x] **L6** editor frame preview crop == rendered crop (D2: both via `resolve_regions_accurate`;
       cloud serves it from the endpoint not a missing `/media` file). Cloud live-check pending secrets.
-- [ ] **L6** Source video mounted once unless split/fit needs aux; no `NotSupportedError` (D3, pending).
+- [x] **L6** Source video mounted once unless split/fit needs aux (D3). No `NotSupportedError` — cloud
+      live-check pending secrets.
 
 ---
 

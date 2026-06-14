@@ -183,18 +183,20 @@ export function PreviewPlayer({
       }`}
     >
       <div className={isFullscreen ? `relative h-full ${aspectClass}` : "absolute inset-0"}>
-        {/* fit: блюр-фон позади (весь кадр + рамки, как в рендере) */}
-        <video
-          ref={auxARef}
-          key={`bg-${src}`}
-          src={src}
-          muted
-          playsInline
-          preload="metadata"
-          className={`absolute inset-0 size-full scale-110 object-cover blur-xl brightness-50 ${
-            mode === "fit" ? "" : "hidden"
-          }`}
-        />
+        {/* fit: блюр-фон позади (весь кадр + рамки, как в рендере).
+            D3: src ставим ТОЛЬКО в режиме fit — иначе 4-й декодер тянет источник (на облаке
+            это 4× presigned-R2 → NotSupportedError ×N + лаги). Лениво монтируем по нужде. */}
+        {mode === "fit" && (
+          <video
+            ref={auxARef}
+            key={`bg-${src}`}
+            src={src}
+            muted
+            playsInline
+            preload="metadata"
+            className="absolute inset-0 size-full scale-110 object-cover blur-xl brightness-50"
+          />
+        )}
 
         {/* мастер-видео: время+звук. fill=кроп с реальным центром; fit=весь кадр;
             split=прячем картинку (звук/часы живут), показываем две половины ниже */}
@@ -341,9 +343,11 @@ function SplitHalf({
 
   return (
     <div className="relative h-1/2 w-full overflow-hidden">
+      {/* D3: src только в split-режиме — иначе лишний декодер источника (на облаке = лишний
+          presigned-R2 fetch). Мастер-видео всегда смонтировано; половины — лениво по нужде. */}
       <video
         ref={ref}
-        src={src}
+        src={active ? src : undefined}
         muted
         playsInline
         preload="metadata"
