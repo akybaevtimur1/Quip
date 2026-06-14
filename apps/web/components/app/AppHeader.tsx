@@ -4,6 +4,7 @@ import { User } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { SignOutButton } from "@/components/auth/SignOutButton";
+import { UsagePill } from "@/components/app/UsagePill";
 import { Logo } from "@/components/ui/Logo";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
@@ -48,12 +49,8 @@ export function AppHeader() {
       <div className="mx-auto flex h-16 max-w-[1200px] items-center justify-between px-5 sm:px-8">
         <Logo href="/dashboard" />
         <div className="flex items-center gap-2.5">
-          <Link
-            href="/#pricing"
-            className="hidden rounded-pill border border-line px-3 py-1.5 font-mono text-eyebrow uppercase text-muted transition-colors hover:text-ink sm:inline-flex"
-          >
-            Free
-          </Link>
+          {/* always-visible balance: videos + minutes left this month */}
+          <UsagePill className="hidden sm:inline-flex" />
           <div className="relative" ref={menuRef}>
             <button
               type="button"

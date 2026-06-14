@@ -19,11 +19,15 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from app.billing import MAX_VIDEO_MINUTES
 from app.errors import JobError
 from app.models import SourceKind
 
 _STAGE = "import"
-MAX_SOURCE_MINUTES = 90  # лимит плана; вынесем в config.py при появлении настроек
+# Технический потолок длины одного исходника (всегда, даже без биллинга). Единый источник —
+# billing.MAX_VIDEO_MINUTES. Это НЕ план-лимит: план/баланс по минутам гейтит _quota_gate
+# (tasks.py) после probe. Раньше тут стоял плоский 90, не связанный с кредит-моделью.
+MAX_SOURCE_MINUTES = MAX_VIDEO_MINUTES
 
 
 class SourceMeta(BaseModel):
@@ -140,10 +144,17 @@ def download_youtube(
     cmd = [
         "yt-dlp",
         "-f",
-        "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best[height<=1080]/best",
+        # Предпочитаем H.264 (avc1) — софт-декод AV1 в reframe-анализе в ~2-5× медленнее и
+        # засыпает лог hw-accel-ошибками. Фолбэки: mp4(av1) → любой 1080 → best.
+        "bestvideo[height<=1080][vcodec^=avc1]+bestaudio[ext=m4a]/bestvideo[height<=1080][ext=mp4]+bestaudio/bestvideo[height<=1080]+bestaudio/best[height<=1080]/best",
         "--merge-output-format",
         "mp4",
         "--no-playlist",
+        # YouTube nsig/«n»-челлендж теперь требует JS-рантайм (Deno в образе) + EJS-скрипты
+        # решателя. ejs:github подтягивает их с GitHub в рантайме (yt-dlp #15012, wiki EJS).
+        # Без этого — «n challenge solving failed → Some formats may be missing» (exit 1).
+        "--remote-components",
+        "ejs:github",
         "--max-filesize",
         "2G",
         "--write-info-json",
@@ -219,7 +230,8 @@ def _check_limits(meta: SourceMeta) -> None:
     if meta.duration > MAX_SOURCE_MINUTES * 60:
         raise JobError(
             _STAGE,
-            f"источник {meta.duration / 60:.1f} мин > лимита {MAX_SOURCE_MINUTES} мин",
+            f"This video is {meta.duration / 60:.0f} min long, but the limit is "
+            f"{MAX_SOURCE_MINUTES} min. Trim it or pick a shorter source and try again.",
         )
 
 

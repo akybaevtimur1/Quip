@@ -7,13 +7,42 @@
 from __future__ import annotations
 
 import logging
+import os
+from collections.abc import Callable
 
 from app import billing, db
 from app.errors import JobError
 from app.models import Job, JobStatus
+from app.pipeline.stage0_import import SourceMeta
 from app.run import run_pipeline
 
 _log = logging.getLogger("clipflow.billing")
+
+
+def _billing_on() -> bool:
+    return os.environ.get("BILLING_ENABLED", "").strip().lower() in ("1", "true", "yes")
+
+
+def _quota_gate(user_id: str | None) -> Callable[[SourceMeta], None] | None:
+    """on_meta-хук для run_pipeline: проверяет квоту по РЕАЛЬНОЙ длине (после probe, до
+    транскрипции) и роняет JobError, если не хватает минут. Read-only — НИЧЕГО не списывает
+    (списание = record_usage только после готовых клипов). None, если биллинг/юзер не активны.
+    """
+    if not user_id or not _billing_on():
+        return None
+
+    def check(meta: SourceMeta) -> None:
+        minutes = meta.duration / 60.0
+        profile = db.get_profile(user_id)
+        used = db.get_monthly_usage(user_id, billing.current_month())
+        payg_minutes = int(profile["payg_credits"]) * billing.MINUTES_PER_VIDEO
+        decision = billing.check_quota(
+            profile["plan"], float(used["minutes"]), payg_minutes, minutes
+        )
+        if not decision.allowed:
+            raise JobError("limit", decision.reason or "Quota exceeded")
+
+    return check
 
 
 def _meter(user_id: str | None, job_id: str, job: Job) -> None:
@@ -162,7 +191,13 @@ def run_pipeline_job(
         db.update_status(job_id, status.value, progress)
 
     try:
-        job = run_pipeline(job_id, source_url=source_ref, on_status=on_status, max_clips=max_clips)
+        job = run_pipeline(
+            job_id,
+            source_url=source_ref,
+            on_status=on_status,
+            max_clips=max_clips,
+            on_meta=_quota_gate(user_id),
+        )
         db.set_done(job_id, job)
         _meter(user_id, job_id, job)
     except JobError as e:
@@ -194,7 +229,13 @@ def run_upload_job(
     try:
         db.update_status(job_id, JobStatus.downloading.value, 8)
         import_upload(Path(upload_path), DATA_ROOT / job_id, job_id=job_id, title=title)
-        job = run_pipeline(job_id, source_url=None, on_status=on_status, max_clips=max_clips)
+        job = run_pipeline(
+            job_id,
+            source_url=None,
+            on_status=on_status,
+            max_clips=max_clips,
+            on_meta=_quota_gate(user_id),
+        )
         db.set_done(job_id, job)
         _meter(user_id, job_id, job)
     except JobError as e:

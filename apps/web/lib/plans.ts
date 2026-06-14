@@ -2,9 +2,10 @@
  * Marketing display data for pricing — MIRRORS services/worker/app/billing.py PLANS
  * (the enforcement source of truth). Keep numbers in sync when billing.py changes.
  *
- * Credit model: 1 credit = 1 video up to 60 min of source. Longer videos cost more
- * credits (ceil(minutes / 60)). A plan's monthly limit is a number of video-credits:
- * no token casino, no surprise paywalls.
+ * Video-minutes model: 1 "video" = 60 min of source. A plan's monthly limit is a pool of
+ * minutes (videos × 60); a longer video just uses minutes proportionally (90 min = 1.5
+ * videos), so the balance is shown as both videos and minutes. No token casino, no surprise
+ * paywalls. Free caps a single video at 60 min (upsell to Starter for longer).
  */
 export type PlanId = "free" | "starter" | "pro";
 
@@ -30,7 +31,7 @@ export const PLANS: PlanDisplay[] = [
     price: 0,
     tagline: "See it work, no card required.",
     limit: "2 videos / month",
-    limitNote: "Source up to 30 min per video.",
+    limitNote: "120 min total. A single video can be up to 60 min.",
     cta: "Start free",
     features: [
       "Explainable clips with hook, score and reason",
@@ -45,13 +46,13 @@ export const PLANS: PlanDisplay[] = [
     price: 10,
     tagline: "For creators shipping weekly.",
     limit: "10 videos / month",
-    limitNote: "Up to 60 min each. Longer videos use more credits.",
+    limitNote: "600 min total. Longer videos use minutes proportionally.",
     cta: "Choose Starter",
     features: [
       "Everything in Free",
       "No watermark, 1080p export",
       "All aspect ratios: 9:16, 1:1, 4:5, 16:9",
-      "Top up anytime with pay-as-you-go credits",
+      "Top up anytime with pay-as-you-go videos",
     ],
   },
   {
@@ -60,22 +61,22 @@ export const PLANS: PlanDisplay[] = [
     price: 25,
     tagline: "For heavy repurposing.",
     limit: "30 videos / month",
-    limitNote: "Up to 60 min each. Longer videos use more credits.",
+    limitNote: "1800 min total. Longer videos use minutes proportionally.",
     cta: "Choose Pro",
     recommended: true,
     features: [
       "Everything in Starter",
       "Priority processing in the queue",
       "Early access to new features",
-      "Pay-as-you-go credits when you need more",
+      "Pay-as-you-go videos when you need more",
     ],
   },
 ];
 
-/** Pay-as-you-go: one-off credits, no subscription. Mirrors billing.PAYG_PRICE_USD. */
+/** Pay-as-you-go: one-off videos, no subscription. Mirrors billing.PAYG_PRICE_USD. */
 export const PAYG = {
-  pricePerVideo: 2, // USD per video-credit (source up to 60 min)
+  pricePerVideo: 2, // USD per video (source up to 60 min)
   title: "No subscription? Pay as you go.",
-  body: "Buy credits one at a time. They never expire, and one credit covers a video up to 60 minutes.",
-  cta: "Buy a credit",
+  body: "Buy videos one at a time. They never expire — one video covers up to 60 minutes of source.",
+  cta: "Buy a video",
 } as const;

@@ -55,11 +55,14 @@ def run_pipeline(
     on_status: Callable[[JobStatus, int], None] | None = None,
     *,
     max_clips: int | None = None,
+    on_meta: Callable[[SourceMeta], None] | None = None,
 ) -> Job:
     """Прогнать весь конвейер для job_id. Возвращает Job (также пишет job.json/runs.jsonl).
 
     on_status(status, progress) (опц.) вызывается на границах стадий — для статуса в БД (J1).
     max_clips (опц.) — сколько клипов запросил юзер (UI-степпер); None → дефолт из настроек.
+    on_meta(meta) (опц.) — вызывается СРАЗУ после импорта (известна реальная длина), ДО
+    транскрипции. Поднимет JobError → джоб падает до оплаты Deepgram (гейт квоты по длине).
     """
     s = get_settings()  # fail-fast на отсутствии ключей; также берём reframe_mode
     out = DATA_ROOT / job_id
@@ -88,6 +91,11 @@ def run_pipeline(
     else:
         raise JobError("import", f"нет data/{job_id}/source.mp4 и не передан URL")
     stages["download"] = round(time.perf_counter() - t0, 2)
+
+    # ── Гейт квоты по РЕАЛЬНОЙ длине (до оплаты транскрипции). Поднимет JobError → failed,
+    #    БЕЗ списания (record_usage идёт только после set_done). ──
+    if on_meta is not None:
+        on_meta(meta)
 
     # ── Stage 1: Transcribe (уровень 1: job-local transcript.json; уровень 2: hash-кэш) ──
     emit(JobStatus.transcribing, 35)

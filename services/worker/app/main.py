@@ -126,24 +126,29 @@ def _resolve_user(authorization: str | None, x_user_id: str | None) -> str | Non
     return x_user_id
 
 
-def _enforce_quota(user_id: str | None, est_minutes: float) -> None:
-    """Гейт квоты (P1). No-op без BILLING_ENABLED/user_id → пайплайн не трогается.
-    Иначе: план (profiles) + месячный расход → check_quota → 402 при превышении.
+def _enforce_quota(user_id: str | None) -> None:
+    """Create-time гейт: быстрый отказ, если месячные минуты + PAYG ПОЛНОСТЬЮ исчерпаны.
 
-    ⚠️ user_id ДОЛЖЕН приходить из проверенного Supabase-JWT в проде. Заголовок
-    X-User-Id — плейсхолдер, активен только при BILLING_ENABLED. См. docs/SUPABASE_SETUP.md §4.
+    Длину видео тут НЕ знаем (duration известна только после probe) → реальный лимит по
+    длине применяется ПОСЛЕ импорта (``_quota_gate_after_probe`` в tasks.py, до транскрипции).
+    No-op без BILLING_ENABLED/user_id. НИЧЕГО не списывает — списание только по факту
+    готовых клипов (record_usage после set_done).
     """
     if not user_id or not _billing_enabled():
         return
-    from app import billing
-
     profile = db.get_profile(user_id)
     used = db.get_monthly_usage(user_id, billing.current_month())
-    decision = billing.check_quota(
-        profile["plan"], int(used["credits"]), int(profile["payg_credits"]), est_minutes
-    )
-    if not decision.allowed:
-        raise HTTPException(status_code=402, detail=decision.reason or "Quota exceeded")
+    plan = billing.resolve_plan(profile["plan"])
+    monthly_remaining = billing.plan_monthly_minutes(plan) - float(used["minutes"])
+    payg_minutes = int(profile["payg_credits"]) * billing.MINUTES_PER_VIDEO
+    if monthly_remaining <= 0 and payg_minutes <= 0:
+        raise HTTPException(
+            status_code=402,
+            detail=(
+                f"You're out of minutes on {plan.name} this month. "
+                f"Upgrade your plan or top up to keep creating clips."
+            ),
+        )
 
 
 @app.get("/usage")
@@ -156,27 +161,31 @@ def get_usage(
     Auth включён → данные пользователя из profiles/usage_events. Без юзера (dev) → дефолт free.
     """
     user_id = _resolve_user(authorization, x_user_id)
-    if not user_id:
-        plan = billing.resolve_plan("free")
-        return {
-            "plan": plan.id,
-            "plan_name": plan.name,
-            "monthly_credits": plan.monthly_credits,
-            "used_credits": 0,
-            "remaining_credits": plan.monthly_credits,
-            "payg_credits": 0,
-        }
-    profile = db.get_profile(user_id)
-    used = db.get_monthly_usage(user_id, billing.current_month())
-    plan = billing.resolve_plan(profile["plan"])
-    used_credits = int(used["credits"])
+    plan = billing.resolve_plan(db.get_profile(user_id)["plan"] if user_id else "free")
+    used_minutes = (
+        float(db.get_monthly_usage(user_id, billing.current_month())["minutes"]) if user_id else 0.0
+    )
+    payg_videos = int(db.get_profile(user_id)["payg_credits"]) if user_id else 0
+    return _usage_payload(plan, used_minutes, payg_videos)
+
+
+def _usage_payload(
+    plan: billing.PlanLimits, used_minutes: float, payg_videos: int
+) -> dict[str, Any]:
+    """Сборка ответа /usage в МИНУТАХ и «видео» (= минуты/60) для UsageMeter. PURE-ish."""
+    monthly_minutes = billing.plan_monthly_minutes(plan)
+    remaining_minutes = max(0.0, monthly_minutes - used_minutes)
+    payg_minutes = payg_videos * billing.MINUTES_PER_VIDEO
     return {
         "plan": plan.id,
         "plan_name": plan.name,
-        "monthly_credits": plan.monthly_credits,
-        "used_credits": used_credits,
-        "remaining_credits": max(0, plan.monthly_credits - used_credits),
-        "payg_credits": int(profile["payg_credits"]),
+        "monthly_videos": plan.monthly_videos,
+        "monthly_minutes": monthly_minutes,
+        "used_minutes": round(used_minutes, 1),
+        "remaining_minutes": round(remaining_minutes, 1),
+        "remaining_videos": billing.minutes_to_videos(remaining_minutes),
+        "payg_videos": payg_videos,
+        "payg_minutes": payg_minutes,
     }
 
 
@@ -189,7 +198,7 @@ def create_job(
 ) -> dict[str, Any]:
     """Создать задачу: auth (JWT, если включён) → гейт квоты → queued + фоновый прогон."""
     user_id = _resolve_user(authorization, x_user_id)
-    _enforce_quota(user_id, 0.0)
+    _enforce_quota(user_id)
     job_id = f"job_{uuid.uuid4().hex[:12]}"
     db.insert_job(job_id, body.source_type, body.source_ref, user_id=user_id)
     # На Modal: spawn отдельной долгоживущей CPU-функции (web scale-to-zero убил бы фон-таск).
@@ -219,7 +228,7 @@ async def create_upload_job(
     run_upload_job готовит source.mp4/wav/meta и гоняет тот же пайплайн, что и URL-путь.
     """
     user_id = _resolve_user(authorization, x_user_id)
-    _enforce_quota(user_id, 0.0)
+    _enforce_quota(user_id)
     job_id = f"job_{uuid.uuid4().hex[:12]}"
     out = DATA_ROOT / job_id
     out.mkdir(parents=True, exist_ok=True)

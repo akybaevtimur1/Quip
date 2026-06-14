@@ -35,10 +35,13 @@ export type CreateJobInput = {
 export interface UsageInfo {
   plan: string;
   plan_name: string;
-  monthly_credits: number;
-  used_credits: number;
-  remaining_credits: number;
-  payg_credits: number;
+  monthly_videos: number; // план: видео/мес (free=2)
+  monthly_minutes: number; // = monthly_videos × 60 (free=120)
+  used_minutes: number; // израсходовано в этом месяце (дробно)
+  remaining_minutes: number; // осталось в месячном пуле (без PAYG)
+  remaining_videos: number; // = remaining_minutes / 60 (напр. 8.7)
+  payg_videos: number; // не сгорающий баланс (видео)
+  payg_minutes: number; // = payg_videos × 60
 }
 
 export async function createJob(input: CreateJobInput): Promise<{ id: string }> {

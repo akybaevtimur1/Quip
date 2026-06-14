@@ -13,14 +13,21 @@ import { cn } from "@/lib/cn";
 const FREE_DEFAULT: UsageInfo = {
   plan: "free",
   plan_name: "Free",
-  monthly_credits: 2,
-  used_credits: 0,
-  remaining_credits: 2,
-  payg_credits: 0,
+  monthly_videos: 2,
+  monthly_minutes: 120,
+  used_minutes: 0,
+  remaining_minutes: 120,
+  remaining_videos: 2,
+  payg_videos: 0,
+  payg_minutes: 0,
 };
 
 function planLabel(plan: string, name: string): string {
   return plan === "free" ? "Free" : name;
+}
+
+function fmtVideos(v: number): string {
+  return Number.isInteger(v) ? String(v) : v.toFixed(1);
 }
 
 export function UsageMeter({ className }: { className?: string }) {
@@ -42,10 +49,13 @@ export function UsageMeter({ className }: { className?: string }) {
   }, []);
 
   const pct =
-    usage.monthly_credits > 0
-      ? Math.min(100, (usage.used_credits / usage.monthly_credits) * 100)
+    usage.monthly_minutes > 0
+      ? Math.min(100, (usage.used_minutes / usage.monthly_minutes) * 100)
       : 0;
   const near = pct >= 80;
+  // Видео и минуты ОСТАЛОСЬ (месячный пул + не сгорающий PAYG).
+  const videosLeft = usage.remaining_videos + usage.payg_videos;
+  const minutesLeft = Math.round(usage.remaining_minutes + usage.payg_minutes);
 
   return (
     <div className={cn("rounded-xl border border-line bg-surface p-5", className)}>
@@ -57,13 +67,14 @@ export function UsageMeter({ className }: { className?: string }) {
       </div>
 
       <div className="mt-4">
-        <div className="flex items-center justify-between text-sm">
-          <span className="text-muted">Videos</span>
+        <div className="flex items-baseline justify-between">
+          <span className="text-sm text-muted">Left this month</span>
           <span className="font-mono tabular-nums text-ink">
-            {usage.used_credits} / {usage.monthly_credits}
+            <span className="text-lg font-semibold">{fmtVideos(videosLeft)}</span>
+            <span className="text-sm text-muted"> videos · {minutesLeft} min</span>
           </span>
         </div>
-        <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-surface-3">
+        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-surface-3">
           <div
             className={cn(
               "h-full rounded-full transition-[width] duration-500 ease-snappy",
@@ -72,14 +83,16 @@ export function UsageMeter({ className }: { className?: string }) {
             style={{ width: `${pct}%` }}
           />
         </div>
-        <p className="mt-1.5 text-xs text-muted">1 video = 1 credit (source up to 60 min)</p>
+        <p className="mt-1.5 text-xs text-muted">
+          1 video = 60 min. A longer video uses minutes proportionally (90 min = 1.5 videos).
+        </p>
       </div>
 
-      {usage.payg_credits > 0 && (
+      {usage.payg_videos > 0 && (
         <div className="mt-3 flex items-center justify-between rounded-lg border border-line bg-surface-2 px-3 py-2">
           <span className="text-xs text-muted">Purchased (never expires)</span>
           <span className="font-mono text-sm tabular-nums text-ink">
-            +{usage.payg_credits}
+            +{usage.payg_videos} videos · {usage.payg_minutes} min
           </span>
         </div>
       )}
