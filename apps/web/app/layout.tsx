@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { IBM_Plex_Mono, Onest } from "next/font/google";
+import { NavProgress } from "@/components/ui/NavProgress";
 import { siteConfig } from "@/lib/site";
 import "./globals.css";
 
@@ -66,6 +67,7 @@ export default function RootLayout({
         <script
           dangerouslySetInnerHTML={{ __html: "document.documentElement.classList.add('js')" }}
         />
+        <NavProgress />
         {children}
       </body>
     </html>
