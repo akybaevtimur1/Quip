@@ -141,18 +141,20 @@ export function AuthForm({ mode, next }: { mode: "login" | "signup"; next: strin
           <p className="mb-2.5 mt-1 text-sm text-muted">
             We sent a 6-digit code to <span className="text-ink">{cleanEmail}</span>.
           </p>
+          {/* Supabase OTP length is configurable (6–8). Accept up to 8, enable at 6+,
+              so it works whatever the project's "Email OTP Length" is set to. */}
           <Input
             id="code"
             inputMode="numeric"
             autoComplete="one-time-code"
             pattern="[0-9]*"
-            maxLength={6}
+            maxLength={8}
             required
             autoFocus
             value={code}
-            onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
-            placeholder="000000"
-            className="text-center text-lg font-semibold tracking-[0.5em]"
+            onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 8))}
+            placeholder="••••••"
+            className="h-14 text-center text-2xl font-semibold tracking-[0.4em]"
           />
         </div>
         {error && (
