@@ -6,6 +6,8 @@ import { FinalCta } from "@/components/marketing/FinalCta";
 import { Hero } from "@/components/marketing/Hero";
 import { HowItWorks } from "@/components/marketing/HowItWorks";
 import { Pricing } from "@/components/marketing/Pricing";
+import { ProofStrip } from "@/components/marketing/ProofStrip";
+import { QuipStudio } from "@/components/marketing/QuipStudio";
 import { WhyQuip } from "@/components/marketing/WhyQuip";
 import { buildHomeJsonLd } from "@/lib/jsonld";
 
@@ -25,6 +27,9 @@ export default function HomePage() {
         }}
       />
       <Hero />
+      {/* show the product working before we explain it */}
+      <QuipStudio />
+      <ProofStrip />
       <HowItWorks />
       <WhyQuip />
       <Craft />
