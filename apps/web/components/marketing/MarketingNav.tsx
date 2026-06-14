@@ -1,5 +1,5 @@
-import { Menu } from "lucide-react";
 import Link from "next/link";
+import { MobileMenu } from "@/components/marketing/MobileMenu";
 import { buttonVariants } from "@/components/ui/Button";
 import { Container } from "@/components/ui/Container";
 import { Logo } from "@/components/ui/Logo";
@@ -41,32 +41,7 @@ export function MarketingNav() {
             Try it free
           </Link>
 
-          {/* mobile menu (native, no JS) */}
-          <details className="group relative md:hidden">
-            <summary
-              className="flex size-9 cursor-pointer list-none items-center justify-center rounded-md border border-line text-muted [&::-webkit-details-marker]:hidden"
-              aria-label="Open menu"
-            >
-              <Menu className="size-5" />
-            </summary>
-            <div className="absolute right-0 top-11 w-56 rounded-lg border border-line bg-surface p-2 shadow-[0_24px_60px_-28px_rgba(0,0,0,.9)]">
-              {links.map((l) => (
-                <a
-                  key={l.href}
-                  href={l.href}
-                  className="block rounded-md px-3 py-2.5 text-sm text-muted transition-colors hover:bg-surface-2 hover:text-ink"
-                >
-                  {l.label}
-                </a>
-              ))}
-              <Link
-                href="/login"
-                className="mt-1 block rounded-md px-3 py-2.5 text-sm text-muted transition-colors hover:bg-surface-2 hover:text-ink"
-              >
-                Sign in
-              </Link>
-            </div>
-          </details>
+          <MobileMenu links={links} />
         </div>
       </Container>
     </header>
