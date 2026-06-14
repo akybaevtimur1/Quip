@@ -70,6 +70,10 @@ Status legend: 🔬 investigated (root cause traced) · 🛠 fix in progress · 
   which asserts the clean clip bytes are untouched after an editor render).
 - ⚠️ **Cloud not yet exercised** (needs founder secrets) — R2 `_captioned` key path is by construction
   the same code as the clean path; documented for live verification.
+- **REAL local proof** (`tmp/verify_d1_real.py`, job `job_060aaf70f05c`, $0): rendered the captioned
+  clip via `render_edit_to_file(with_subtitles=True → clips/clip_01_captioned.mp4)`; the clean
+  `clip_01.mp4` md5 was **byte-identical before/after** (`bcfaa1e2c17a27dd2f579ea544366186`), and the
+  captioned file is a valid separate h264 1080×1920 mp4. Full reframe→render path ran clean (no errors).
 
 <details><summary>original investigation (kept for the record)</summary>
 
@@ -178,8 +182,10 @@ fix opportunistically.
 - [x] **L1** Clip file on disk after batch = clean; captioned export is a separate artifact
       (`clips/<id>_captioned.mp4`). Verified by `test_render_job_writes_captioned_never_overwrites_clean`.
 - [ ] **L2** `row_to_wire` URL resolution correct (http as-is / relative→media) local + cloud.
-- [ ] **L3** REFRAME_FPS_GRID Δ=0 holds (`tmp/dod_*` direct reframe check) — re-verify after any
-      reframe-touching fix (D2).
+- [x] **L3** REFRAME_FPS_GRID Δ=0 unaffected: D1–D3 did NOT touch the temporal grid
+      (`reframe_segment`/`plan_regions`/`build_shots_frames`/render). D2 only ADDED a preview-only
+      pure flatten helper + an endpoint wrapping the unchanged `resolve_regions_accurate`. The real
+      D1 render exercised the full reframe→render path with no errors.
 - [x] **L4** `/export/captioned.mp4` renders current edit-state with subtitles; "With captions"
       resolves to a truly-captioned file in every state (D1). `/ass` == ffmpeg ASS: pre-existing,
       unchanged by D1.
@@ -192,6 +198,43 @@ fix opportunistically.
 
 ---
 
+### S1 — Upload path "two downloads" / redundant transcode  ·  L3  ·  ✅ confirmed not-a-bug
+`stage0_import.import_upload` does a `-c copy` remux first (no transcode) and only re-encodes if the
+codec is mp4-incompatible — a one-time prep, not a redundant fetch. The "Downloading"→"Preparing"
+relabel already landed earlier. The only network round-trip is the inherent client→worker (→R2) upload.
+
+---
+
+## Session summary (2026-06-14, agent "debugger")
+
+**Fixed & committed (each `just check` green; bottom→top):**
+- **D1** `bdc554c` — clean clip forever + separate `_captioned.mp4` artifact; grid/editor always
+  overlay libass; "With captions" never resolves to the clean clip. Real-verified (clean clip
+  byte-identical after an editor render). Kills double-captions + caption-less "With captions".
+- **D2** `c3276c8` — `/jobs/{job}/clips/{clip}/reframe` endpoint (same `resolve_regions_accurate` as
+  render) replaces the raw `/media/...json` fetch that 404'd on cloud → preview-crop == render-crop
+  in both envs and after interval edits.
+- **D3** `0310214` — lazy-mount the editor preview's blur-bg + split-half videos → 1 source decoder
+  in the common case (no `NotSupportedError ×4` on cloud).
+
+**Structural takeaway:** all three were one disease — *one storage key / one raw file path meaning
+different things across surfaces/environments*. Each fix deleted the divergent path (or band-aid) and
+routed every surface through a single source: the clean clip + one ASS for captions; one reframe
+planner for both preview and render.
+
+**Deferred (documented, low priority, not in product path):** D4 (legacy `resolve_regions`/
+`analyze_source_range` duplicate planner — bench-only), D5 (`row_to_wire` hardcodes
+`source_kind="youtube"`).
+
 ## Open / needs founder
-- Live cloud verification (Modal+R2+Supabase) needs the founder's secrets/deploy — agent will
-  instrument + give the exact command to run rather than guess.
+- **Live cloud verification** (Modal+R2+Supabase) — the three fixes are by-construction env-agnostic
+  but unverified on real cloud. After `modal deploy` (see `modal-boevoy-deploy-state` memory), verify:
+  (1) editor render → R2 key `{job}/{clip}_captioned.mp4` exists and the clean `{job}/{clip}.mp4` is
+  untouched; (2) `GET /jobs/{job}/clips/{clip}/reframe` returns regions (not 404) on the web container;
+  (3) editor source plays with one `<video>` (no `NotSupportedError`); (4) grid shows captions (libass)
+  with no double-draw after a render.
+- **Product/UX call:** with "With captions" now always on-demand-correct, the editor's async **Render**
+  button + dirty indicator are now an optional "pre-bake" (warm cache + progress), no longer the source
+  of the download. Decide whether to simplify that UX (out of scope here; left functional).
+- **Cost call (D2):** if cold-cloud editor-open feels slow (heavy ASD on first `/reframe`), persist the
+  batch reframe plan to R2/Postgres and serve that for the original interval (follow-up).
