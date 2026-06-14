@@ -109,19 +109,20 @@ app = modal.App("quip-worker", image=image, include_source=False)
 _SECRET = modal.Secret.from_name("quip-worker")
 
 
-def _bootstrap_path() -> None:
-    """Гарантировать /root на sys.path (пакет app смонтирован в /root/app)."""
-    import sys
-
-    if "/root" not in sys.path:
-        sys.path.insert(0, "/root")
+# ⚠️ Функции САМОДОСТАТОЧНЫ: тело bootstrap'а /root инлайнено в каждую, БЕЗ модульного
+# хелпера. Причина: при serialized=True cloudpickle пиклит ссылку на модульную функцию по
+# имени модуля (worker._bootstrap_path) → на удалёнке include_source=False срезал `worker`
+# → ModuleNotFoundError при десериализации. PYTHONPATH=/root и так в образе — это страховка.
 
 
 @app.function(secrets=[_SECRET], timeout=900, min_containers=0, serialized=True)
 @modal.asgi_app()
 def web() -> object:
     """Лёгкий FastAPI (app.main): POST /jobs (spawn run_job), GET статусы, редактор. Scale-to-zero."""
-    _bootstrap_path()
+    import sys
+
+    if "/root" not in sys.path:
+        sys.path.insert(0, "/root")
     from app.main import app as fastapi_app
 
     return fastapi_app
@@ -139,7 +140,10 @@ def run_job(
 
     Долгоживущая CPU-функция (до 60 мин). Стейт/артефакты/клипы — в Supabase+R2 (app.tasks роутит).
     """
-    _bootstrap_path()
+    import sys
+
+    if "/root" not in sys.path:
+        sys.path.insert(0, "/root")
     from app.tasks import run_pipeline_job
 
     run_pipeline_job(job_id, source_type, source_ref, max_clips, user_id)
@@ -148,7 +152,10 @@ def run_job(
 @app.function(secrets=[_SECRET], timeout=1200, min_containers=0, serialized=True)
 def render_job(job_id: str, clip_id: str) -> None:
     """Пере-рендер клипа из текущего edit-state (редактор). source.mp4 скачивается из R2."""
-    _bootstrap_path()
+    import sys
+
+    if "/root" not in sys.path:
+        sys.path.insert(0, "/root")
     from app.tasks import render_clip_edit_job
 
     render_clip_edit_job(job_id, clip_id)

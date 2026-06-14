@@ -15,8 +15,11 @@ from typing import Literal, Self
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# config.py → parents: [0]=app [1]=worker [2]=services [3]=<repo root>
-_ENV_FILE = Path(__file__).resolve().parents[3] / ".env"
+# config.py → parents: [0]=app [1]=worker [2]=services [3]=<repo root>. На Modal пакет в
+# /root/app (мельче) → parents[3] нет; .env там не нужен (секреты из env). Берём parents[3]
+# если есть, иначе любой предок → .env не найдётся, bootstrap скипнет.
+_parents = Path(__file__).resolve().parents
+_ENV_FILE = (_parents[3] if len(_parents) > 3 else _parents[-1]) / ".env"
 
 
 class Settings(BaseSettings):
