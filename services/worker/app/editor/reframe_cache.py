@@ -82,6 +82,13 @@ def resolve_regions(
 ) -> list[list[TrackRegion]]:
     """Регионы на каждый интервал (interval-relative). PURE.
 
+    ⚠️ LEGACY / BENCHMARK-ONLY (D4). Это СТАРЫЙ планировщик: cuts в СЕКУНДАХ (detect_cuts
+    ffmpeg-порог) + 5fps лица БЕЗ ASD → на ≠25fps границы режима мимо кадра-склейки = ФЛЕШ
+    (REFRAME_FPS_GRID_INVARIANT §«Известное»). Продуктовый путь (editor preview /reframe,
+    editor render render_edit_to_file, batch run.py) использует ТОЛЬКО `resolve_regions_accurate`
+    (frame-accurate + ASD). Здесь остаётся лишь для deploy/modal/bench.py замеров — НЕ вызывать
+    из продуктового кода (это вернёт флеши на ≠25fps).
+
     Override, пересекающий интервал, заменяет авто-регионы (per-интервал). Иначе —
     cut-aligned build_shots + build_regions_from_shots по сырому анализу интервала.
     """
@@ -229,6 +236,9 @@ def analyze_source_range(
     cut_threshold: float = 0.4,
 ) -> RawReframe:
     """Сырой reframe-анализ диапазона [src_start, src_end]. Кэш по диапазону.
+
+    ⚠️ LEGACY / BENCHMARK-ONLY (D4) — пара к `resolve_regions` (5fps без ASD, cuts в секундах).
+    Продуктовый путь идёт через `resolve_regions_accurate`. Остаётся для deploy/modal/bench.py.
 
     Кэш-хит → читаем JSON (НЕ зовём ffmpeg).
     Промах → sample_faces_continuous + detect_cuts → пишем кэш.

@@ -11,9 +11,13 @@ auto-scale, scale-to-zero) и замерить РЕАЛЬНУЮ стоимост
 
 Что гоняем (реальный код пайплайна, без дублей логики)
 ------------------------------------------------------
-Точно та же тройка функций, что и REST-путь редактора (`app/tasks.py::render_edit_to_file`):
-    analyze_source_range  (app.editor.reframe_cache)  — ffmpeg + MediaPipe + PySceneDetect
-    resolve_regions       (app.editor.reframe_cache)  — PURE планировщик cut-aligned
+⚠️ УСТАРЕВШИЙ SPIKE — заменён боевым `deploy/modal/worker.py`. Использует LEGACY-планировщик
+(`analyze_source_range`+`resolve_regions`, 5fps без ASD, cuts в секундах), а НЕ продуктовый
+frame-accurate `resolve_regions_accurate`, на который перешёл `render_edit_to_file`. Поэтому
+замеры reframe здесь МЕДЛЕННЕЕ/иной планировщик — это benchmark-only scaffold, НЕ источник
+правды о проде. Боевой путь = worker.py (он зовёт render_edit_to_file → resolve_regions_accurate).
+    analyze_source_range  (app.editor.reframe_cache)  — LEGACY ffmpeg + MediaPipe@5fps + PySceneDetect
+    resolve_regions       (app.editor.reframe_cache)  — LEGACY PURE планировщик (без ASD)
     render_timeline       (app.pipeline.stage5_render) — ffmpeg crop/scale/concat → mp4
 
 Рендерим БЕЗ субтитров (with_subtitles=False-эквивалент): это сохраняет ВЕСЬ тяжёлый
