@@ -46,7 +46,20 @@ export function useJob() {
         fails = 0;
         if (!active) return;
         setJob(j);
-        if (j.status === "done" || j.status === "failed") {
+        if (j.status === "failed") {
+          // Surface the backend reason (e.g. "video over the 90-min limit") instead of
+          // leaving the UI stuck on "Preparing video…" with a frozen timer. The worker
+          // already set jobs.error on failure — show it, don't swallow it. Strip the
+          // internal "[stage]" dev-prefix so users see a clean message.
+          const reason = (j.error || "Processing failed — please try again.").replace(
+            /^\[[^\]]+\]\s*/,
+            "",
+          );
+          setError(reason);
+          clearInterval(tick);
+          return;
+        }
+        if (j.status === "done") {
           clearInterval(tick);
           return;
         }
