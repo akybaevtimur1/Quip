@@ -48,21 +48,27 @@
 | FE-D | Core tool flow + API client | `components/SourceForm.tsx`, `components/JobProgress.tsx`, `components/ClipGrid.tsx`, `components/ClipCard.tsx`, `components/StatusBadge.tsx`, `components/ErrorPanel.tsx`, `components/ReasonChip.tsx`, `lib/api.ts`, `lib/useJob.ts`, `lib/format.ts`, `lib/cn.ts`, `lib/types.ts`, `app/api/mock/**` |
 | FE-E | Pricing/Checkout | `app/(marketing)/pricing/page.tsx`, `components/marketing/Pricing.tsx`, `components/marketing/PricingCards.tsx`, `components/marketing/Comparison.tsx`, `components/marketing/CheckoutNotice.tsx`, `components/ui/CheckoutCta.tsx`, `lib/plans.ts`, `lib/polar.ts`, `app/checkout/route.ts` |
 
-## Статус-доска (заполняет оркестратор)
-| Домен | Следствие | Багов найдено | Починено | Тесты зелёные | Закоммичено |
-|-------|-----------|---------------|----------|---------------|-------------|
-| BE-A | ⏳ | | | | |
-| BE-B | ⏳ | | | | |
-| BE-C | ⏳ | | | | |
-| BE-D | ⏳ | | | | |
-| BE-E | ⏳ | | | | |
-| BE-F | ⏳ | | | | |
-| BE-G | ⏳ | | | | |
-| FE-A | ⏳ | | | | |
-| FE-B | ⏳ | | | | |
-| FE-C | ⏳ | | | | |
-| FE-D | ⏳ | | | | |
-| FE-E | ⏳ | | | | |
+## Статус-доска (ФИНАЛ — все волны зелёные, закоммичены)
+| Домен | Найдено | Починено | Главное | Коммит |
+|-------|---------|----------|---------|--------|
+| BE-A | 5 | 4 | parse_fps fps≤0 → ZeroDivisionError на рендере | 8a819f2 |
+| BE-B | 3 | 1 | Gemini-ретрай fail-fast на неретраябельных (был ~2мин) | 8a819f2 |
+| BE-C | 1 | 1 | detect_scene_cuts release в finally (Win file-lock) | 191816e |
+| BE-D | 1 | 1 | escape_ass_text: {laughs} больше не пропадает | 191816e |
+| BE-E | 5 | 4 | apply_trim 500→JobError; edge-валидация; overlap | 8a819f2 |
+| BE-F | 6 | 2(+1крит) | Supabase upsert (оплата не терялась); крит PAYG→BE-H | 8a819f2 |
+| BE-G | 5 | 5 | JobError→400; пустые главы→failed; spawn-сбой→failed | 191816e |
+| BE-H | 1крит | 1 | **PAYG списание + двойной учёт устранён** | a6c8927 |
+| BE-I | 5 | 1 | Modal cookies env/file mismatch (краш деплоя) | 9a07bf4 |
+| FE-A | 3 | 1 | sitemap noindex/pricing; (+faq via orch.) | ecfb791 |
+| FE-B | 3 | 3 | callback тихий сбой → петля редиректа; SignOut залип | ecfb791 |
+| FE-C | 3 | 2(+1) | editRef → ложный 409→reload редактора | ecfb791 |
+| FE-D | 3 | 3 | getJob таймаут (был бесконечный спиннер); часы/NaN | ecfb791 |
+| FE-E | 1 | 1 | plans.ts↔billing.py дрейф=0; faq money-copy фикс | ecfb791 |
+| FE-F | 3 | 2 | proxy.ts терял session-cookies → петля редиректа | 9a07bf4 |
+| REVIEW | — | — | ✅ все 7 фокус-зон корректны, регрессий нет | — |
+
+**Итого: ~48 багов найдено, ~32 починено, остальное — задокументировано фаундеру (см. `docs/NIGHT_AUDIT_REPORT_2026-06-15.md`).**
 
 ## Шаблон отчёта `docs/night-audit/<domain>.md`
 ```
