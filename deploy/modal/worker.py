@@ -106,6 +106,10 @@ image = (
             # cookies для yt-dlp (обход YouTube bot-защиты с DC-IP). Файл добавляется ниже.
             "YTDLP_COOKIES_FILE": "/root/cookies.txt",
             "YTDLP_COOKIES_BROWSER": "",
+            # R2 кастомный домен (production, кэш CDN, без rate-limit) → клипы получают вечный
+            # публичный URL вместо presigned (D6 re-presign больше не нужен для новых джоб).
+            # Это ПУБЛИЧНЫЙ CDN-домен, не секрет. NB: бакет публичен по ключу — исходники тоже.
+            "R2_PUBLIC_URL": "https://cdn.quip.ink",
         }
     )
 )
