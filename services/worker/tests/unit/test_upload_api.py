@@ -80,3 +80,68 @@ def test_upload_without_max_clips_defaults_none(monkeypatch, tmp_path: Path) -> 
 
     assert r.status_code == 202
     assert captured["max_clips"] is None
+
+
+def test_upload_spawns_modal_job_when_enabled(monkeypatch, tmp_path: Path) -> None:
+    # На Modal (MODAL_SPAWN=1): исходник заливается в R2 + spawn долгоживущей upload_job,
+    # БЕЗ in-process BackgroundTask (web scale-to-zero убил бы фон-таск на полпути).
+    monkeypatch.setattr(db, "_DB_PATH", tmp_path / "jobs.db")
+    db.init_db()
+
+    import app.main as main
+
+    monkeypatch.setattr(main, "DATA_ROOT", tmp_path / "data")
+    (tmp_path / "data").mkdir(parents=True, exist_ok=True)
+
+    bg_called: list = []
+    uploaded: dict = {}
+    spawned: dict = {}
+    monkeypatch.setattr(main, "run_upload_job", lambda *a: bg_called.append(a))
+    monkeypatch.setattr(main.dispatch, "modal_spawn_enabled", lambda: True)
+    monkeypatch.setattr(
+        main.storage, "upload_source", lambda path, job_id: uploaded.update(job_id=job_id)
+    )
+    monkeypatch.setattr(main.dispatch, "spawn", lambda fn, *a: spawned.update(fn=fn, args=a))
+
+    client = TestClient(main.app)
+    r = client.post(
+        "/jobs/upload",
+        files={"file": ("clip.mp4", b"xyz", "video/mp4")},
+        data={"max_clips": "4"},
+    )
+
+    assert r.status_code == 202
+    job_id = r.json()["id"]
+    assert uploaded["job_id"] == job_id  # исходник застейджен в R2
+    assert spawned["fn"] == "upload_job"  # спавним именно upload_job
+    assert spawned["args"][0] == job_id
+    assert spawned["args"][1] == "clip.mp4"
+    assert spawned["args"][2] == 4  # max_clips проброшен
+    assert bg_called == []  # BackgroundTask НЕ использован на Modal
+
+
+def test_upload_spawn_failure_marks_job_failed(monkeypatch, tmp_path: Path) -> None:
+    # Сбой диспатча на Modal → джоб помечен failed + HTTP 500 (не вечная очередь, правило №8).
+    monkeypatch.setattr(db, "_DB_PATH", tmp_path / "jobs.db")
+    db.init_db()
+
+    import app.main as main
+
+    monkeypatch.setattr(main, "DATA_ROOT", tmp_path / "data")
+    (tmp_path / "data").mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(main, "run_upload_job", lambda *a: None)
+    monkeypatch.setattr(main.dispatch, "modal_spawn_enabled", lambda: True)
+    monkeypatch.setattr(main.storage, "upload_source", lambda *a, **k: None)
+
+    def boom(*a, **k):
+        raise RuntimeError("modal down")
+
+    monkeypatch.setattr(main.dispatch, "spawn", boom)
+    failed: dict = {}
+    monkeypatch.setattr(main.db, "set_failed", lambda jid, err: failed.update(job_id=jid, err=err))
+
+    client = TestClient(main.app)
+    r = client.post("/jobs/upload", files={"file": ("c.mp4", b"z", "video/mp4")})
+
+    assert r.status_code == 500
+    assert failed and "modal down" in failed["err"]

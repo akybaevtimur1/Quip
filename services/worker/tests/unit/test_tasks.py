@@ -100,9 +100,25 @@ def _job_with_minutes(minutes: float) -> tasks.Job:
 def _capture_meter(monkeypatch):
     recorded: list[tuple] = []
     deducted: list[tuple] = []
-    monkeypatch.setattr(db, "record_usage", lambda *a, **k: recorded.append((a, k)))
+
+    def _rec(*a, **k):  # record_usage → True = реально записали (новый job_id)
+        recorded.append((a, k))
+        return True
+
+    monkeypatch.setattr(db, "record_usage", _rec)
     monkeypatch.setattr(db, "deduct_payg", lambda *a, **k: deducted.append(a))
     return recorded, deducted
+
+
+def test_meter_skips_payg_deduct_when_usage_already_recorded(monkeypatch):
+    # record_usage вернул False (job_id уже учтён, ретрай/повторный прогон) → PAYG НЕ
+    # списываем второй раз (идемпотентность: ноль двойного заряда).
+    deducted: list = []
+    monkeypatch.setattr(db, "record_usage", lambda *a, **k: False)
+    monkeypatch.setattr(db, "deduct_payg", lambda *a, **k: deducted.append(a))
+    decision = QuotaDecision(True, None, minutes=65.0, from_monthly_min=5.0, from_payg_min=60.0)
+    tasks._meter("user_1", "job_dup", _job_with_minutes(65.0), {"decision": decision})
+    assert deducted == []  # дубль → без второго списания
 
 
 def test_meter_records_only_monthly_part_and_deducts_payg(monkeypatch):

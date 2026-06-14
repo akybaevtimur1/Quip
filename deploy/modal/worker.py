@@ -171,6 +171,33 @@ def run_job(
     run_pipeline_job(job_id, source_type, source_ref, max_clips, user_id)
 
 
+@app.function(secrets=[_SECRET], timeout=3600, min_containers=0, serialized=True)
+def upload_job(
+    job_id: str,
+    filename: str,
+    max_clips: int | None = None,
+    user_id: str | None = None,
+) -> None:
+    """Пайплайн для ЗАГРУЖЕННОГО файла (не URL). web-контейнер залил исходник в R2
+    (storage.upload_source) и спавнил эту долгоживущую функцию — она качает исходник на СВОЙ
+    контейнер и гоняет тот же run_upload_job (web scale-to-zero убил бы фон-таск на полпути).
+    """
+    import sys
+    from pathlib import Path
+
+    if "/root" not in sys.path:
+        sys.path.insert(0, "/root")
+    from app import artifacts, storage
+    from app.tasks import run_upload_job
+
+    out = artifacts.job_dir(job_id)
+    out.mkdir(parents=True, exist_ok=True)
+    suffix = Path(filename).suffix.lower() or ".mp4"
+    upload_path = out / f"upload{suffix}"
+    storage.download_source(job_id, upload_path)  # raw upload, залитый web-контейнером в R2
+    run_upload_job(job_id, str(upload_path), filename, max_clips, user_id)
+
+
 @app.function(secrets=[_SECRET], timeout=1200, min_containers=0, serialized=True)
 def render_job(job_id: str, clip_id: str) -> None:
     """Пере-рендер клипа из текущего edit-state (редактор). source.mp4 скачивается из R2."""

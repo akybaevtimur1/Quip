@@ -169,6 +169,26 @@ def test_monthly_usage_empty_is_zero(monkeypatch, tmp_path) -> None:
     assert db.get_monthly_usage("nobody", "2026-06") == {"videos": 0, "minutes": 0.0, "credits": 0}
 
 
+def test_record_usage_is_idempotent_per_job(monkeypatch, tmp_path) -> None:
+    # Повторный учёт того же job_id (ретрай/повторный прогон) не создаёт вторую строку и
+    # возвращает False → вызыватель (_meter) не спишет PAYG дважды.
+    monkeypatch.setattr(db, "_DB_PATH", tmp_path / "u.db")
+    db.init_db()
+    assert db.record_usage("user_1", "job_a", 10.0, "2026-06") is True
+    assert db.record_usage("user_1", "job_a", 10.0, "2026-06") is False  # дубль job_id
+    june = db.get_monthly_usage("user_1", "2026-06")
+    assert june == {"videos": 1, "minutes": 10.0, "credits": 1}  # одна запись, не две
+
+
+def test_record_usage_without_job_id_is_not_deduped(monkeypatch, tmp_path) -> None:
+    # job_id=None (аноним) дедупом не покрыт — каждая запись считается (NULL'ы различны).
+    monkeypatch.setattr(db, "_DB_PATH", tmp_path / "u.db")
+    db.init_db()
+    assert db.record_usage("user_1", None, 10.0, "2026-06") is True
+    assert db.record_usage("user_1", None, 10.0, "2026-06") is True
+    assert db.get_monthly_usage("user_1", "2026-06")["videos"] == 2
+
+
 # ─────────────────────────── BE-H: deduct_payg (списание PAYG) ───────────────────────────
 # Денежный инвариант: PAYG-баланс убывает ровно на покрытый объём, НИКОГДА не отрицателен.
 

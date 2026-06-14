@@ -185,6 +185,49 @@ class TestDeductPayg:
         assert patched == []  # n=0 → не дёргаем PATCH
 
 
+class TestRecordUsage:
+    # Идемпотентность по job_id: дубль (ретрай) НЕ вставляет вторую строку → нет двойного заряда.
+    def test_skips_insert_when_job_already_recorded(self, monkeypatch) -> None:
+        _supa_env(monkeypatch)
+        posted: list = []
+        monkeypatch.setattr(supa.httpx, "get", lambda url, **kw: _Resp([{"id": 1}]))  # уже есть
+        monkeypatch.setattr(supa.httpx, "post", lambda url, **kw: posted.append(kw))
+        assert supa.record_usage("u", "job_a", 10.0, "2026-06", 1) is False
+        assert posted == []  # дубль → POST не делаем
+
+    def test_inserts_when_new(self, monkeypatch) -> None:
+        _supa_env(monkeypatch)
+        posted: list = []
+
+        def fake_post(url, **kw):  # type: ignore[no-untyped-def]
+            posted.append(kw.get("json", {}))
+            return _Resp(None, status=201)
+
+        monkeypatch.setattr(supa.httpx, "get", lambda url, **kw: _Resp([]))  # записи нет
+        monkeypatch.setattr(supa.httpx, "post", fake_post)
+        assert supa.record_usage("u", "job_b", 10.0, "2026-06", 1) is True
+        assert posted and posted[0]["job_id"] == "job_b"
+
+    def test_none_job_id_skips_dedup_check(self, monkeypatch) -> None:
+        _supa_env(monkeypatch)
+        gets: list = []
+        posted: list = []
+
+        def fake_get(url, **kw):  # type: ignore[no-untyped-def]
+            gets.append(url)
+            return _Resp([])
+
+        def fake_post(url, **kw):  # type: ignore[no-untyped-def]
+            posted.append(kw.get("json", {}))
+            return _Resp(None, status=201)
+
+        monkeypatch.setattr(supa.httpx, "get", fake_get)
+        monkeypatch.setattr(supa.httpx, "post", fake_post)
+        assert supa.record_usage("u", None, 10.0, "2026-06", 1) is True
+        assert gets == []  # job_id=None → проверку дубля не делаем
+        assert posted  # вставили
+
+
 class TestSetUserPlan:
     def test_patches_existing_profile(self, monkeypatch) -> None:
         _supa_env(monkeypatch)

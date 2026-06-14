@@ -31,7 +31,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from app import __version__, auth, billing, db, dispatch
+from app import __version__, auth, billing, db, dispatch, storage
 from app.config import bootstrap_env, get_settings
 
 # Локально активируем auth/billing-гейты из .env (как env-vars в проде). Под pytest НЕ
@@ -245,9 +245,19 @@ async def create_upload_job(
         while chunk := await file.read(_UPLOAD_CHUNK):
             fh.write(chunk)
     db.insert_job(job_id, "upload", filename, user_id=user_id)
-    # NB: загруженный файл лежит на диске ЭТОГО контейнера → upload-путь идёт BackgroundTask'ом
-    # (не spawn): на Modal он отработает на web-контейнере. Основной поток — YouTube-URL (spawn).
-    bg.add_task(run_upload_job, job_id, str(upload_path), filename, max_clips, user_id)
+    # На Modal: web — scale-to-zero ASGI-контейнер; BackgroundTask умер бы на полпути (как и у
+    # YouTube-пути). Поэтому стейджим исходник в R2 (upload_source) и spawn'им долгоживущую
+    # upload_job (она скачает исходник из R2 на своём контейнере → run_upload_job). Локально/dev
+    # (MODAL_SPAWN не задан) — BackgroundTask на этом же процессе, как в Phase 0.
+    if dispatch.modal_spawn_enabled():
+        try:
+            storage.upload_source(upload_path, job_id)  # r2-режим; иначе no-op
+            dispatch.spawn("upload_job", job_id, filename, max_clips, user_id)
+        except Exception as e:  # noqa: BLE001 — любой сбой диспатча = видимый failed, не вечная очередь
+            db.set_failed(job_id, f"dispatch failed: {e}")
+            raise HTTPException(status_code=500, detail=f"upload dispatch failed: {e}") from e
+    else:
+        bg.add_task(run_upload_job, job_id, str(upload_path), filename, max_clips, user_id)
     return {"id": job_id, "status": "queued", "stage": "queued", "progress": 0}
 
 

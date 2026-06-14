@@ -323,22 +323,33 @@ def record_usage(
     source_minutes: float,
     month: str,
     credits: int | None = None,
-) -> None:
+) -> bool:
     """Записать расход одного обработанного видео (минуты + кредиты) в месячное окно.
 
     ``credits`` по умолчанию выводится из длины (``credits_per_video``); вызывающий
     может передать фактически списанное (месячный+PAYG) число для точного учёта.
+
+    Возвращает ``True``, если строка реально записана; ``False``, если по этому ``job_id``
+    расход УЖЕ учтён (идемпотентность: ретрай/повторный прогон одного джоба не должен
+    заряжать дважды). ``job_id is None`` (аноним) дедупом не покрыт → всегда ``True``.
+    Вызыватель (``_meter``) списывает PAYG ТОЛЬКО при ``True`` → нет двойного списания.
     """
     n = credits if credits is not None else credits_per_video(source_minutes)
     if supa.supa_enabled():
-        supa.record_usage(user_id, job_id, source_minutes, month, int(n))
-        return
+        return supa.record_usage(user_id, job_id, source_minutes, month, int(n))
     with _conn() as c:
+        if job_id is not None:
+            seen = c.execute(
+                "SELECT 1 FROM usage_events WHERE job_id=? LIMIT 1", (job_id,)
+            ).fetchone()
+            if seen is not None:
+                return False
         c.execute(
             "INSERT INTO usage_events (user_id, job_id, source_minutes, credits, month, created_at)"
             " VALUES (?,?,?,?,?,?)",
             (user_id, job_id, source_minutes, int(n), month, time.time()),
         )
+    return True
 
 
 def get_monthly_usage(user_id: str, month: str) -> dict[str, float]:

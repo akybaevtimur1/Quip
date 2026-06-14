@@ -150,7 +150,21 @@ def deduct_payg(user_id: str, credits: int) -> None:
 
 def record_usage(
     user_id: str, job_id: str | None, source_minutes: float, month: str, credits: int
-) -> None:
+) -> bool:
+    # Идемпотентность по job_id: если расход этого джоба уже записан (ретрай/повторный
+    # прогон), НЕ вставляем второй раз → вызыватель не спишет PAYG дважды. Durable-гарантию
+    # даёт UNIQUE-индекс (migrations/0003); check-then-act работает и до его применения
+    # (таск последователен → гонка маловероятна). job_id=None (аноним) дедупом не покрыт.
+    if job_id is not None:
+        chk = httpx.get(
+            f"{_base()}/usage_events",
+            params={"job_id": f"eq.{job_id}", "select": "id", "limit": "1"},
+            headers=_headers(),
+            timeout=_TIMEOUT,
+        )
+        chk.raise_for_status()
+        if chk.json():
+            return False
     r = httpx.post(
         f"{_base()}/usage_events",
         headers=_headers({"Prefer": "return=minimal"}),
@@ -164,6 +178,7 @@ def record_usage(
         timeout=_TIMEOUT,
     )
     r.raise_for_status()
+    return True
 
 
 def get_monthly_usage(user_id: str, month: str) -> dict[str, float]:

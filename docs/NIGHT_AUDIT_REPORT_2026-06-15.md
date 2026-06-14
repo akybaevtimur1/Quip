@@ -51,16 +51,18 @@
 ## ⚠️ Открыто — требует РЕШЕНИЯ/ДЕЙСТВИЯ фаундера (не починено агентами осознанно)
 
 ### Перед запуском биллинга
-1. **Идемпотентность usage** — `record_usage`/`deduct_payg` не идемпотентны: двойной
-   прогон одного `job_id` пере-зарядит. Норм-поток безопасен (один метеринг на джоб).
-   Фикс = `UNIQUE(usage_events.job_id)` + upsert (миграция). Сделать ДО живого биллинга.
+1. ✅ **СДЕЛАНО (идемпотентность usage)** — `record_usage` теперь check-then-act по `job_id`
+   (возвращает False на дубль → `_meter` не списывает PAYG второй раз), в SQLite и Supabase.
+   Durable-гарантия Postgres = `migrations/0003_usage_idempotency.sql` — **тебе применить**
+   (Dashboard → SQL Editor) перед включением `BILLING_ENABLED`. +6 тестов.
 
 ### Прод-деплой (Modal)
-2. **🔴 Upload-видео на Modal зависает** (BE-I): `POST /jobs/upload` гоняет ВЕСЬ тяжёлый
-   пайплайн как in-process BackgroundTask в scale-to-zero web-контейнере → длинное видео
-   или scale-to-zero → джоб висит вечно. YouTube-путь ОК (он `spawn`). Нужно: заливать
-   source в R2 + отдельная Modal `upload_job` + ветка spawn в `create_upload_job`.
-   (Загрузка с компа в проде сейчас фактически нерабочая для длинных видео.)
+2. ✅ **СДЕЛАНО (upload на Modal больше не виснет)** — `create_upload_job` на Modal
+   (`MODAL_SPAWN=1`) теперь стейджит исходник в R2 (`storage.upload_source`) и спавнит новую
+   долгоживущую `upload_job` (она качает исходник на свой контейнер → `run_upload_job`), как
+   YouTube-путь. Локально без изменений (BackgroundTask). +2 теста на ветку диспатча.
+   ⚠️ **Нужна твоя live-проверка на Modal** (я не могу деплоить — нет кред): после `modal deploy`
+   прогнать одну загрузку файла e2e (ветка протестирована юнитами, но R2-раундтрип — только вживую).
 3. **Modal billing/storage env-десинхрон**: `STORAGE_BACKEND=r2` без `BILLING_ENABLED` →
    джобы в Postgres, а биллинг в эфемерный SQLite → usage/plan/PAYG теряются на scale-to-zero.
    Ставить оба флага вместе.

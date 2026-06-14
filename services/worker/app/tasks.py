@@ -72,8 +72,10 @@ def _meter(user_id: str | None, job_id: str, job: Job, holder: dict[str, Any]) -
         monthly_minutes = full_minutes
         payg_credits = 0
     try:
-        db.record_usage(user_id, job_id, monthly_minutes, billing.current_month())
-        if payg_credits > 0:
+        recorded = db.record_usage(user_id, job_id, monthly_minutes, billing.current_month())
+        # recorded=False → этот job_id УЖЕ учтён (ретрай/повторный прогон одного джоба) →
+        # PAYG второй раз НЕ списываем (идемпотентность по job_id: ноль двойного заряда).
+        if recorded and payg_credits > 0:
             db.deduct_payg(user_id, payg_credits)
     except Exception:
         _log.exception("usage record failed: job=%s user=%s", job_id, user_id)
