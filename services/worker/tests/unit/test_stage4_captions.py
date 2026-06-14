@@ -7,6 +7,7 @@
 from app.models import Word
 from app.pipeline.stage4_captions import (
     build_ass,
+    escape_ass_text,
     format_ass_time,
     group_words_into_chunks,
     to_clip_time,
@@ -96,3 +97,27 @@ class TestBuildAss:
     def test_text_uppercased(self) -> None:
         ass = build_ass(self._seg_words(), segment_start=120.0)
         assert "HELLO WORLD." in ass
+
+
+class TestEscapeAssText:
+    def test_escapes_braces(self) -> None:
+        # {...} = override-блок libass (текст молча пропадает) → экранируем в литералы
+        assert escape_ass_text("a {x} b") == "a \\{x\\} b"
+
+    def test_neutralizes_backslash(self) -> None:
+        # \N/\n/\h вне блока = перенос/хард-пробел → подмена на безопасный глиф U+29F5
+        assert escape_ass_text("a\\Nb") == "a⧵Nb"
+
+    def test_backslash_escaped_before_braces(self) -> None:
+        # порядок: бэкслеш ПЕРВЫМ, иначе затёр бы наши же \{ \}
+        assert escape_ass_text("{") == "\\{"
+        assert escape_ass_text("\\{") == "⧵\\{"
+
+    def test_plain_text_untouched(self) -> None:
+        assert escape_ass_text("Привет мир!") == "Привет мир!"
+
+    def test_build_ass_escapes_caption_braces(self) -> None:
+        words = [mk("{laughs}", 120.0, 120.4)]
+        ass = build_ass(words, segment_start=120.0)
+        d = next(ln for ln in ass.splitlines() if ln.startswith("Dialogue:"))
+        assert "\\{LAUGHS\\}" in d

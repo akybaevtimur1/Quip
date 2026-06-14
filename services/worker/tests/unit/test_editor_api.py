@@ -198,6 +198,61 @@ def test_export_clean_mp4_404_missing_clip(monkeypatch, tmp_path):
     assert r.status_code == 404
 
 
+def test_trim_bad_index_returns_400(monkeypatch, tmp_path):
+    # ops.apply_trim рейзит JobError на индекс вне диапазона → эндпоинт ДОЛЖЕН отдать 400
+    # (валидация ввода), а не 500. Транскрипт фикстуры = 3 слова (idx 0..2).
+    client, job = _client(monkeypatch, tmp_path)
+    v = client.get(f"/jobs/{job}/clips/clip_01/edit").json()["version"]
+    r = client.post(
+        f"/jobs/{job}/clips/clip_01/edit/trim", json={"version": v, "word_indices": [99]}
+    )
+    assert r.status_code == 400
+    assert "диапазон" in r.json()["detail"]
+
+
+def test_add_section_inverted_range_returns_400(monkeypatch, tmp_path):
+    # add_section рейзит JobError, если source_end <= source_start → 400, не 500.
+    client, job = _client(monkeypatch, tmp_path)
+    v = client.get(f"/jobs/{job}/clips/clip_01/edit").json()["version"]
+    r = client.post(
+        f"/jobs/{job}/clips/clip_01/edit/add-section",
+        json={"version": v, "source_start": 5.0, "source_end": 2.0, "at_index": 1},
+    )
+    assert r.status_code == 400
+
+
+def test_extend_unknown_edge_returns_400(monkeypatch, tmp_path):
+    # apply_extend рейзит JobError на неизвестный край → 400, не 500.
+    client, job = _client(monkeypatch, tmp_path)
+    v = client.get(f"/jobs/{job}/clips/clip_01/edit").json()["version"]
+    r = client.post(
+        f"/jobs/{job}/clips/clip_01/edit/extend",
+        json={"version": v, "edge": "middle", "new_value": 1.0},
+    )
+    assert r.status_code == 400
+
+
+def test_post_render_spawn_failure_marks_render_failed(monkeypatch, tmp_path):
+    # На Modal-пути dispatch.spawn может упасть (modal import / lookup). Без перехвата клип
+    # застрял бы в "rendering" навсегда. Эндпоинт ДОЛЖЕН перевести его в failed (правило №8).
+    client, job = _client(monkeypatch, tmp_path)
+    import app.main as main
+
+    monkeypatch.setattr(main.dispatch, "modal_spawn_enabled", lambda: True)
+
+    def boom(*a, **k):
+        raise RuntimeError("modal down")
+
+    monkeypatch.setattr(main.dispatch, "spawn", boom)
+    # клип должен существовать (ensure default edit)
+    client.get(f"/jobs/{job}/clips/clip_01/edit")
+    r = client.post(f"/jobs/{job}/clips/clip_01/render")
+    assert r.status_code == 500
+    status = client.get(f"/jobs/{job}/clips/clip_01/render").json()
+    assert status["status"] == "failed"
+    assert status["error"]
+
+
 def test_reframe_endpoint_returns_flat_clip_time_regions(monkeypatch, tmp_path):
     # D2: /reframe считает план единым путём (resolve_regions_accurate) и отдаёт КЛИП-время.
     client, job = _client(monkeypatch, tmp_path)

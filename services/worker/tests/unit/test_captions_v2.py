@@ -251,6 +251,46 @@ def test_compile_ass_scale_one_no_transform():
     assert "\\t(" not in ass
 
 
+def test_compile_ass_escapes_braces_in_word_text():
+    # libass парсит {...} как override-блок → "{laughs}" молча ПРОПАДАЕТ. Должно экранироваться.
+    words = [_w("{laughs}", 0.0, 0.4), _w("hi", 0.4, 0.8)]
+    track = CaptionTrack(
+        style=CaptionStyle(uppercase=False),
+        highlight=None,
+        replies=[CaptionReply(word_refs=[0, 1])],
+    )
+    ass = compile_ass(track, words, _cmap())
+    d = next(ln for ln in ass.splitlines() if ln.startswith("Dialogue:"))
+    assert "\\{laughs\\}" in d  # фигурные экранированы
+    assert "{laughs}" not in d.replace("\\{laughs\\}", "")  # сырых скобок нет
+
+
+def test_compile_ass_escapes_backslash_in_text_override():
+    # \N в тексте юзера = принудительный перенос строки в libass → ломает раскладку.
+    words = [_w("a", 0.0, 0.4), _w("b", 0.4, 0.8)]
+    track = CaptionTrack(
+        style=CaptionStyle(uppercase=False),
+        highlight=None,
+        replies=[CaptionReply(word_refs=[0, 1], text_override="path\\Nfile")],
+    )
+    ass = compile_ass(track, words, _cmap())
+    d = next(ln for ln in ass.splitlines() if ln.startswith("Dialogue:"))
+    assert "\\N" not in d  # бэкслеш-тег нейтрализован
+    assert "⧵" in d  # подменён на безопасный глиф U+29F5
+
+
+def test_compile_ass_does_not_escape_own_karaoke_tags():
+    # экранирование текста НЕ должно трогать наши \k/\1c-теги
+    words = [_w("hi", 0.0, 0.4)]
+    track = CaptionTrack(
+        style=CaptionStyle(uppercase=False),
+        highlight=HighlightStyle(),
+        replies=[CaptionReply(word_refs=[0])],
+    )
+    ass = compile_ass(track, words, _cmap())
+    assert "\\k" in ass  # караоке-тег цел (не превратился в ⧵k)
+
+
 def test_compile_ass_box_sets_border_style_3():
     words = [_w("a", 0.0, 0.4)]
     track = CaptionTrack(

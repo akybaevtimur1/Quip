@@ -583,6 +583,93 @@ class TestPlanRegions:
         assert regions[0].points and abs(regions[0].points[0].cx - 0.5) < 1e-9
 
 
+class TestDetectSceneCutsResourceRelease:
+    """detect_scene_cuts ОБЯЗАН закрыть cv2.VideoCapture даже на ошибке detect_scenes.
+
+    На Windows незакрытый VideoCapture держит файл-лок на temp seg.mp4 → выход из
+    TemporaryDirectory роняет PermissionError, который МАСКИРУЕТ исходную JobError
+    (и оставляет битый temp). Релиз должен быть в finally, не только на success-пути.
+    """
+
+    @staticmethod
+    def _patch_ffmpeg_ok(monkeypatch: "pytest.MonkeyPatch") -> None:
+        import app.pipeline.stage3_reframe as mod
+
+        class _Proc:
+            returncode = 0
+            stderr = ""
+
+        # ffmpeg-вырезка сегмента "успешна" (файл не нужен — scenedetect замокан)
+        monkeypatch.setattr(mod.subprocess, "run", lambda *a, **k: _Proc())
+
+    def test_release_called_on_detect_failure(self, monkeypatch: "pytest.MonkeyPatch") -> None:
+        import scenedetect
+
+        from app.pipeline.stage3_reframe import detect_scene_cuts
+
+        self._patch_ffmpeg_ok(monkeypatch)
+        released = {"n": 0}
+
+        class _Cap:
+            def release(self) -> None:
+                released["n"] += 1
+
+        class _Vid:
+            capture = _Cap()
+
+        class _SM:
+            def add_detector(self, *_a: object) -> None: ...
+            def detect_scenes(self, *_a: object) -> None:
+                raise RuntimeError("decode boom")  # PySceneDetect упал в середине
+
+            def get_scene_list(self) -> list:  # pragma: no cover
+                return []
+
+        monkeypatch.setattr(scenedetect, "open_video", lambda *_a: _Vid())
+        monkeypatch.setattr(scenedetect, "SceneManager", lambda: _SM())
+        monkeypatch.setattr(scenedetect, "ContentDetector", lambda **_k: object())
+
+        with pytest.raises(JobError):
+            detect_scene_cuts(__import__("pathlib").Path("x.mp4"), 0.0, 1.0, 25.0)
+        assert released["n"] == 1  # capture закрыт несмотря на ошибку detect_scenes
+
+    def test_release_called_on_success(self, monkeypatch: "pytest.MonkeyPatch") -> None:
+        import scenedetect
+
+        from app.pipeline.stage3_reframe import detect_scene_cuts
+
+        self._patch_ffmpeg_ok(monkeypatch)
+        released = {"n": 0}
+
+        class _Cap:
+            def release(self) -> None:
+                released["n"] += 1
+
+        class _Vid:
+            capture = _Cap()
+
+        class _T:
+            def __init__(self, f: int) -> None:
+                self._f = f
+
+            def get_frames(self) -> int:
+                return self._f
+
+        class _SM:
+            def add_detector(self, *_a: object) -> None: ...
+            def detect_scenes(self, *_a: object) -> None: ...
+            def get_scene_list(self) -> list:
+                return [(_T(0), _T(50)), (_T(50), _T(100))]  # одна склейка на кадре 50
+
+        monkeypatch.setattr(scenedetect, "open_video", lambda *_a: _Vid())
+        monkeypatch.setattr(scenedetect, "SceneManager", lambda: _SM())
+        monkeypatch.setattr(scenedetect, "ContentDetector", lambda **_k: object())
+
+        cuts = detect_scene_cuts(__import__("pathlib").Path("x.mp4"), 0.0, 1.0, 25.0)
+        assert cuts == [50]  # frame-grid контракт цел: склейка = start-кадр сцены, кроме первой
+        assert released["n"] == 1
+
+
 class TestResampleTrack:
     """resample_track: дорожка ASD@25fps → нативная сетка fps (фикс флеша на ≠25fps видео).
 

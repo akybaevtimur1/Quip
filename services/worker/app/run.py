@@ -16,6 +16,7 @@ import sys
 import time
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 from app import db, storage
 from app.config import get_settings
@@ -38,6 +39,20 @@ _GEMINI_OUT_USD_PER_TOK = 2.50 / 1_000_000
 
 def _snippet(words: list[Word], start: float, end: float, limit: int = 240) -> str:
     return " ".join(w.text for w in words_in_segment(words, start, end))[:limit]
+
+
+def transcript_cache_model(settings: Any) -> str:
+    """PURE. Имя модели для ключа кэша транскрипта, ЗАВИСЯЩЕЕ от провайдера.
+
+    Раньше run.py клал в ключ всегда ``deepgram_model`` — для assemblyai это мусорный слот
+    (транскрипт помечался deepgram-моделью, смена assemblyai-модели не инвалидировала кэш).
+    Берём модель выбранного провайдера; для assemblyai читаем ``assemblyai_model`` через
+    getattr (поле опционально в config — провайдер ещё не реализован, дефолт безопасный).
+    """
+    provider = settings.transcription_provider
+    if provider == "assemblyai":
+        return str(getattr(settings, "assemblyai_model", None) or "assemblyai-default")
+    return str(settings.deepgram_model)
 
 
 def _gemini_cost(usage: dict[str, int]) -> float:
@@ -115,10 +130,11 @@ def run_pipeline(
         cached_tr: Transcript | None = None
         sha: str | None = None
         ck: str | None = None
+        tr_model = transcript_cache_model(s)
         if s.transcript_cache_enabled:
             sha = audio_sha(wav_path)
-            ck = cache_key(sha, s.transcription_provider, s.deepgram_model)
-            cloud_tr = db.get_cached_transcript(sha, s.transcription_provider, s.deepgram_model)
+            ck = cache_key(sha, s.transcription_provider, tr_model)
+            cloud_tr = db.get_cached_transcript(sha, s.transcription_provider, tr_model)
             cached_tr = (
                 Transcript.model_validate(cloud_tr)
                 if cloud_tr is not None
@@ -142,7 +158,7 @@ def run_pipeline(
                 )
             if s.transcript_cache_enabled and sha is not None:
                 db.put_cached_transcript(
-                    sha, s.transcription_provider, s.deepgram_model, transcript.model_dump()
+                    sha, s.transcription_provider, tr_model, transcript.model_dump()
                 )
     stages["transcription"] = round(time.perf_counter() - t0, 2)
 

@@ -173,6 +173,18 @@ def generate_chapters_job(job_id: str) -> None:
         chapters = chmod.generate_chapters(
             transcript.words, transcript.duration, transcript.language
         )
+        if not chapters:
+            # Пустой результат Gemini → НЕ тихий done с пустой картой (правило №8): фронт
+            # показал бы «нет глав» без объяснения. Поднимаем явный failed с причиной, чтобы
+            # сработал retry-путь (GET /chapters?retry=true) и юзер видел, что произошло.
+            chmod.save_chapters(
+                out,
+                ChaptersData(
+                    status="failed",
+                    error="AI-карта пуста (модель не вернула глав). Повторите генерацию.",
+                ),
+            )
+            return
         chmod.save_chapters(out, ChaptersData(status="done", chapters=chapters))
     except JobError as e:
         chmod.save_chapters(out, ChaptersData(status="failed", error=str(e)))

@@ -556,18 +556,22 @@ def detect_scene_cuts(
         if proc.returncode != 0:
             tail = (proc.stderr or "")[-300:]
             raise JobError(_STAGE, f"ffmpeg seg код {proc.returncode}: {tail}")
+        vid = None
         try:
             vid = open_video(str(seg))
             sm = SceneManager()
             sm.add_detector(ContentDetector(threshold=threshold))
             sm.detect_scenes(vid)
             scenes = sm.get_scene_list()
-            # Закрываем дескриптор ДО выхода из TemporaryDirectory (Windows держит лок на файл).
-            # VideoStreamCv2 не имеет release() — закрываем вложенный cv2.VideoCapture напрямую.
-            if hasattr(vid, "capture") and hasattr(vid.capture, "release"):
-                vid.capture.release()
         except Exception as e:
             raise JobError(_STAGE, f"PySceneDetect сбой: {e}") from e
+        finally:
+            # Закрываем дескриптор ДО выхода из TemporaryDirectory (Windows держит лок на файл).
+            # ОБЯЗАТЕЛЬНО в finally: при сбое detect_scenes незакрытый VideoCapture держит лок →
+            # cleanup temp роняет PermissionError, маскируя исходную JobError.
+            # VideoStreamCv2 не имеет release() — закрываем вложенный cv2.VideoCapture напрямую.
+            if vid is not None and hasattr(vid, "capture") and hasattr(vid.capture, "release"):
+                vid.capture.release()
     # get_scene_list даёт [(start, end), …]; склейка = start КАДР каждой сцены, кроме первой (0).
     return [s[0].get_frames() for s in scenes[1:]]
 

@@ -130,6 +130,21 @@ class TestBuildHookEvent:
         )
         assert "привет" in dialogue
 
+    def test_escapes_braces(self) -> None:
+        # {...} в тексте хука = override-блок libass → текст пропал бы. Должно экранироваться.
+        _, dialogue = build_hook_event(
+            HookOverlay(text="why {it} works", uppercase=False), clip_duration=10.0
+        )
+        assert "\\{it\\}" in dialogue
+        assert ",,why \\{it\\} works" in dialogue
+
+    def test_escapes_backslash(self) -> None:
+        _, dialogue = build_hook_event(
+            HookOverlay(text="a\\Nb", uppercase=False), clip_duration=10.0
+        )
+        assert "\\N" not in dialogue  # tag-инъекция нейтрализована
+        assert "⧵" in dialogue
+
     def test_newlines_flattened(self) -> None:
         # перевод строки в тексте → пробел (libass WrapStyle 0 переносит сам)
         _, dialogue = build_hook_event(

@@ -17,6 +17,23 @@ from app.models import Word
 
 _SENT_END = (".", "!", "?")
 
+
+def escape_ass_text(text: str) -> str:
+    """Экранировать ПОЛЬЗОВАТЕЛЬСКИЙ текст для ASS-Dialogue (libass), идентично в превью и ffmpeg.
+
+    libass парсит ``{`` как начало override-блока (``{laughs}`` → текст «laughs» молча
+    ПРОПАДАЕТ), а ``\\N``/``\\n``/``\\h`` вне блока — как перенос/хард-пробел (литеральный
+    бэкслеш юзера ломает раскладку). Эмпирически проверено рендером (tmp/esc_frame*.png).
+
+    Фикс (тот же байт-в-байт для libass.wasm-превью и ffmpeg-экспорта → WYSIWYG цел):
+      • ``\\`` → ``⧵`` (U+29F5, визуально тот же бэкслеш): в ASS нет escape, дающего
+        литеральный бэкслеш-глиф, поэтому подменяем на безопасный символ → tag-инъекция
+        (``\\N`` и пр.) невозможна. Делаем ПЕРВЫМ, иначе затрёт наши же ``\\{``.
+      • ``{`` → ``\\{`` , ``}`` → ``\\}`` (рендерятся литеральными скобками — проверено).
+    """
+    return text.replace("\\", "⧵").replace("{", "\\{").replace("}", "\\}")
+
+
 # ── ASS-шаблон (PlayRes 1080x1920; Montserrat 90; контур 6 + тень; снизу по центру) ──
 _SCRIPT_INFO = (
     "[Script Info]\nScriptType: v4.00+\nPlayResX: 1080\nPlayResY: 1920\n"
@@ -112,7 +129,7 @@ def build_ass(
     for ch in chunks:
         start = format_ass_time(to_clip_time(ch.start, segment_start))
         end = format_ass_time(to_clip_time(ch.end, segment_start))
-        text = ch.text.upper().replace("\n", " ")
+        text = escape_ass_text(ch.text.upper().replace("\n", " "))
         lines.append(f"Dialogue: 0,{start},{end},Default,,0,0,,{text}")
     return "\n".join(lines) + "\n"
 

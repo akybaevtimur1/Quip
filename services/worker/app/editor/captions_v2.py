@@ -9,7 +9,7 @@ from pathlib import Path
 
 from app.editor.timemap import ClipTimeMap
 from app.models import CaptionReply, CaptionTrack, HighlightStyle, HookOverlay, Word
-from app.pipeline.stage4_captions import format_ass_time
+from app.pipeline.stage4_captions import escape_ass_text, format_ass_time
 
 
 def _ass_color(hex_color: str, alpha_byte: int = 0) -> str:
@@ -91,6 +91,7 @@ def build_hook_event(hook: HookOverlay, clip_duration: float) -> tuple[str, str]
     text = hook.text.replace("\n", " ").strip()
     if hook.uppercase:
         text = text.upper()
+    text = escape_ass_text(text)  # {/\ в тексте хука → tag-инъекция libass (см. escape_ass_text)
     dialogue = f"Dialogue: 0,{format_ass_time(0.0)},{format_ass_time(window)},Hook,,0,0,,{text}"
     return style, dialogue
 
@@ -214,7 +215,8 @@ def _reply_text(
     """
 
     def up(s: str) -> str:
-        return s.upper() if uppercase else s
+        # escape ПОСЛЕ upper(): {/\ в тексте слова/override иначе ломают libass (tag-инъекция)
+        return escape_ass_text(s.upper() if uppercase else s)
 
     anim = hl.animation if hl else "none"
     scale = hl.scale if hl else 1.0

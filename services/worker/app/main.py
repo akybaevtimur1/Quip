@@ -10,7 +10,7 @@ from __future__ import annotations
 import os
 import sys
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Literal
@@ -204,9 +204,15 @@ def create_job(
     # На Modal: spawn отдельной долгоживущей CPU-функции (web scale-to-zero убил бы фон-таск).
     # Локально: BackgroundTask, как в Phase 0.
     if dispatch.modal_spawn_enabled():
-        dispatch.spawn(
-            "run_job", job_id, body.source_type, body.source_ref, body.max_clips, user_id
-        )
+        # spawn упал ДО старта пайплайна → джоб застрял бы в "queued" навсегда. Помечаем
+        # failed и поднимаем 500 (правило №8): юзер видит причину, а не вечную очередь.
+        try:
+            dispatch.spawn(
+                "run_job", job_id, body.source_type, body.source_ref, body.max_clips, user_id
+            )
+        except Exception as e:  # noqa: BLE001 — любой сбой диспатча = видимый failed
+            db.set_failed(job_id, f"dispatch failed: {e}")
+            raise HTTPException(status_code=500, detail=f"job dispatch failed: {e}") from e
     else:
         bg.add_task(
             run_pipeline_job, job_id, body.source_type, body.source_ref, body.max_clips, user_id
@@ -428,6 +434,18 @@ def _load_or_404(job_id: str, clip_id: str) -> Any:
     return edit
 
 
+def _op_or_400(fn: Callable[[], Any]) -> Any:
+    """Прогнать pure-операцию редактора (ops.py), переведя её доменный JobError в HTTP 400.
+
+    ops.py рейзит JobError на НЕВАЛИДНЫЙ ввод (индекс вне диапазона, перевёрнутый интервал,
+    неизвестный край). Без перехвата это всплывало 500 (баг сервера) вместо 400 (ошибка
+    клиента). Зеркалит трансляцию GET-хендлеров (JobError → 404 там, где это «не найдено»)."""
+    try:
+        return fn()
+    except JobError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
 @app.get("/jobs/{job_id}/clips/{clip_id}/edit")
 def get_clip_edit(job_id: str, clip_id: str) -> dict[str, Any]:
     """ClipEdit клипа (создаёт дефолт из сегмента при первом обращении)."""
@@ -536,14 +554,17 @@ def patch_clip_edit(job_id: str, clip_id: str, body: PatchEditBody) -> dict[str,
 def op_trim(job_id: str, clip_id: str, body: TrimBody) -> dict[str, Any]:
     edit = _load_or_404(job_id, clip_id)
     words = store.load_transcript_words(job_id)
-    return _save_or_409(job_id, clip_id, apply_trim(edit, body.word_indices, words), body.version)
+    new = _op_or_400(lambda: apply_trim(edit, body.word_indices, words))
+    return _save_or_409(job_id, clip_id, new, body.version)
 
 
 @app.post("/jobs/{job_id}/clips/{clip_id}/edit/add-section")
 def op_add_section(job_id: str, clip_id: str, body: AddSectionBody) -> dict[str, Any]:
     edit = _load_or_404(job_id, clip_id)
     words = store.load_transcript_words(job_id)
-    new = add_section(edit, body.source_start, body.source_end, body.at_index, words)
+    new = _op_or_400(
+        lambda: add_section(edit, body.source_start, body.source_end, body.at_index, words)
+    )
     return _save_or_409(job_id, clip_id, new, body.version)
 
 
@@ -551,7 +572,9 @@ def op_add_section(job_id: str, clip_id: str, body: AddSectionBody) -> dict[str,
 def op_extend(job_id: str, clip_id: str, body: ExtendBody) -> dict[str, Any]:
     edit = _load_or_404(job_id, clip_id)
     words = store.load_transcript_words(job_id)
-    new = apply_extend(edit, edge=body.edge, new_value=body.new_value, words=words)
+    new = _op_or_400(
+        lambda: apply_extend(edit, edge=body.edge, new_value=body.new_value, words=words)
+    )
     return _save_or_409(job_id, clip_id, new, body.version)
 
 
@@ -599,14 +622,16 @@ def op_set_interval(job_id: str, clip_id: str, body: SetIntervalBody) -> dict[st
     words = store.load_transcript_words(job_id)
     meta = artifacts.load_meta(job_id)
     s = get_settings()
-    new = set_interval(
-        edit,
-        body.source_start,
-        body.source_end,
-        words,
-        duration=meta.duration,
-        min_sec=s.clip_min_sec,
-        max_sec=s.clip_max_sec,
+    new = _op_or_400(
+        lambda: set_interval(
+            edit,
+            body.source_start,
+            body.source_end,
+            words,
+            duration=meta.duration,
+            min_sec=s.clip_min_sec,
+            max_sec=s.clip_max_sec,
+        )
     )
     return _save_or_409(job_id, clip_id, new, body.version)
 
@@ -620,7 +645,13 @@ def post_render(job_id: str, clip_id: str, bg: BackgroundTasks) -> dict[str, Any
     _load_or_404(job_id, clip_id)
     db.set_render_status(job_id, clip_id, "rendering", None, None)
     if dispatch.modal_spawn_enabled():
-        dispatch.spawn("render_job", job_id, clip_id)
+        # spawn может упасть (modal import/lookup) ДО старта рендера → клип застрял бы в
+        # "rendering" навсегда. Переводим в failed и поднимаем 500 (правило №8, не молча).
+        try:
+            dispatch.spawn("render_job", job_id, clip_id)
+        except Exception as e:  # noqa: BLE001 — любой сбой диспатча = видимый failed
+            db.set_render_status(job_id, clip_id, "failed", None, f"dispatch failed: {e}")
+            raise HTTPException(status_code=500, detail=f"render dispatch failed: {e}") from e
     else:
         bg.add_task(render_clip_edit_job, job_id, clip_id)
     return {"status": "rendering"}
