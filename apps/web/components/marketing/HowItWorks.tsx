@@ -27,7 +27,6 @@ export function HowItWorks() {
       <Container>
         <Reveal>
           <SectionHeading
-            eyebrow="How it works"
             title="Long video in. Clips you can trust out."
             lead="Three steps, a couple of minutes. No timeline scrubbing, no guessing which moment to cut."
           />

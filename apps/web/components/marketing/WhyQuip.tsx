@@ -22,7 +22,6 @@ export function WhyQuip() {
         <div>
           <Reveal>
             <SectionHeading
-              eyebrow="Why Quip"
               title={
                 <>
                   Every clip comes with <span className="text-accent">its reasons.</span>

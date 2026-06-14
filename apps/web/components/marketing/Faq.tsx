@@ -10,7 +10,7 @@ export function Faq() {
     <Section id="faq">
       <Container className="grid gap-12 lg:grid-cols-[0.8fr_1.2fr] lg:gap-16">
         <Reveal>
-          <SectionHeading eyebrow="FAQ" title="Questions, answered straight." />
+          <SectionHeading title="Questions, answered straight." />
         </Reveal>
         <Reveal delay={80}>
           <div className="divide-y divide-line overflow-hidden rounded-xl border border-line">

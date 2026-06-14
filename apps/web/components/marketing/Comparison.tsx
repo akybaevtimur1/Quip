@@ -20,7 +20,6 @@ export function Comparison() {
       <Container>
         <Reveal>
           <SectionHeading
-            eyebrow="Quip vs. the volume combine"
             title="More clips was never the problem."
             lead="The bottleneck isn't quantity. It's knowing which moment is worth your audience's attention, and Quip optimizes for that."
           />

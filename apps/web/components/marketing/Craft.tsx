@@ -33,7 +33,6 @@ export function Craft() {
       <Container>
         <Reveal>
           <SectionHeading
-            eyebrow="Built like an instrument"
             title="The cut is the easy part. We sweat the rest."
             lead="Reframe, captions, hooks, aspect ratios — the details that decide whether a clip looks pro or looks auto-generated."
           />

@@ -3,7 +3,6 @@ import { ClipMockup } from "@/components/marketing/ClipMockup";
 import { ReasoningCard } from "@/components/marketing/ReasoningCard";
 import { buttonVariants } from "@/components/ui/Button";
 import { Container } from "@/components/ui/Container";
-import { Eyebrow } from "@/components/ui/Eyebrow";
 import { Reveal } from "@/components/ui/Reveal";
 
 export function Hero() {
@@ -23,12 +22,9 @@ export function Hero() {
         {/* left: message */}
         <div className="max-w-xl">
           <Reveal>
-            <Eyebrow>Explainable AI clips</Eyebrow>
-          </Reveal>
-          <Reveal delay={60}>
-            <h1 className="mt-6 font-display text-display-lg text-ink sm:text-display-xl lg:text-display-2xl">
-              Don&rsquo;t just get clips. <span className="text-accent">Know why</span> they&rsquo;re
-              worth posting.
+            <h1 className="font-display text-display-lg text-ink sm:text-display-xl lg:text-display-2xl">
+              Don&rsquo;t just get clips. <span className="text-accent">Know why</span>{" "}
+              they&rsquo;re worth posting.
             </h1>
           </Reveal>
           <Reveal delay={120}>

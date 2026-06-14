@@ -11,7 +11,6 @@ export function Pricing() {
         <Reveal>
           <SectionHeading
             align="center"
-            eyebrow="Pricing"
             title="Simple plans. No credit casino."
             lead="One credit is one video, up to 60 minutes. No tokens to ration, no surprise paywalls. You always know your limit up front, and pay-as-you-go credits never expire."
           />

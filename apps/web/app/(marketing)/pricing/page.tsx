@@ -5,7 +5,6 @@ import { Comparison } from "@/components/marketing/Comparison";
 import { Faq } from "@/components/marketing/Faq";
 import { PricingCards } from "@/components/marketing/PricingCards";
 import { Container } from "@/components/ui/Container";
-import { Eyebrow } from "@/components/ui/Eyebrow";
 
 export const metadata: Metadata = {
   title: "Pricing",
@@ -21,8 +20,7 @@ export default function PricingPage() {
         <CheckoutNotice />
       </Suspense>
       <Container className="pt-16 text-center sm:pt-24">
-        <Eyebrow>Pricing</Eyebrow>
-        <h1 className="mx-auto mt-5 max-w-2xl font-display text-display-lg text-ink sm:text-display-xl">
+        <h1 className="mx-auto max-w-2xl font-display text-display-lg text-ink sm:text-display-xl">
           Pricing that respects your wallet.
         </h1>
         <p className="mx-auto mt-4 max-w-lg text-lead text-muted">
