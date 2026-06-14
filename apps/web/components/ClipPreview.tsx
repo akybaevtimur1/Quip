@@ -4,7 +4,7 @@ import { Loader2, Maximize2, Minimize2, Pause, Play, Volume2, VolumeX } from "lu
 import { useEffect, useRef, useState } from "react";
 import { CaptionOverlay } from "@/components/CaptionOverlay";
 import { LibassLayer } from "@/components/LibassLayer";
-import { getClipAss } from "@/lib/api";
+import { getClipAss, getRenderStatus } from "@/lib/api";
 import { mmss } from "@/lib/format";
 import type { Word } from "@/lib/types";
 
@@ -39,6 +39,9 @@ export function ClipPreview({
   const [visible, setVisible] = useState(false);
   const [ass, setAss] = useState<string | null>(null);
   const [libassFailed, setLibassFailed] = useState(false);
+  // null = unknown yet, true = the clip file already has captions burned in (it was
+  // rendered → "clips/<id>.mp4" is the subtitled file), false = clean reframe clip.
+  const [burned, setBurned] = useState<boolean | null>(null);
   const [playing, setPlaying] = useState(false);
   const [muted, setMuted] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
@@ -64,9 +67,24 @@ export function ClipPreview({
     return () => io.disconnect();
   }, []);
 
-  // Fetch the clip's real ASS once visible (hook + captions + edit-state).
+  // Once visible: has this clip been rendered? If so, its file already has the
+  // captions+hook burned in (the worker render overwrites clips/<id>.mp4) → we must
+  // NOT overlay libass, or captions draw twice. If not rendered, the file is clean
+  // and we overlay the live ASS.
   useEffect(() => {
     if (!visible) return;
+    let cancelled = false;
+    getRenderStatus(jobId, clipId)
+      .then((r) => !cancelled && setBurned(r.status === "done" && !!r.video_url))
+      .catch(() => !cancelled && setBurned(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [visible, jobId, clipId]);
+
+  // Fetch the clip's real ASS only for clean (un-rendered) clips, to overlay it.
+  useEffect(() => {
+    if (burned !== false) return;
     let cancelled = false;
     getClipAss(jobId, clipId)
       .then((t) => !cancelled && setAss(t))
@@ -74,7 +92,7 @@ export function ClipPreview({
     return () => {
       cancelled = true;
     };
-  }, [visible, jobId, clipId]);
+  }, [burned, jobId, clipId]);
 
   // Player state from the (clip-relative) video.
   useEffect(() => {
@@ -125,7 +143,8 @@ export function ClipPreview({
     v.currentTime = (Number(e.target.value) / 1000) * dur;
   };
 
-  const useLibass = !!ass && !libassFailed;
+  // Overlay only for clean clips. Rendered clips already show captions in the file.
+  const useLibass = burned === false && !!ass && !libassFailed;
 
   return (
     <div
@@ -215,8 +234,8 @@ export function ClipPreview({
           </button>
         </div>
 
-        {/* caption engine still warming up */}
-        {visible && !ass && !libassFailed && (
+        {/* caption engine still warming up (clean clip only) */}
+        {burned === false && !ass && !libassFailed && (
           <div className="pointer-events-none absolute right-2 top-2 z-20">
             <Loader2 className="size-4 animate-spin text-white/50" />
           </div>

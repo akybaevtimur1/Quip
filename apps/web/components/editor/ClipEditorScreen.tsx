@@ -194,7 +194,10 @@ export default function ClipEditorScreen({
           getJob(jobId)
             .then((job) => {
               if (cancelled) return;
-              const ids = (job.clips ?? []).map((c) => c.id);
+              // Same order the grid shows (best score first) so "Clip N of M" and the
+              // ‹ › nav match what the user clicked — otherwise opening the first card
+              // (highest score) showed "Clip 2 of 5".
+              const ids = [...(job.clips ?? [])].sort((a, b) => b.score - a.score).map((c) => c.id);
               setClipIds(ids.length > 0 ? ids : [clipId]);
               const me = (job.clips ?? []).find((c) => c.id === clipId);
               if (me) {
@@ -492,12 +495,8 @@ export default function ClipEditorScreen({
     if (!edit) return;
     setError(null);
     stopPoll();
-    try {
-      await startRenderClip(jobId, clipId);
-    } catch (e) {
-      setError(String(e));
-      return;
-    }
+    // Flip to "rendering" BEFORE the POST so the button disables and shows feedback
+    // instantly — otherwise the request round-trip looks dead and people click again.
     setRenderState({ kind: "rendering", elapsed: 0 });
     timerRef.current = setInterval(
       () =>
@@ -506,6 +505,14 @@ export default function ClipEditorScreen({
         ),
       1000,
     );
+    try {
+      await startRenderClip(jobId, clipId);
+    } catch (e) {
+      stopPoll();
+      setRenderState({ kind: "idle" });
+      setError(String(e));
+      return;
+    }
     pollRef.current = setInterval(async () => {
       try {
         const st = await getRenderStatus(jobId, clipId);
