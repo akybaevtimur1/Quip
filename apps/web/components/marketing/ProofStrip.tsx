@@ -2,10 +2,12 @@ import { Container } from "@/components/ui/Container";
 import { Reveal } from "@/components/ui/Reveal";
 
 // Cost anchoring: what repurposing costs the usual way vs. starting on Quip.
-// Competitor numbers are dimmed (the "expensive" path); Quip's is the coral accent.
+// Ranges are grounded in 2025-26 market rates (freelance short clips ~$100-500;
+// short-form editor retainers ~$500-3000/mo). Competitor numbers are dimmed (the
+// "expensive" path); Quip's is the coral accent.
 const ITEMS: { metric: string; note: string; accent?: boolean }[] = [
-  { metric: "$300–1800", note: "editor retainer / mo" },
-  { metric: "$50–500", note: "one freelance clip" },
+  { metric: "$500–3,000", note: "editor retainer / mo" },
+  { metric: "$50–500", note: "per freelance clip" },
   { metric: "$0", note: "to start on Quip", accent: true },
 ];
 
