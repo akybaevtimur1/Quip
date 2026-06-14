@@ -14,13 +14,22 @@ function safeNext(next: string | undefined): string {
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ next?: string }>;
+  searchParams: Promise<{ next?: string; error?: string }>;
 }) {
-  const next = safeNext((await searchParams).next);
+  const sp = await searchParams;
+  const next = safeNext(sp.next);
   return (
     <div className="rounded-xl border border-line bg-surface p-7">
       <h1 className="font-display text-h3 text-ink">Welcome back</h1>
       <p className="mt-1 text-sm text-muted">Sign in to your Quip account.</p>
+      {sp.error && (
+        <p
+          role="alert"
+          className="mt-4 rounded-md border border-bad/40 bg-bad/10 px-3 py-2 text-sm text-bad"
+        >
+          {sp.error}
+        </p>
+      )}
       <div className="mt-6">
         {isSupabaseConfigured ? <AuthForm mode="login" next={next} /> : <AuthDevNotice next={next} />}
       </div>

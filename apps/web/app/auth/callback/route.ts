@@ -12,7 +12,16 @@ export async function GET(request: Request) {
 
   if (code && isSupabaseConfigured) {
     const supabase = await createSupabaseServerClient();
-    await supabase.auth.exchangeCodeForSession(code);
+    const { error } = await supabase.auth.exchangeCodeForSession(code);
+    if (error) {
+      // PKCE/code exchange failed (expired or already-used link). Don't redirect to a
+      // protected route — the (app) gate would bounce to /login with no explanation,
+      // looking like a silent loop. Surface a real reason on the login page instead.
+      const login = new URL("/login", url.origin);
+      login.searchParams.set("next", next);
+      login.searchParams.set("error", "Sign-in link is invalid or expired. Please try again.");
+      return NextResponse.redirect(login);
+    }
   }
 
   return NextResponse.redirect(new URL(next, url.origin));

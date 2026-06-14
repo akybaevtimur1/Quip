@@ -120,8 +120,21 @@ export async function getUsage(): Promise<UsageInfo> {
   return res.json();
 }
 
+/** fetch с таймаутом: висящий ответ (TCP открыт, воркер молчит) иначе НИКОГДА не реджектит →
+ *  поллинг useJob тихо стопорится, MAX_FAILS не растёт, юзер на «tracking» навсегда.
+ *  Таймаут → AbortError → throw → засчитывается как сбой опроса. */
+async function fetchWithTimeout(input: string, init: RequestInit = {}, ms = 15000): Promise<Response> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms);
+  try {
+    return await fetch(input, { ...init, signal: ctrl.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function getJob(id: string): Promise<Job> {
-  const res = await fetch(`${BASE}/jobs/${id}`, { cache: "no-store" });
+  const res = await fetchWithTimeout(`${BASE}/jobs/${id}`, { cache: "no-store" });
   if (!res.ok) throw new Error(`getJob failed: ${res.status}`);
   return res.json();
 }

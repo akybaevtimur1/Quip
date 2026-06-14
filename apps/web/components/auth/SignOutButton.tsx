@@ -12,9 +12,15 @@ export function SignOutButton({ className }: { className?: string }) {
 
   async function signOut() {
     setBusy(true);
-    await createSupabaseBrowserClient().auth.signOut();
-    router.replace("/");
-    router.refresh();
+    try {
+      await createSupabaseBrowserClient().auth.signOut();
+      router.replace("/");
+      router.refresh();
+    } catch {
+      // Network hiccup while clearing the session — re-enable so the user can retry
+      // instead of being stuck on a permanently-disabled button.
+      setBusy(false);
+    }
   }
 
   return (

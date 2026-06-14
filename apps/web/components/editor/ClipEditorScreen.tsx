@@ -253,6 +253,16 @@ export default function ClipEditorScreen({
     [handleConflict],
   );
 
+  // editRef = СВЕЖАЯ версия edit-state для очереди мутаций. Синкается эффектом
+  // (на каждый render), НО любой путь, который setEdit(newEdit) напрямую (trim/
+  // set-interval/frame/aspect), ОБЯЗАН обновить editRef.current ТУТ ЖЕ —
+  // эффект отстаёт на коммит, и следующая мутация в очереди прочла бы старую
+  // версию → 409 → reload (баг-класс, ради которого очередь и сделана).
+  const editRef = useRef<ClipEdit | null>(null);
+  useEffect(() => {
+    editRef.current = edit;
+  }, [edit]);
+
   // ── refetch analysis + ASS после изменения интервалов (trim / set-interval) ──
   // АТОМАРНО: и анализ, и НОВЫЙ ASS грузим ДО setState, применяем одним батчем.
   // Иначе между setEdit (новый outerStart) и приездом ASS старые субтитры
@@ -264,6 +274,7 @@ export default function ClipEditorScreen({
         getClipAnalysis(jobId, clipId),
         getClipAss(jobId, clipId).catch(() => null),
       ]);
+      editRef.current = newEdit; // мутации-очередь читает СВЕЖУЮ версию (иначе 409→reload)
       setEdit(newEdit);
       setWords(analysisData.words);
       setEditingReply(null);
@@ -322,10 +333,6 @@ export default function ClipEditorScreen({
   // могут сыпаться быстрее, чем отвечает сервер. Параллельные PATCH'и со старой
   // версией давали 409 → полный reload редактора. Теперь мутации выполняются
   // строго по одной, каждая берёт СВЕЖИЕ captions/version на момент исполнения.
-  const editRef = useRef<ClipEdit | null>(null);
-  useEffect(() => {
-    editRef.current = edit;
-  }, [edit]);
   const patchChain = useRef<Promise<void>>(Promise.resolve());
 
   const patchCaptions = useCallback(
@@ -470,6 +477,7 @@ export default function ClipEditorScreen({
           center,
           center_b: centerB,
         });
+        editRef.current = newEdit; // см. editRef-комментарий: очередь читает свежую версию
         setEdit(newEdit);
         setDirty(true);
       } catch (e) {
@@ -486,6 +494,7 @@ export default function ClipEditorScreen({
       setError(null);
       try {
         const newEdit = await setClipAspect(jobId, clipId, edit.version ?? 1, aspect);
+        editRef.current = newEdit; // см. editRef-комментарий: очередь читает свежую версию
         setEdit(newEdit);
         setDirty(true);
         await refreshAss(); // PlayRes изменился → libass перерисует в новом аспекте

@@ -542,7 +542,7 @@ export function TimelineV2({
           max={1000}
           value={Math.round((viewStartClamped / Math.max(0.001, duration - viewLen)) * 1000)}
           onChange={(e) =>
-            setViewStart(((Number(e.target.value) / 1000) * (duration - viewLen)) | 0)
+            setViewStart((Number(e.target.value) / 1000) * (duration - viewLen))
           }
           aria-label="Scroll timeline"
           className="mt-1 h-1 w-full cursor-pointer appearance-none rounded-full bg-surface-2 accent-accent"

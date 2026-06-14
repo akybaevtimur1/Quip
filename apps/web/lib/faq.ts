@@ -18,10 +18,10 @@ export const FAQ: { q: string; a: string }[] = [
   },
   {
     q: "What is a credit?",
-    a: "One credit is one video, up to 60 minutes of source. A longer video uses more credits (a 90-minute upload is 2). Your plan includes a number of video-credits per month, so you always know your limit. Pay-as-you-go credits cost $2 each and never expire.",
+    a: "One credit is one video — up to 60 minutes of source. Longer videos use minutes proportionally (a 90-minute upload counts as 1.5). Your plan includes a set number of video-credits per month, so you always know your limit. Pay-as-you-go credits cost $2 each and never expire.",
   },
   {
     q: "Is the free plan actually free?",
-    a: "Yes. 2 videos a month, up to 30 minutes each, no card required. Free exports carry a small watermark; paid plans drop it and export at 1080p.",
+    a: "Yes. 2 videos a month, up to 60 minutes each, no card required. Free exports carry a small watermark; paid plans drop it and export at 1080p.",
   },
 ];
