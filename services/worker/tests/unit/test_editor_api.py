@@ -196,3 +196,56 @@ def test_export_clean_mp4_404_missing_clip(monkeypatch, tmp_path):
     client, job = _client(monkeypatch, tmp_path)
     r = client.get(f"/jobs/{job}/clips/clip_09/export/clean.mp4")
     assert r.status_code == 404
+
+
+def test_export_captioned_mp4_serves_file(monkeypatch, tmp_path):
+    # D1: "With captions" = on-demand рендер ТЕКУЩИХ правок С субтитрами в ОТДЕЛЬНЫЙ файл.
+    client, job = _client(monkeypatch, tmp_path)
+    from app.editor import store as store_mod
+
+    seen = {}
+
+    def fake_render(job_id, clip_id, *, with_subtitles, out_rel):
+        seen["with_subtitles"] = with_subtitles
+        seen["out_rel"] = out_rel
+        p = store_mod.data_root() / job_id / out_rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_bytes(b"\x00\x00fakeMP4")
+
+    monkeypatch.setattr("app.main.render_edit_to_file", fake_render)
+    r = client.get(f"/jobs/{job}/clips/clip_01/export/captioned.mp4")
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "video/mp4"
+    assert seen["with_subtitles"] is True  # С субтитрами (в отличие от clean)
+    assert seen["out_rel"] == "clips/clip_01_captioned.mp4"  # отдельный файл, не clip_01.mp4
+
+
+def test_render_job_writes_captioned_never_overwrites_clean(monkeypatch, tmp_path):
+    # D1-инвариант: фон-рендер редактора НИКОГДА не трогает чистый clips/<id>.mp4.
+    client, job = _client(monkeypatch, tmp_path)  # noqa: F841 — поднимает DATA_ROOT/DB
+    from app import storage, tasks
+    from app.editor import store as store_mod
+
+    clean = store_mod.data_root() / job / "clips" / "clip_01.mp4"
+    clean.parent.mkdir(parents=True, exist_ok=True)
+    clean.write_bytes(b"CLEAN-REFRAME-CLIP")  # как после batch-рендера
+
+    seen = {}
+
+    def fake_render(job_id, clip_id, *, with_subtitles, out_rel):
+        seen["out_rel"] = out_rel
+        (store_mod.data_root() / job_id / out_rel).write_bytes(b"BURNED")
+
+    monkeypatch.setattr(tasks, "render_edit_to_file", fake_render)
+    monkeypatch.setattr(storage, "upload_clip", lambda *a, **k: "clips/clip_01_captioned.mp4")
+    captured = {}
+    monkeypatch.setattr(
+        db, "set_render_status", lambda j, c, st, url, err: captured.update(status=st, url=url)
+    )
+
+    tasks.render_clip_edit_job(job, "clip_01")
+
+    assert seen["out_rel"] == "clips/clip_01_captioned.mp4"
+    assert clean.read_bytes() == b"CLEAN-REFRAME-CLIP"  # чистый клип НЕ перетёрт
+    assert captured["status"] == "done"
+    assert captured["url"] == "clips/clip_01_captioned.mp4"

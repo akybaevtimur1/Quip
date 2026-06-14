@@ -201,7 +201,8 @@ export default function ClipEditorScreen({
               setClipIds(ids.length > 0 ? ids : [clipId]);
               const me = (job.clips ?? []).find((c) => c.id === clipId);
               if (me) {
-                setDownloadUrl(resolveUrl(me.video_url));
+                // D1: НЕ берём me.video_url (это ЧИСТЫЙ клип без субтитров) как download.
+                // downloadUrl остаётся null до рендера → ExportMenu рендерит captioned на лету.
                 setOrigStart(me.start);
               }
             })

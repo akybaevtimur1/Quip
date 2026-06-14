@@ -99,11 +99,11 @@ export function ClipCard({
         {/* actions */}
         <div className="flex gap-2 pt-1">
           {/* Меню экспорта (с субтитрами / без / .srt) — открывается ВВЕРХ, чтобы не
-              перекрываться соседними карточками грида. */}
+              перекрываться соседними карточками грида. На гриде нет «Рендер» → «С субтитрами»
+              рендерится на лету из текущего edit-state (bakedUrl не передаём — D1). */}
           <ExportMenu
             jobId={jobId}
             clipId={clip.id}
-            subtitledUrl={videoSrc}
             align="left"
             placement="up"
             className="flex-1"

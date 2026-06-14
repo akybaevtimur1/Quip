@@ -20,9 +20,18 @@ from app.config import get_settings
 from app.errors import JobError
 
 
-def storage_object_key(job_id: str, clip_id: str) -> str:
-    """Ключ объекта клипа в R2-бакете. PURE."""
-    return f"{job_id}/{clip_id}.mp4"
+def _clip_name(clip_id: str, variant: str) -> str:
+    """Имя файла клипа: ``clip_01`` (clean) или ``clip_01_captioned`` (вариант). PURE.
+
+    ``variant`` разводит АРТЕФАКТЫ одного клипа по разным ключам: чистый reframe-клип
+    (база WYSIWYG, никогда не перетирается) vs прожжённый экспорт. Один ключ ≠ два смысла.
+    """
+    return f"{clip_id}_{variant}" if variant else clip_id
+
+
+def storage_object_key(job_id: str, clip_id: str, *, variant: str = "") -> str:
+    """Ключ объекта клипа в R2-бакете. PURE. ``variant`` → отдельный ключ (см. _clip_name)."""
+    return f"{job_id}/{_clip_name(clip_id, variant)}.mp4"
 
 
 def public_url(public_base: str, key: str) -> str:
@@ -30,9 +39,9 @@ def public_url(public_base: str, key: str) -> str:
     return f"{public_base.rstrip('/')}/{key}"
 
 
-def local_url(clip_id: str) -> str:
+def local_url(clip_id: str, *, variant: str = "") -> str:
     """Относительный путь клипа для локальной раздачи (/media). PURE."""
-    return f"clips/{clip_id}.mp4"
+    return f"clips/{_clip_name(clip_id, variant)}.mp4"
 
 
 @lru_cache(maxsize=1)
@@ -104,17 +113,19 @@ def download_source(job_id: str, dest: Path) -> None:
         raise JobError("storage", f"R2 download source {job_id} failed: {e}") from e
 
 
-def upload_clip(local_path: Path, job_id: str, clip_id: str) -> str:
+def upload_clip(local_path: Path, job_id: str, clip_id: str, *, variant: str = "") -> str:
     """Сохранить готовый клип → вернуть ``video_url``.
 
+    ``variant`` (например ``"captioned"``) пишет в ОТДЕЛЬНЫЙ ключ/файл — чистый reframe-клип
+    (``variant=""``) никогда не перетирается прожжённым экспортом (D1: один ключ ≠ два смысла).
     local-режим: клип уже на диске, возвращаем относительный путь (раздаётся на ``/media``).
     r2-режим: льём mp4 в R2 (upsert), возвращаем публичный CDN-URL (если задан R2_PUBLIC_URL)
     либо presigned GET URL. JobError при сбое (правило №8 — никаких тихих фолбэков).
     """
     s = get_settings()
     if s.storage_backend != "r2":
-        return local_url(clip_id)
-    key = storage_object_key(job_id, clip_id)
+        return local_url(clip_id, variant=variant)
+    key = storage_object_key(job_id, clip_id, variant=variant)
     client = _r2_client()
     try:
         client.put_object(

@@ -18,3 +18,13 @@ def test_public_url_strips_trailing_slash_on_base() -> None:
 
 def test_local_url_is_relative_clips_path() -> None:
     assert local_url("clip_03") == "clips/clip_03.mp4"
+
+
+def test_variant_gives_separate_keys() -> None:
+    # D1: прожжённый экспорт = ОТДЕЛЬНЫЙ ключ/файл, не перетирает чистый клип.
+    assert storage_object_key("job_abc", "clip_01", variant="captioned") == (
+        "job_abc/clip_01_captioned.mp4"
+    )
+    assert local_url("clip_03", variant="captioned") == "clips/clip_03_captioned.mp4"
+    # пустой variant = прежнее поведение (обратная совместимость)
+    assert storage_object_key("j", "clip_01", variant="") == "j/clip_01.mp4"

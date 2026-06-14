@@ -1,0 +1,172 @@
+# BACKEND_AUDIT — layer-by-layer debug of Quip (the *class* of bug)
+
+> Living document. Owner: long-running debug agent (session "debugger").
+> Method: `superpowers:systematic-debugging` — no fix without a reproduced root cause +
+> evidence at the component boundary. Fix at the source by **unifying divergent paths**, not
+> by teaching one path to mimic the other. Bottom → top (L0→L6); after any fix re-run
+> `just check` AND re-verify every green item below the changed layer.
+
+**The disease:** the same job/clip/caption/reframe data takes *different code paths* in
+different surfaces (grid vs editor) and environments (local disk+SQLite vs cloud R2+Postgres),
+and no single owner holds the source of truth. Symptoms: double captions, editor-crop ≠
+render-crop, `NotSupportedError`, cloud 404s, "With captions" downloads a caption-less file.
+
+---
+
+## Baseline (regression anchor)
+
+| Date | Branch | `just check` | Tests | Notes |
+|------|--------|--------------|-------|-------|
+| 2026-06-14 | `main` | ✅ exit 0 | **459 passed** | Untracked WIP in `deploy/modal/worker.py`, `stage0_import.py`, `BENCHMARKS.md` = unrelated yt-dlp/Deno/AV1 reliability work — left untouched. |
+| 2026-06-14 | `main` | ✅ exit 0 | **462 passed** | After D1 fix (clean clip + captioned artifact). |
+
+---
+
+## Layer map (dependency order)
+
+| Layer | Files | Contract / invariant |
+|-------|-------|----------------------|
+| **L0 Env & parity** | local: disk + SQLite + bundled ffmpeg · cloud: Modal + R2 + Supabase Postgres + static ffmpeg. Gate = `cloud_state.cloud_enabled()` (`STORAGE_BACKEND=r2` + `SUPABASE_URL` + `SERVICE_ROLE_KEY`). | Both paths must produce the same artifacts/URLs. Most bugs are "works local, breaks cloud." |
+| **L1 Storage/artifacts** | `app/storage.py` (R2/local clip+source), `app/artifacts.py` (disk-first/cloud-fallback meta/segments/transcript/source) | Every artifact the editor/preview needs must be reachable in **both** envs. R2 keys: `{job}/{clip}.mp4`, `{job}/source.mp4`. |
+| **L2 State** | `app/db.py` (router), `app/cloud_state.py` (Postgres), `app/editor/store.py` (clip_edits), `row_to_wire` | One row→wire mapping. `video_url`: http→as-is, relative→`media/<job>/…`. |
+| **L3 Pipeline** | `app/run.py` (batch), `app/pipeline/*`, `app/editor/*`, `app/tasks.py` | One reframe path (frame-accurate, Δ=0). Clean-vs-burned file ownership. |
+| **L4 API** | `app/main.py` | Each endpoint's returned URL/shape; `/render`, `/ass`, `/export/*`, `/media`, `/source.mp4`. |
+| **L5 Frontend data** | `apps/web/lib/api.ts`, `lib/useJob.ts` | URL resolution, auth headers, dual-mode base. |
+| **L6 Frontend UI** | `apps/web/components/*` (grid `ClipCard`/`ClipPreview`, editor `ClipEditorScreen`/`PreviewPlayer`, `ExportMenu`) | grid preview == editor preview == exported file (WYSIWYG), one ASS, one renderer. |
+
+### Hard invariants (must not regress)
+- **REFRAME_FPS_GRID Δ=0** — mode-region boundaries land exactly on cut frames (no flashes).
+  See `docs/REFRAME_FPS_GRID_INVARIANT.md`. Spatial-only changes (aspect, clean/burned) must
+  not touch the temporal frame grid.
+- **WYSIWYG** — editor preview == grid preview == exported file; one ASS (`captions_v2.compile_ass`),
+  one renderer (`stage5_render`).
+- **No silent fallbacks / no `except: pass`** — surface as `JobError` + failed status.
+- `just check` green before every commit.
+
+---
+
+## Findings (divergences) — root cause + evidence
+
+Status legend: 🔬 investigated (root cause traced) · 🛠 fix in progress · ✅ fixed+verified.
+
+### D1 — Clean-vs-burned clip file collision  ·  L3/L4/L6  ·  ✅ fixed (local-verified)
+**The central disease.** `clips/<id>.mp4` means two different things depending on history.
+
+**FIX (commit `feat`→ see git log):** unified on "clean clip forever + separate captioned artifact".
+- `tasks.render_clip_edit_job` now renders to `clips/<id>_captioned.mp4` (R2 key `_captioned`) via
+  `storage.upload_clip(..., variant="captioned")` — the clean `clips/<id>.mp4` is **never overwritten**.
+- New `GET /jobs/{job}/clips/{clip}/export/captioned.mp4` renders the captioned mp4 from the *current*
+  edit-state (same ASS as the libass preview) — symmetric to `export/clean.mp4`.
+- `storage.py` pure builders gained `variant=` (default unchanged → backward compatible).
+- Frontend: `ClipPreview` **always** overlays libass (burned-detection band-aid + `getRenderStatus`
+  call deleted) → grid == editor == export in every state. `ExportMenu` "With captions" → baked
+  `render_url` if present else the on-demand `export/captioned.mp4` (never the clean clip). `ClipCard`
+  stops passing the clean clip as the captioned URL; editor's initial `downloadUrl` no longer points
+  at the clean clip.
+- **Evidence:** `just check` green, **462 tests** (was 459; +`test_variant_gives_separate_keys`,
+  `test_export_captioned_mp4_serves_file`, `test_render_job_writes_captioned_never_overwrites_clean`
+  which asserts the clean clip bytes are untouched after an editor render).
+- ⚠️ **Cloud not yet exercised** (needs founder secrets) — R2 `_captioned` key path is by construction
+  the same code as the clean path; documented for live verification.
+
+<details><summary>original investigation (kept for the record)</summary>
+
+**Evidence (traced):**
+- Batch render produces a **clean** clip: `run.py:181-186` calls `render_clip(..., "clips/{clip_id}.mp4")`
+  with **no `ass_name`** (default `None`, `stage5_render.py:434`) → no burned captions. Its URL goes
+  into `jobs.clips[].video_url` (`run.py:200`, via `storage.upload_clip`).
+- Editor render **overwrites the same path with a burned file**: `tasks.py:106-114`
+  `render_clip_edit_job` → `render_edit_to_file(with_subtitles=True, out_rel="clips/{clip_id}.mp4")`,
+  then `storage.upload_clip(... clips/{clip_id}.mp4 ...)`. In cloud this overwrites the same R2 key
+  `{job}/{clip}.mp4` (`storage.py:23,117`).
+- **Two URLs for one clip:** `jobs.clips[].video_url` (clean, batch) vs `clip_edits.render_url`
+  (burned, editor) — `db.set_render_status` (`tasks.py:115`).
+- **Frontend band-aid (anti-pattern):** `ClipPreview.tsx:74-95` calls `getRenderStatus` to detect
+  whether the file is burned, then conditionally suppresses the libass overlay (`useLibass`,
+  line 147). This teaches the grid to mimic state instead of removing the divergence. **WYSIWYG
+  hole:** edit captions but don't re-render → `render_status` stays `"done"` with *stale* burned
+  pixels → overlay stays off → grid shows old captions while editor shows new ones.
+- **ExportMenu wrong file:** `ExportMenu.tsx:75` "With captions" → `href={subtitledUrl}` =
+  `clip.video_url` (`ClipCard.tsx:103,29`) = `clips/<id>.mp4` = the **clean** batch file until an
+  editor render overwrites it. So "With captions" downloads a *caption-less* file in the common case
+  (seed symptom #6).
+
+**Root cause:** one storage key (`clips/<id>.mp4` / R2 `{job}/{clip}.mp4`) is used as the
+artifact for two semantically different things (clean reframe clip vs captioned export). No owner.
+
+**Planned fix (unify, not patch):** the clip file is **clean forever** (reframe-only — batch already
+does this; editor render must stop overwriting it). Captioned pixels become a *separate* artifact
+produced on demand from the one ASS. Preview (grid + editor) **always** overlays libass on the clean
+file → WYSIWYG by construction. "With captions" export resolves to the separately-rendered captioned
+file. Delete the `burned`-detection band-aid in `ClipPreview`. (Detailed plan below once L1/L2 model
+is fixed first.)
+</details>
+
+### D2 — Editor reframe plan 404 on cloud  ·  L4/L6  ·  🔬
+**Evidence:** `ClipEditorScreen.tsx:210` does `fetch(media/<job>/reframe_<clip>.json)` straight off
+`/media` StaticFiles. The file is written by the batch reframe to the **run_job** container's scratch
+disk (`stage3_reframe.py:653`), and is **never** uploaded to R2 nor stored in Postgres. On cloud the
+web/editor container's `/media` doesn't have it → 404 → `setRawRegions(null)` → `frame` useMemo
+returns `null` (`ClipEditorScreen.tsx:660`) → `PreviewPlayer` falls back to `mode:"fill", cx:0.5`
+(center crop) ≠ the rendered crop.
+
+**Root cause:** the editor's frame preview reads a *batch artifact by raw file path* that only exists
+on the batch container's disk, instead of a durable, env-agnostic source.
+
+**Planned fix:** add `GET /jobs/{job}/clips/{clip}/reframe` returning the regions computed by the
+**same** `resolve_regions_accurate` the editor render uses — so editor-preview plan == editor-render
+plan == one source (and it reflects the *current* edit intervals, also fixing the stale-after-drag
+issue, HANDOFF §0.1 #2). Frontend fetches that endpoint instead of the raw `/media/...json`.
+
+### D3 — PreviewPlayer mounts the source video 4×  ·  L6  ·  🔬
+**Evidence:** `PreviewPlayer.tsx` renders four `<video src={src}>`: master (`videoRef`, line 201),
+blur-bg `auxARef` (line 188), and two `SplitHalf` (line 220-221, src at line 344). The blur-bg and
+split halves set `src` **unconditionally** (only hidden via CSS `hidden`/`opacity-0`). All four
+decode/fetch the source — on cloud that's 4× presigned-R2 fetches of a large file → `NotSupportedError`
+×N + jank (seed symptom).
+
+**Root cause:** secondary videos are always mounted with a live `src` even when their mode is inactive.
+
+**Planned fix:** lazy `src` — set it on blur-bg only in `fit` mode and on split halves only in `split`
+mode (mount/unmount or conditional `src`). Master stays always-on.
+
+### D4 — Duplicate reframe resolver (legacy)  ·  L3  ·  🔬 (low)
+**Evidence:** `app/editor/reframe_cache.py` has TWO planners: `resolve_regions` + `analyze_source_range`
+(5fps faces, `detect_cuts` in **seconds**, no ASD) and `resolve_regions_accurate` (frame-accurate,
+ASD, the Δ=0 path). The live editor render uses `resolve_regions_accurate` (`tasks.py:71`). The old
+`resolve_regions`/`analyze_source_range` are referenced only by `deploy/modal/bench.py`,
+`deploy/modal/clipflow_modal.py` (bench/legacy) and unit tests — **not** the live path. Two planners
+is the exact "divergent path" risk even if currently dormant.
+
+**Planned fix:** after D1/D2 land, decide: delete the legacy planner (and bench refs) or clearly fence
+it as benchmarking-only. Not urgent (not in product path).
+
+### D5 — `row_to_wire` hardcodes `source_kind="youtube"`  ·  L2  ·  🔬 (low)
+**Evidence:** `db.py:180` always emits `"source_kind": "youtube"` even when the job came from
+`POST /jobs/upload` (`main.py:232` inserts `source_type="upload"`). Cosmetic wire inaccuracy; note &
+fix opportunistically.
+
+---
+
+## Regression checklist (re-run after every fix; never let a lower fix break a verified upper item)
+
+- [x] **L0** `just check` green — **462 tests** (after D1).
+- [ ] **L0** Cloud path exercised (or exact repro documented if live cloud needed).
+- [x] **L1** Clip file on disk after batch = clean; captioned export is a separate artifact
+      (`clips/<id>_captioned.mp4`). Verified by `test_render_job_writes_captioned_never_overwrites_clean`.
+- [ ] **L2** `row_to_wire` URL resolution correct (http as-is / relative→media) local + cloud.
+- [ ] **L3** REFRAME_FPS_GRID Δ=0 holds (`tmp/dod_*` direct reframe check) — re-verify after any
+      reframe-touching fix (D2).
+- [x] **L4** `/export/captioned.mp4` renders current edit-state with subtitles; "With captions"
+      resolves to a truly-captioned file in every state (D1). `/ass` == ffmpeg ASS: pre-existing,
+      unchanged by D1.
+- [x] **L6** grid preview == editor preview (both always overlay libass on the clean clip); no
+      double captions after an editor render (clean clip never overwritten).
+- [ ] **L6** editor frame preview crop == rendered crop incl. cloud (D2, pending).
+- [ ] **L6** Source video mounted once unless split/fit needs aux; no `NotSupportedError` (D3, pending).
+
+---
+
+## Open / needs founder
+- Live cloud verification (Modal+R2+Supabase) needs the founder's secrets/deploy — agent will
+  instrument + give the exact command to run rather than guess.

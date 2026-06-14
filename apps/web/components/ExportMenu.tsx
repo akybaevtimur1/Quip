@@ -4,27 +4,29 @@ import { Captions, ChevronDown, Download, FileText, Film } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
 // Меню «Скачать» — экспорт-свобода: юзер уносит клип в любой редактор.
-//  • С субтитрами (MP4)  — готовый прожжённый клип (последний рендер).
+//  • С субтитрами (MP4)  — прожжённый клип. Если есть СВЕЖИЙ рендер (bakedUrl) — отдаём его
+//    (быстро); иначе рендерим на лету из ТЕКУЩЕГО edit-state (всегда совпадает с превью).
 //  • Без субтитров (MP4) — чистая 9:16-вертикалка (рендер на лету, текущий edit-state).
 //  • Субтитры (.SRT)     — тайминги совпадают с видео, импорт в CapCut/Premiere/Resolve.
-// Clean/SRT всегда отражают ТЕКУЩИЕ правки (рендерятся из edit-state), MP4-с-субтитрами
-// может быть устаревшим до «Рендер». Сервер ставит Content-Disposition → скачивание даже
-// при кросс-доменном воркере.
+// D1: «С субтитрами» НИКОГДА не указывает на чистый clips/<id>.mp4 (тот без субтитров) —
+// раньше так и было (subtitledUrl = clip.video_url = чистый клип → скачивался файл БЕЗ
+// субтитров). Все три пункта = отдельные captioned/clean артефакты, не сам клип.
+// Сервер ставит Content-Disposition → скачивание даже при кросс-доменном воркере.
 
 const WORKER_BASE = process.env.NEXT_PUBLIC_WORKER_URL ?? "";
 
 export function ExportMenu({
   jobId,
   clipId,
-  subtitledUrl,
+  bakedUrl = null,
   align = "right",
   placement = "down",
   className = "",
 }: {
   jobId: string;
   clipId: string;
-  /** Готовый прожжённый mp4 (последний рендер). null → ещё не рендерился. */
-  subtitledUrl: string | null;
+  /** Свежий прожжённый рендер (render_url после «Рендер»). null → рендерим на лету. */
+  bakedUrl?: string | null;
   align?: "left" | "right";
   placement?: "up" | "down";
   className?: string;
@@ -50,6 +52,9 @@ export function ExportMenu({
 
   const cleanUrl = `${WORKER_BASE}/jobs/${jobId}/clips/${clipId}/export/clean.mp4`;
   const srtUrl = `${WORKER_BASE}/jobs/${jobId}/clips/${clipId}/export.srt`;
+  // С субтитрами: свежий baked-рендер если есть, иначе on-demand из текущего edit-state.
+  const captionedUrl =
+    bakedUrl ?? `${WORKER_BASE}/jobs/${jobId}/clips/${clipId}/export/captioned.mp4`;
 
   return (
     <div ref={ref} className={`relative ${className}`}>
@@ -72,11 +77,10 @@ export function ExportMenu({
           } ${placement === "up" ? "bottom-full mb-1" : "mt-1"}`}
         >
           <ExportItem
-            href={subtitledUrl ?? undefined}
-            disabled={!subtitledUrl}
+            href={captionedUrl}
             icon={<Captions className="size-4" />}
             title="With captions (MP4)"
-            sub={subtitledUrl ? "Rendered clip" : "Click “Render” first"}
+            sub={bakedUrl ? "Rendered clip" : "Burns current edits · ~a few sec"}
             onPick={() => setOpen(false)}
           />
           <ExportItem

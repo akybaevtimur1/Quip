@@ -490,6 +490,30 @@ def export_clip_clean_mp4(job_id: str, clip_id: str) -> FileResponse:
     return FileResponse(str(path), media_type="video/mp4", filename=f"{clip_id}_clean.mp4")
 
 
+@app.get("/jobs/{job_id}/clips/{clip_id}/export/captioned.mp4")
+def export_clip_captioned_mp4(job_id: str, clip_id: str) -> FileResponse:
+    """Прожжённый mp4 С субтитрами текущего edit-state (download «С субтитрами»).
+
+    D1-унификация: рендерит ТЕКУЩИЕ правки (тот же ASS, что в libass-превью) → скачанный
+    файл всегда совпадает с превью (WYSIWYG), доступен без отдельного «Рендер» и НЕ трогает
+    чистый ``clips/{clip}.mp4``. Синхронно (FastAPI threadpool). Сбой рендера → HTTP 500
+    (правило №8). Один путь и для грида, и для редактора — нет расхождения «с субтитрами».
+    """
+    try:
+        store.ensure_edit(job_id, clip_id)
+    except (FileNotFoundError, KeyError, JobError) as e:
+        raise HTTPException(status_code=404, detail="clip/segment not found") from e
+    out_rel = f"clips/{clip_id}_captioned.mp4"
+    try:
+        render_edit_to_file(job_id, clip_id, with_subtitles=True, out_rel=out_rel)
+    except JobError as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+    path = store.data_root() / job_id / out_rel
+    if not path.exists():
+        raise HTTPException(status_code=500, detail="render produced no captioned mp4")
+    return FileResponse(str(path), media_type="video/mp4", filename=f"{clip_id}.mp4")
+
+
 @app.patch("/jobs/{job_id}/clips/{clip_id}/edit")
 def patch_clip_edit(job_id: str, clip_id: str, body: PatchEditBody) -> dict[str, Any]:
     """Прямая правка субтитров (стиль/текст/highlight). Интервалы не трогает."""

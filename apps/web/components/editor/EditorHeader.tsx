@@ -120,7 +120,7 @@ export function EditorHeader({
             <span className="absolute -right-1 -top-1 size-2.5 rounded-full bg-warn" />
           )}
         </Button>
-        <ExportMenu jobId={jobId} clipId={clipId} subtitledUrl={downloadUrl} align="right" />
+        <ExportMenu jobId={jobId} clipId={clipId} bakedUrl={downloadUrl} align="right" />
       </div>
     </header>
   );

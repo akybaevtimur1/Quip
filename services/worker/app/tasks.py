@@ -104,14 +104,22 @@ def render_edit_to_file(job_id: str, clip_id: str, *, with_subtitles: bool, out_
 
 
 def render_clip_edit_job(job_id: str, clip_id: str) -> None:
-    """Собрать mp4 из текущего ClipEdit (фон, С субтитрами). Статус → clip_edits (правило №8)."""
+    """Собрать прожжённый mp4 из ClipEdit (фон, С субтитрами). Статус → clip_edits (правило №8).
+
+    D1: пишем в ОТДЕЛЬНЫЙ артефакт ``clips/<id>_captioned.mp4`` (R2-ключ ``_captioned``), НИКОГДА
+    не перетирая чистый reframe-клип ``clips/<id>.mp4`` — он остаётся базой WYSIWYG, поверх
+    которой грид и редактор рисуют libass. Так превью/грид/редактор/экспорт не расходятся и
+    субтитры не двоятся (раньше overwrite → грид рисовал поверх прожжённых = двойные субтитры).
+    """
     from app import artifacts, storage
 
-    out_rel = f"clips/{clip_id}.mp4"
+    out_rel = f"clips/{clip_id}_captioned.mp4"
     try:
         render_edit_to_file(job_id, clip_id, with_subtitles=True, out_rel=out_rel)
-        # local → "clips/<id>.mp4" (раздаётся на /media); r2 → публичный/presigned URL.
-        url = storage.upload_clip(artifacts.job_dir(job_id) / out_rel, job_id, clip_id)
+        # local → "clips/<id>_captioned.mp4" (раздаётся на /media); r2 → публичный/presigned URL.
+        url = storage.upload_clip(
+            artifacts.job_dir(job_id) / out_rel, job_id, clip_id, variant="captioned"
+        )
         db.set_render_status(job_id, clip_id, "done", url, None)
     except JobError as e:
         db.set_render_status(job_id, clip_id, "failed", None, str(e))
