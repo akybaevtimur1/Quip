@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from app.editor.replies import rebuild_replies
+from app.errors import JobError
 from app.models import (
     CaptionReply,
     ClipEdit,
@@ -10,6 +11,8 @@ from app.models import (
     SourceInterval,
     Word,
 )
+
+_STAGE = "editor"
 
 
 def _subtract_range(intervals: list[SourceInterval], rs: float, re: float) -> list[SourceInterval]:
@@ -39,6 +42,10 @@ def _with_intervals(
 
 def apply_trim(edit: ClipEdit, word_indices: list[int], words: list[Word]) -> ClipEdit:
     """Cut out the time span covering the given word indices."""
+    if not word_indices:
+        raise JobError(_STAGE, "trim: пустой список слов")
+    if any(i < 0 or i >= len(words) for i in word_indices):
+        raise JobError(_STAGE, "trim: индекс слова вне диапазона транскрипта")
     rs = min(words[i].start for i in word_indices)
     re = max(words[i].end for i in word_indices)
     new_intervals = _subtract_range(edit.source_intervals, rs, re)
@@ -53,6 +60,15 @@ def add_section(
     words: list[Word],
 ) -> ClipEdit:
     """Insert a new source interval at position at_index."""
+    if source_end <= source_start:
+        raise JobError(_STAGE, "add-section: source_end должен быть больше source_start")
+    # Пересечение с существующим интервалом → дублирование слов в rebuild_replies
+    # (одно слово попадёт в 2 интервала) и поломка тайм-мапа. Запрещаем (правило №8).
+    if any(
+        source_start < iv.source_end and iv.source_start < source_end
+        for iv in edit.source_intervals
+    ):
+        raise JobError(_STAGE, "add-section: новый интервал пересекает существующий")
     new_iv = SourceInterval(source_start=source_start, source_end=source_end)
     new_intervals = list(edit.source_intervals)
     new_intervals.insert(at_index, new_iv)
@@ -67,12 +83,20 @@ def apply_extend(
     words: list[Word],
 ) -> ClipEdit:
     """Grow (or shrink) the start or end of the clip."""
+    if edge not in ("start", "end"):
+        raise JobError(_STAGE, f"extend: неизвестный край {edge!r} (ожидался 'start'|'end')")
+    if not edit.source_intervals:
+        raise JobError(_STAGE, "extend: нет интервалов")
     intervals = list(edit.source_intervals)
     if edge == "start":
         iv = intervals[0]
+        if new_value >= iv.source_end:
+            raise JobError(_STAGE, "extend: новый старт должен быть меньше конца интервала")
         intervals[0] = SourceInterval(source_start=new_value, source_end=iv.source_end)
     else:
         iv = intervals[-1]
+        if new_value <= iv.source_start:
+            raise JobError(_STAGE, "extend: новый конец должен быть больше старта интервала")
         intervals[-1] = SourceInterval(source_start=iv.source_start, source_end=new_value)
     return _with_intervals(edit, intervals, words)
 

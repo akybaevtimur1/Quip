@@ -11,6 +11,7 @@ from app.models import ClipType, Word
 from app.pipeline.stage2_select import (
     clamp_score,
     indices_to_times,
+    is_transient_gemini_error,
     postprocess,
     resolve_max_clips,
     resolve_overlaps,
@@ -57,6 +58,48 @@ class TestResolveMaxClips:
 
     def test_clamps_above_hi(self) -> None:
         assert resolve_max_clips(99, 8, lo=1, hi=12) == 12
+
+
+class TestIsTransientGeminiError:
+    """Ретраить ТОЛЬКО транзиентные сбои Gemini (free-tier 429 / 5xx / сеть);
+    перманентные (401/403/404/400 — ключ/модель/схема) ронять сразу, не маскируя 60с бэкоффа."""
+
+    def _api_error(self, code: int) -> Exception:
+        from google.genai import errors
+
+        # APIError.__init__(code, response_json, response=None); message из response_json
+        return errors.APIError(code, {"error": {"message": "boom", "status": "X"}})
+
+    def test_429_rate_limit_is_transient(self) -> None:
+        assert is_transient_gemini_error(self._api_error(429)) is True
+
+    def test_503_unavailable_is_transient(self) -> None:
+        assert is_transient_gemini_error(self._api_error(503)) is True
+
+    def test_500_server_error_is_transient(self) -> None:
+        assert is_transient_gemini_error(self._api_error(500)) is True
+
+    def test_401_auth_is_permanent(self) -> None:
+        assert is_transient_gemini_error(self._api_error(401)) is False
+
+    def test_403_permission_is_permanent(self) -> None:
+        assert is_transient_gemini_error(self._api_error(403)) is False
+
+    def test_404_bad_model_is_permanent(self) -> None:
+        assert is_transient_gemini_error(self._api_error(404)) is False
+
+    def test_400_bad_request_is_permanent(self) -> None:
+        assert is_transient_gemini_error(self._api_error(400)) is False
+
+    def test_network_timeout_is_transient(self) -> None:
+        import httpx
+
+        assert is_transient_gemini_error(httpx.ReadTimeout("slow")) is True
+        assert is_transient_gemini_error(httpx.ConnectError("down")) is True
+
+    def test_unknown_exception_is_transient_by_default(self) -> None:
+        # неизвестный тип → лучше ретрайнуть (консервативно), чем уронить из-за классификации
+        assert is_transient_gemini_error(RuntimeError("???")) is True
 
 
 class TestIndicesToTimes:

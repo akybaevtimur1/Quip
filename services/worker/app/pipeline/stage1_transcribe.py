@@ -62,7 +62,15 @@ def deepgram_to_transcript(resp: dict[str, Any], *, default_language: str = "en"
     words.sort(key=lambda x: x.start)
 
     language: str = channel.get("detected_language") or default_language
-    duration = float((resp.get("metadata") or {}).get("duration", 0.0))
+    raw_dur = (resp.get("metadata") or {}).get("duration")
+    if raw_dur is None:
+        # Раньше тут был тихий фолбэк 0.0 → стоимость в run.py = 0 (ломает учёт маржи,
+        # правило №12) и проверки длины. Явный отказ (правило №8).
+        raise JobError(_STAGE, "Deepgram не вернул metadata.duration")
+    try:
+        duration = float(raw_dur)
+    except (TypeError, ValueError) as e:
+        raise JobError(_STAGE, f"битая metadata.duration {raw_dur!r}: {e}") from e
     return Transcript(language=language, duration=duration, words=words)
 
 

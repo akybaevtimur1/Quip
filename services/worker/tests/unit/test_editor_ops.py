@@ -1,5 +1,8 @@
+import pytest
+
 from app.editor.defaults import default_clip_edit
 from app.editor.ops import add_section, apply_extend, apply_trim, set_crop_override
+from app.errors import JobError
 from app.models import CropOverride, Segment, Word
 
 
@@ -44,6 +47,46 @@ def test_apply_extend_end_grows_interval():
     assert out.source_intervals[-1].source_end == 2.5
     refs = [i for r in out.captions.replies for i in r.word_refs]
     assert 2 in refs and 3 in refs  # c,d попали в расширенный интервал
+
+
+def test_apply_trim_empty_indices_raises_joberror():
+    # пустой список слов → min()/max() падали ValueError (500). Должен быть явный JobError.
+    with pytest.raises(JobError):
+        apply_trim(_base(), [], WORDS)
+
+
+def test_apply_trim_out_of_range_index_raises_joberror():
+    with pytest.raises(JobError):
+        apply_trim(_base(), [99], WORDS)
+
+
+def test_apply_extend_invalid_edge_raises_joberror():
+    # любой edge != "start"/"end" раньше ТИХО менял конец (silent fallback, правило №8).
+    seg = Segment(start=0.0, end=1.0, reason="r", score=0.5, type="hook")
+    edit = default_clip_edit("clip_01", seg, WORDS)
+    with pytest.raises(JobError):
+        apply_extend(edit, edge="START", new_value=2.5, words=WORDS)
+
+
+def test_apply_extend_start_past_end_raises_joberror():
+    # extend start за пределы конца → инвертированный интервал (start>=end).
+    seg = Segment(start=0.0, end=1.0, reason="r", score=0.5, type="hook")
+    edit = default_clip_edit("clip_01", seg, WORDS)
+    with pytest.raises(JobError):
+        apply_extend(edit, edge="start", new_value=2.0, words=WORDS)
+
+
+def test_add_section_inverted_range_raises_joberror():
+    seg = Segment(start=0.0, end=1.0, reason="r", score=0.5, type="hook")
+    edit = default_clip_edit("clip_01", seg, WORDS)
+    with pytest.raises(JobError):
+        add_section(edit, 2.5, 2.0, 1, WORDS)
+
+
+def test_add_section_overlapping_range_raises_joberror():
+    # интервал [0,3] уже есть; новый [1,4] пересекается → дублировал бы слова. Запрещаем.
+    with pytest.raises(JobError):
+        add_section(_base(), 1.0, 4.0, 1, WORDS)
 
 
 def test_set_crop_override_replaces_overlapping():

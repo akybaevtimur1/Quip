@@ -68,6 +68,10 @@ def parse_fps(rate: str) -> float:
         raise
     except ValueError as e:
         raise JobError(_STAGE, f"не разобрать r_frame_rate {rate!r}: {e}") from e
+    if fps <= 0:
+        # 0 fps → ZeroDivisionError в round(start*fps)/fps (stage5_render);
+        # отрицательный → битая кадровая математика. Явный отказ вместо тихого брака.
+        raise JobError(_STAGE, f"неположительный fps: {rate!r} → {fps}")
     return round(fps, 3)
 
 
@@ -87,9 +91,12 @@ def _duration(probe: dict[str, Any], stream: dict[str, Any]) -> float:
     if raw in (None, "", "N/A"):
         raise JobError(_STAGE, "ffprobe не вернул длительность")
     try:
-        return float(raw)
+        dur = float(raw)
     except (TypeError, ValueError) as e:
         raise JobError(_STAGE, f"битая длительность {raw!r}: {e}") from e
+    if dur <= 0:
+        raise JobError(_STAGE, f"неположительная длительность: {dur}")
+    return dur
 
 
 def build_source_meta(
@@ -107,6 +114,8 @@ def build_source_meta(
         height = int(stream["height"])
     except (KeyError, TypeError, ValueError) as e:
         raise JobError(_STAGE, f"нет width/height в ffprobe: {e}") from e
+    if width <= 0 or height <= 0:
+        raise JobError(_STAGE, f"невалидные размеры кадра: {width}x{height}")
     fps = parse_fps(str(stream.get("r_frame_rate", "")))
     duration = _duration(probe, stream)
     return SourceMeta(

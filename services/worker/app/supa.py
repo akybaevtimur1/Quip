@@ -81,27 +81,50 @@ def get_user_plan(user_id: str) -> str:
 
 
 def set_user_plan(user_id: str, plan: str) -> None:
+    # Как add_payg_credits: PATCH по несуществующей строке = 0 строк → upgrade МОЛЧА терялся
+    # бы (юзер оплатил подписку, остался free). return=representation + INSERT-фолбэк = upsert.
     r = httpx.patch(
         f"{_base()}/profiles",
         params={"id": f"eq.{user_id}"},
-        headers=_headers({"Prefer": "return=minimal"}),
+        headers=_headers({"Prefer": "return=representation"}),
         json={"plan": plan},
         timeout=_TIMEOUT,
     )
     r.raise_for_status()
+    if r.json():
+        return
+    ins = httpx.post(
+        f"{_base()}/profiles",
+        headers=_headers({"Prefer": "return=minimal"}),
+        json={"id": user_id, "plan": plan},
+        timeout=_TIMEOUT,
+    )
+    ins.raise_for_status()
 
 
 def add_payg_credits(user_id: str, credits: int) -> None:
     # GET текущий баланс + PATCH (вебхук последователен → гонка маловероятна).
+    # return=representation → видим, обновилась ли строка. Если профиля ещё нет (триггер
+    # signup не сработал / гонка) — PATCH затрагивает 0 строк, и без фолбэка оплата МОЛЧА
+    # терялась бы (правило №8). Тогда INSERT'им профиль (как SQLite-путь = upsert).
     current = int(get_profile(user_id)["payg_credits"])
     r = httpx.patch(
         f"{_base()}/profiles",
         params={"id": f"eq.{user_id}"},
-        headers=_headers({"Prefer": "return=minimal"}),
+        headers=_headers({"Prefer": "return=representation"}),
         json={"payg_credits": current + int(credits)},
         timeout=_TIMEOUT,
     )
     r.raise_for_status()
+    if r.json():  # строка существовала и обновилась
+        return
+    ins = httpx.post(
+        f"{_base()}/profiles",
+        headers=_headers({"Prefer": "return=minimal"}),
+        json={"id": user_id, "plan": "free", "payg_credits": int(credits)},
+        timeout=_TIMEOUT,
+    )
+    ins.raise_for_status()
 
 
 def record_usage(

@@ -85,3 +85,13 @@ def test_empty_words_raises() -> None:
 def test_malformed_structure_raises() -> None:
     with pytest.raises(JobError):
         deepgram_to_transcript({"results": {}})
+
+
+def test_missing_duration_raises_not_silent_zero() -> None:
+    # Раньше metadata.duration по умолчанию = 0.0 (тихий фолбэк, правило №8):
+    # стоимость транскрипции в run.py = duration/60*rate = $0 — ломает учёт маржи (правило №12)
+    # и downstream-проверки длины. Лучше явный JobError.
+    resp = _resp([{"word": "x", "start": 0.0, "end": 0.1}])
+    del resp["metadata"]["duration"]
+    with pytest.raises(JobError):
+        deepgram_to_transcript(resp)

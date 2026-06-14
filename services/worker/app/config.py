@@ -53,7 +53,9 @@ class Settings(BaseSettings):
     ytdlp_cookies_file: str = ""
 
     # pipeline tuning
-    max_source_minutes: int = 90
+    # NB: потолок длины исходника НЕ здесь — он в billing.MAX_VIDEO_MINUTES (stage0._check_limits).
+    # Раньше тут был мёртвый max_source_minutes=90, который никто не читал и который вводил
+    # в заблуждение (реальный лимит = 180). Удалён, чтобы не было двух «источников правды».
     clip_min_sec: int = 15
     clip_max_sec: int = 60
     caption_max_words_per_group: int = 5

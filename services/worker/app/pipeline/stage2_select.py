@@ -168,6 +168,24 @@ def postprocess(
     return chosen
 
 
+# Перманентные HTTP-коды Gemini: ключ/доступ/модель/запрос — ретрай их не вылечит.
+_PERMANENT_HTTP_CODES = frozenset({400, 401, 403, 404, 422})
+
+
+def is_transient_gemini_error(exc: BaseException) -> bool:
+    """Транзиентная ли ошибка Gemini → стоит ли ретраить.
+
+    Транзиентные (ретраим, free-tier норма): 429 (rate limit), 5xx (server/unavailable),
+    сетевые таймауты/обрывы (httpx). Перманентные (роняем СРАЗУ, не маскируя бэкоффом):
+    400/401/403/404/422 — битый ключ, нет доступа, несуществующая модель, ошибка схемы.
+    Неизвестный тип → консервативно True (лучше лишний ретрай, чем падение на классификации).
+    """
+    code = getattr(exc, "code", None)
+    if isinstance(code, int):
+        return code not in _PERMANENT_HTTP_CODES
+    return True
+
+
 # ─────────────────────────── промпт + structured output (Gemini) ───────────────────────────
 
 _PROMPT_PATH = Path(__file__).resolve().parents[1] / "prompts" / "select_moments.v1.txt"
@@ -285,6 +303,10 @@ def call_gemini_structured(
             break
         except Exception as e:
             last_err = e
+            # Перманентная ошибка (ключ/доступ/модель/схема) → роняем сразу с корнем,
+            # не маскируя 60с бэкоффа и не дёргая fallback (правило №8 — явная причина).
+            if not is_transient_gemini_error(e):
+                raise JobError(stage, f"Gemini: неретраябельная ошибка: {e}") from e
             if attempt < _MAX_ATTEMPTS - 1:
                 time.sleep(min(2**attempt, 30))
 
@@ -298,6 +320,8 @@ def call_gemini_structured(
                     break
                 except Exception as e:
                     last_err = e
+                    if not is_transient_gemini_error(e):
+                        raise JobError(stage, f"Gemini: неретраябельная ошибка: {e}") from e
                     if attempt < 2:
                         time.sleep(min(2**attempt, 30))
             if resp is not None:
