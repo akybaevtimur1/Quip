@@ -21,6 +21,9 @@ render-crop, `NotSupportedError`, cloud 404s, "With captions" downloads a captio
 | 2026-06-14 | `main` | ✅ exit 0 | **462 passed** | After D1 fix (clean clip + captioned artifact). |
 | 2026-06-14 | `main` | ✅ exit 0 | **465 passed** | After D2 fix (reframe plan endpoint). |
 | 2026-06-14 | `main` | ✅ exit 0 | **465 passed** | After D3 fix (lazy preview videos; frontend-only). |
+| 2026-06-14 | `main` | ✅ exit 0 | **471 passed** | After D6 fix (durable R2 clip URLs). Session "debugger2" baseline was 467 (post billing+modal commits). |
+| 2026-06-14 | `main` | ✅ exit 0 | **472 passed** | After D5 fix (source_kind reflects uploads). |
+| 2026-06-14 | `main` | ✅ exit 0 | **472 passed** | After D4 doc-fence (legacy planner benchmark-only). |
 
 ---
 
@@ -157,31 +160,73 @@ decode/fetch the source — on cloud that's 4× presigned-R2 fetches of a large 
 mode (mount/unmount or conditional `src`). Master stays always-on.
 </details>
 
-### D4 — Duplicate reframe resolver (legacy)  ·  L3  ·  🔬 (low)
+### D4 — Duplicate reframe resolver (legacy)  ·  L3  ·  ✅ fenced (commit `6bc7c2a`)
 **Evidence:** `app/editor/reframe_cache.py` has TWO planners: `resolve_regions` + `analyze_source_range`
 (5fps faces, `detect_cuts` in **seconds**, no ASD) and `resolve_regions_accurate` (frame-accurate,
-ASD, the Δ=0 path). The live editor render uses `resolve_regions_accurate` (`tasks.py:71`). The old
-`resolve_regions`/`analyze_source_range` are referenced only by `deploy/modal/bench.py`,
-`deploy/modal/clipflow_modal.py` (bench/legacy) and unit tests — **not** the live path. Two planners
-is the exact "divergent path" risk even if currently dormant.
+ASD, the Δ=0 path). Confirmed the legacy pair is called ONLY by `deploy/modal/bench.py` +
+`deploy/modal/clipflow_modal.py` + tests — never the product path (editor `/reframe`, editor render
+`render_edit_to_file`, batch `run.py` all use `resolve_regions_accurate`).
 
-**Planned fix:** after D1/D2 land, decide: delete the legacy planner (and bench refs) or clearly fence
-it as benchmarking-only. Not urgent (not in product path).
+**The real trap (not a live bug):** `clipflow_modal.py`'s header CLAIMED "exactly the same trio as
+`render_edit_to_file`, no dupes" — but it calls the **legacy** planner, while `render_edit_to_file`
+moved to `resolve_regions_accurate`. A false "same code" comment that could lure a future agent into
+wiring the flash-prone path into the product.
 
-### D5 — `row_to_wire` hardcodes `source_kind="youtube"`  ·  L2  ·  🔬 (low)
-**Evidence:** `db.py:180` always emits `"source_kind": "youtube"` even when the job came from
-`POST /jobs/upload` (`main.py:232` inserts `source_type="upload"`). Cosmetic wire inaccuracy; note &
-fix opportunistically.
+**FIX (decided: fence, not delete):** deleting would force rewriting both deploy/bench scripts +
+removing their tests — risky for tooling the founder may run, out of scope. Instead: docstrings on both
+legacy functions now warn **LEGACY / BENCHMARK-ONLY (D4)** and point at `resolve_regions_accurate`;
+corrected the stale `clipflow_modal.py` header (marked it a superseded spike using the legacy planner).
+Docs only, no logic change → Δ=0 invariant untouched.
+
+### D5 — `row_to_wire` hardcodes `source_kind="youtube"`  ·  L2  ·  ✅ fixed (commit `63ebea5`)
+**Evidence:** `row_to_wire` always emitted `"source_kind": "youtube"` even when the job came from
+`POST /jobs/upload` (inserts `source_type="upload"`). **FIX:** derive `source_kind` from the row's
+`source_type` (`"upload"` → upload, else youtube safe default). The row already carries `source_type`
+in both SQLite and Postgres. +1 pure test. No UI component reads `source_kind` today (cosmetic wire
+accuracy), but the wire is now honest.
+
+### D6 — Stale presigned R2 clip/render URLs → 403  ·  L1/L2/L4  ·  ✅ fixed (commit `db114ae`)
+**The central CLOUD disease** (brief's seed bug). `storage.upload_clip` (cloud, no `R2_PUBLIC_URL`)
+minted a **presigned** GET URL at write time with `signed_url_ttl` (default 604800 = the R2/S3 SigV4
+**max** of 7 days; the founder's `.env` sets **3600 = 1 hour**) and baked it into `jobs.clips[].video_url`
++ `clip_edits.render_url`. On read, `row_to_wire`/`get_render` served it **as-is** (`http → as-is`). So a
+user returning to their dashboard an hour (or a week) after generating clips gets **403 on every clip
+and download** — the exact "works, then breaks" pattern. The Modal secret command sets `STORAGE_BACKEND=r2`
+but **not** `R2_PUBLIC_URL` → the presigned (stale) branch is the live cloud path.
+
+**The divergence:** the **source** video already did this RIGHT — `GET /jobs/{job}/source.mp4` re-presigns
+on **every** read (302). Clips and render_url did NOT — they baked a time-bomb into the DB.
+
+**FIX (unify on the durable source-video pattern — re-presign on read):**
+- `storage.upload_clip` (cloud, no public URL) now returns a **durable marker** `r2://<key>` (no expiry)
+  instead of a presigned URL. `R2_PUBLIC_URL` mode is already durable → unchanged.
+- `storage.resolve_media_url(stored)` re-presigns `r2://<key>` with a fresh signed URL (single re-sign
+  point for both clips and render_url).
+- `db.row_to_wire` (PURE, unchanged purity) leaves `r2://` markers untouched (only true relative paths
+  get the `media/<job>/…` prefix). `db.get_job` re-presigns each clip's marker on read (I/O wrapper).
+- `main.get_render` re-presigns `render_url` `r2://` markers on read.
+- **Backward compat:** historical cloud rows with baked `http` presigned URLs still pass through (they
+  were already going to expire); only NEW jobs get the durable marker. No migration needed.
+- **Evidence:** `just check` green, **471 tests** (+4: `test_key_ref_round_trips_the_object_key`,
+  `test_is_r2_key_ref_rejects_plain_urls_and_paths`, `test_cloud_row_keeps_r2_key_ref_marker_untouched`,
+  `test_get_job_re_presigns_r2_key_ref_on_read`). REFRAME_FPS_GRID untouched (URL-resolution only).
+- ⚠️ **Cloud not exercised** (needs founder R2 secrets). By construction env-agnostic; the local
+  `STORAGE_BACKEND=local` path is unchanged (returns relative `clips/…`). Live check: after `modal deploy`,
+  generate a job, wait > `SIGNED_URL_TTL`, reload the dashboard → clips must still play (each `GET /jobs/{id}`
+  mints a fresh presign). Or set `R2_PUBLIC_URL` for a permanent CDN domain (also fixes it).
 
 ---
 
 ## Regression checklist (re-run after every fix; never let a lower fix break a verified upper item)
 
-- [x] **L0** `just check` green — **462 tests** (after D1).
-- [ ] **L0** Cloud path exercised (or exact repro documented if live cloud needed).
+- [x] **L0** `just check` green — **472 tests** (after D4/D5/D6).
+- [ ] **L0** Cloud path exercised (or exact repro documented if live cloud needed). D6 repro documented.
 - [x] **L1** Clip file on disk after batch = clean; captioned export is a separate artifact
       (`clips/<id>_captioned.mp4`). Verified by `test_render_job_writes_captioned_never_overwrites_clean`.
-- [ ] **L2** `row_to_wire` URL resolution correct (http as-is / relative→media) local + cloud.
+- [x] **L1/L2** R2 clip/render URLs are durable (D6): DB stores `r2://<key>`, re-presigned on every
+      read → no stale-403. Local `clips/…` relative path unchanged. Verified by 4 new tests.
+- [x] **L2** `row_to_wire` URL resolution correct (http/`r2://` as-is / relative→media) local + cloud;
+      `source_kind` honest for uploads (D5).
 - [x] **L3** REFRAME_FPS_GRID Δ=0 unaffected: D1–D3 did NOT touch the temporal grid
       (`reframe_segment`/`plan_regions`/`build_shots_frames`/render). D2 only ADDED a preview-only
       pure flatten helper + an endpoint wrapping the unchanged `resolve_regions_accurate`. The real
@@ -226,6 +271,40 @@ planner for both preview and render.
 `analyze_source_range` duplicate planner — bench-only), D5 (`row_to_wire` hardcodes
 `source_kind="youtube"`).
 
+## Session summary (2026-06-14, agent "debugger2" — continued sweep)
+
+Baseline on entry: `main`, `just check` green, **467 tests** (D1–D3 + billing video-minutes +
+modal Deno had landed since the first session's audit).
+
+**Fixed & committed (each `just check` green; bottom→top, one commit per fix):**
+- **D6** `db114ae` — durable R2 clip/render URLs. The high-value cloud correctness bug: presigned URLs
+  with a 1h–7d TTL were baked into the DB and served stale → 403 on every clip/download after the TTL.
+  Unified on the source-video pattern (store `r2://<key>`, re-presign on read). +4 tests (467→471).
+- **D5** `63ebea5` — `source_kind` reflects upload jobs (was hardcoded `"youtube"`). +1 test (→472).
+- **D4** `6bc7c2a` — fenced the legacy reframe planner as benchmark-only (docs); corrected
+  `clipflow_modal.py`'s false "same code as the live render path" header. Docs only.
+
+**Structural takeaway (same disease, one more environment):** D6 is the *cloud* face of the exact
+divergence D1 was the *render* face of — **one piece of data (a clip's location) taking two code paths
+that disagree** (durable re-presign for source, baked-stale presign for clips). The fix deletes the
+divergent path and routes clips/render through the single durable pattern source already used. D4/D5
+close the audit's two deferred items: D4 fences (not deletes) the dormant second planner with honest
+docs so nobody re-wires the flash-prone path; D5 makes the wire honest about upload jobs.
+
+**Verified-clean during the sweep (no fix needed):** no silent `except: pass` in the worker (the lone
+`except Exception` in `_meter` logs via `_log.exception` by design — metering must not crash a done job);
+`artifacts.py` dual-mode raises `JobError` (no silent fallbacks); editor reframe is fully unified on
+`resolve_regions_accurate` (no leftover raw `/media/...reframe.json` fetch); `compile_ass` is the single
+ASS source for both libass preview and ffmpeg export (`burn` toggle honored in both → WYSIWYG holds);
+the billing video-minutes model (MAX_VIDEO_MINUTES=180, gate after probe) is intact and untouched;
+D1's clean-clip-forever model is intact.
+
+**Known limitation noted (not fixed — pre-existing, out of scope):** the dev mock route
+(`apps/web/app/api/mock/`) only implements `POST /jobs` + `GET /jobs/{id}`, not the editor endpoints.
+With `NEXT_PUBLIC_WORKER_URL` unset the grid works but opening the editor 404s on `/edit`/`/ass`/etc.
+That's a demo-mock limitation, not a product divergence; fully emulating the editor in the mock is large
+scope. Documented for the founder.
+
 ## Open / needs founder
 - **Live cloud verification** (Modal+R2+Supabase) — the three fixes are by-construction env-agnostic
   but unverified on real cloud. After `modal deploy` (see `modal-boevoy-deploy-state` memory), verify:
@@ -238,3 +317,12 @@ planner for both preview and render.
   of the download. Decide whether to simplify that UX (out of scope here; left functional).
 - **Cost call (D2):** if cold-cloud editor-open feels slow (heavy ASD on first `/reframe`), persist the
   batch reframe plan to R2/Postgres and serve that for the original interval (follow-up).
+- **D6 live verification (cloud):** after `modal deploy`, generate a job, wait longer than
+  `SIGNED_URL_TTL` (`.env` = 1h), reload the dashboard → clips must still play and download (each
+  `GET /jobs/{id}` re-presigns the `r2://` marker). Alternatively set `R2_PUBLIC_URL` to a Cloudflare
+  r2.dev/custom domain — clips then get a permanent CDN URL (also fixes D6, no re-presign needed).
+  **Recommendation:** set `R2_PUBLIC_URL` in the Modal secret for the cheapest, most robust path.
+- **Historical cloud rows:** jobs created before `db114ae` have baked (expiring) `http` presigned URLs
+  in Postgres `jobs.clips`. They'll 403 once expired (they already would have). Only re-running those
+  jobs, or a one-off backfill rewriting their `video_url` to `r2://<key>`, recovers them. Not worth a
+  migration unless old jobs matter; new jobs are correct.
