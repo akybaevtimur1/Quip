@@ -392,6 +392,26 @@ def add_payg_credits(user_id: str, credits: int) -> None:
         )
 
 
+def deduct_payg(user_id: str, credits: int) -> None:
+    """Списать ``credits`` PAYG-кредитов (PAYG-покрытая часть обработанного видео).
+
+    Атомарно, с полом 0 — баланс НИКОГДА не уходит в минус (защита от двойного учёта/
+    гонки/ошибки округления). ``credits<=0`` → no-op. Нет профиля → нечего списывать
+    (UPDATE затрагивает 0 строк — НЕ создаём строку с отрицательным балансом, в отличие
+    от add_payg_credits/upsert: «минус-кредиты» бессмысленны).
+    """
+    if credits <= 0:
+        return
+    if supa.supa_enabled():
+        supa.deduct_payg(user_id, credits)
+        return
+    with _conn() as c:
+        c.execute(
+            "UPDATE profiles SET payg_credits=MAX(0, payg_credits-?), updated_at=? WHERE user_id=?",
+            (int(credits), time.time(), user_id),
+        )
+
+
 def get_user_plan(user_id: str) -> str:
     """План пользователя для гейта квоты. Нет записи → "free" (безопасный дефолт)."""
     if supa.supa_enabled():

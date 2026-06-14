@@ -106,6 +106,40 @@ class TestCheckQuota:
         assert isinstance(check_quota("free", 0.0, 0.0, 1.0), QuotaDecision)
 
 
+class TestPaygCreditsForSplit:
+    # BE-H: PAYG-минуты split'а → целое число PAYG-кредитов к списанию. Округление ВВЕРХ
+    # (1 кредит = 60 мин): покрытый объём не должен недосписываться. 0 минут → 0 кредитов.
+    def test_no_payg_portion_zero_credits(self) -> None:
+        from app.billing import payg_credits_for_split
+
+        d = check_quota("starter", used_minutes=0.0, payg_minutes=0.0, source_minutes=40.0)
+        assert d.from_payg_min == 0.0
+        assert payg_credits_for_split(d) == 0
+
+    def test_partial_payg_rounds_up(self) -> None:
+        from app.billing import payg_credits_for_split
+
+        # 5 месячных + 60 PAYG → 60 мин из PAYG = ровно 1 кредит.
+        d = check_quota("starter", used_minutes=595.0, payg_minutes=180.0, source_minutes=65.0)
+        assert d.from_payg_min == 60.0
+        assert payg_credits_for_split(d) == 1
+
+    def test_payg_61_min_rounds_up_to_two(self) -> None:
+        from app.billing import payg_credits_for_split
+
+        # всё из PAYG, 61 мин → ceil(61/60) = 2 кредита.
+        d = check_quota("starter", used_minutes=600.0, payg_minutes=180.0, source_minutes=61.0)
+        assert d.from_monthly_min == 0.0 and d.from_payg_min == 61.0
+        assert payg_credits_for_split(d) == 2
+
+    def test_blocked_decision_charges_nothing(self) -> None:
+        from app.billing import payg_credits_for_split
+
+        d = check_quota("starter", used_minutes=600.0, payg_minutes=0.0, source_minutes=10.0)
+        assert d.allowed is False
+        assert payg_credits_for_split(d) == 0
+
+
 class TestPlansShape:
     def test_three_tiers_ordered_by_price(self) -> None:
         assert set(PLANS) == {"free", "starter", "pro"}

@@ -127,6 +127,27 @@ def add_payg_credits(user_id: str, credits: int) -> None:
     ins.raise_for_status()
 
 
+def deduct_payg(user_id: str, credits: int) -> None:
+    # BE-H: списать PAYG-кредиты (PAYG-покрытая часть джоба). Зеркалит SQLite-семантику:
+    # пол 0 (баланс не уходит в минус), credits<=0 → no-op, нет профиля → no-op (нечего
+    # списывать; в отличие от add_payg_credits НЕ INSERT'им — отрицательный PAYG бессмыслен).
+    # read-modify-write через PATCH (вебхук/таск последователен → гонка маловероятна).
+    if credits <= 0:
+        return
+    current = int(get_profile(user_id).get("payg_credits") or 0)
+    if current <= 0:
+        return  # нет баланса (или профиля) → списывать нечего, PATCH не нужен
+    new_balance = max(0, current - int(credits))
+    r = httpx.patch(
+        f"{_base()}/profiles",
+        params={"id": f"eq.{user_id}"},
+        headers=_headers({"Prefer": "return=representation"}),
+        json={"payg_credits": new_balance},
+        timeout=_TIMEOUT,
+    )
+    r.raise_for_status()
+
+
 def record_usage(
     user_id: str, job_id: str | None, source_minutes: float, month: str, credits: int
 ) -> None:

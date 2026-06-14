@@ -188,6 +188,22 @@ def check_quota(
     )
 
 
+def payg_credits_for_split(decision: QuotaDecision) -> int:
+    """Сколько целых PAYG-кредитов списать за PAYG-покрытую часть джоба. PURE.
+
+    PAYG-баланс хранится в целых «видео»-кредитах (1 кредит = ``MINUTES_PER_VIDEO`` мин).
+    ``check_quota`` отдаёт покрытый из PAYG объём в МИНУТАХ (``from_payg_min``). Переводим
+    обратно в целые кредиты округлением ВВЕРХ — покрытый объём не должен недосписываться
+    (консервативно к нам, не к лишнему списанию: partial-видео = 1 кредит, как и при покупке).
+    Отклонённое решение или нулевая PAYG-часть → 0 (списывать нечего).
+    """
+    import math
+
+    if not decision.allowed or decision.from_payg_min <= 0:
+        return 0
+    return math.ceil(decision.from_payg_min / MINUTES_PER_VIDEO)
+
+
 def current_month(today: datetime.date | None = None) -> str:
     """Текущий расчётный месяц `YYYY-MM` (ключ месячного окна usage). PURE при заданном today."""
     d = today or datetime.date.today()

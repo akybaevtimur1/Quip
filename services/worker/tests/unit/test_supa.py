@@ -122,6 +122,69 @@ class TestAddPaygCredits:
         assert posts[0]["payg_credits"] == 2 and posts[0]["plan"] == "free"
 
 
+class TestDeductPayg:
+    # BE-H: списание PAYG-баланса. read-modify-write через PATCH; floor at 0; нет профиля → no-op.
+    def test_decrements_existing_balance(self, monkeypatch) -> None:
+        _supa_env(monkeypatch)
+        patched: list[dict] = []
+
+        def fake_get(url, **kw):  # type: ignore[no-untyped-def]
+            return _Resp([{"plan": "free", "payg_credits": 5}])
+
+        def fake_patch(url, **kw):  # type: ignore[no-untyped-def]
+            patched.append(kw.get("json", {}))
+            return _Resp([{"id": "u1", "payg_credits": 3}])
+
+        monkeypatch.setattr(supa.httpx, "get", fake_get)
+        monkeypatch.setattr(supa.httpx, "patch", fake_patch)
+        supa.deduct_payg("u1", 2)
+        assert patched and patched[0]["payg_credits"] == 3  # 5 - 2
+
+    def test_floors_at_zero(self, monkeypatch) -> None:
+        _supa_env(monkeypatch)
+        patched: list[dict] = []
+
+        def fake_get(url, **kw):  # type: ignore[no-untyped-def]
+            return _Resp([{"plan": "free", "payg_credits": 1}])
+
+        def fake_patch(url, **kw):  # type: ignore[no-untyped-def]
+            patched.append(kw.get("json", {}))
+            return _Resp([{"id": "u1", "payg_credits": 0}])
+
+        monkeypatch.setattr(supa.httpx, "get", fake_get)
+        monkeypatch.setattr(supa.httpx, "patch", fake_patch)
+        supa.deduct_payg("u1", 4)
+        assert patched and patched[0]["payg_credits"] == 0  # max(0, 1-4)
+
+    def test_missing_profile_is_noop_no_patch(self, monkeypatch) -> None:
+        # Нет профиля → нечего списывать; не INSERT'им (в отличие от add — отрицательный
+        # баланс бессмыслен), не падаем.
+        _supa_env(monkeypatch)
+        patched: list[dict] = []
+
+        def fake_get(url, **kw):  # type: ignore[no-untyped-def]
+            return _Resp([])  # профиля нет
+
+        def fake_patch(url, **kw):  # type: ignore[no-untyped-def]
+            patched.append(kw.get("json", {}))
+            return _Resp([])
+
+        monkeypatch.setattr(supa.httpx, "get", fake_get)
+        monkeypatch.setattr(supa.httpx, "patch", fake_patch)
+        supa.deduct_payg("ghost", 2)
+        assert patched == []  # нечего списывать
+
+    def test_zero_is_noop(self, monkeypatch) -> None:
+        _supa_env(monkeypatch)
+        patched: list[dict] = []
+        monkeypatch.setattr(supa.httpx, "get", lambda url, **kw: _Resp([{"payg_credits": 5}]))
+        monkeypatch.setattr(
+            supa.httpx, "patch", lambda url, **kw: patched.append(kw.get("json", {}))
+        )
+        supa.deduct_payg("u1", 0)
+        assert patched == []  # n=0 → не дёргаем PATCH
+
+
 class TestSetUserPlan:
     def test_patches_existing_profile(self, monkeypatch) -> None:
         _supa_env(monkeypatch)

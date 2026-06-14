@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import os
 from collections.abc import Callable
+from typing import Any
 
 from app import billing, db
 from app.errors import JobError
@@ -23,10 +24,14 @@ def _billing_on() -> bool:
     return os.environ.get("BILLING_ENABLED", "").strip().lower() in ("1", "true", "yes")
 
 
-def _quota_gate(user_id: str | None) -> Callable[[SourceMeta], None] | None:
+def _quota_gate(user_id: str | None, holder: dict[str, Any]) -> Callable[[SourceMeta], None] | None:
     """on_meta-хук для run_pipeline: проверяет квоту по РЕАЛЬНОЙ длине (после probe, до
     транскрипции) и роняет JobError, если не хватает минут. Read-only — НИЧЕГО не списывает
-    (списание = record_usage только после готовых клипов). None, если биллинг/юзер не активны.
+    (списание = _meter только после готовых клипов). None, если биллинг/юзер не активны.
+
+    Авторизованное ``QuotaDecision`` (split месячный/PAYG) кладётся в ``holder["decision"]`` →
+    ``_meter`` применяет ИМЕННО его (нет дрейфа гейт↔метеринг: длина источника одна и та же —
+    meta.duration == metrics.duration_sec, см. run.py).
     """
     if not user_id or not _billing_on():
         return None
@@ -41,19 +46,35 @@ def _quota_gate(user_id: str | None) -> Callable[[SourceMeta], None] | None:
         )
         if not decision.allowed:
             raise JobError("limit", decision.reason or "Quota exceeded")
+        holder["decision"] = decision  # авторизованный split → метеринг
 
     return check
 
 
-def _meter(user_id: str | None, job_id: str, job: Job) -> None:
-    """Записать расход обработанного видео (минуты исходника → кредиты) для авторизованного
-    юзера. Best-effort ПОСЛЕ set_done: метеринг не должен ронять готовый клип, но и не
-    глотается молча — провал логируется с контекстом (правило №8: видимая ошибка)."""
+def _meter(user_id: str | None, job_id: str, job: Job, holder: dict[str, Any]) -> None:
+    """Списать расход обработанного видео для авторизованного юзера. Best-effort ПОСЛЕ
+    set_done: не роняет готовый клип, но и не глотается молча — провал логируется (правило №8).
+
+    Применяет split из ``holder["decision"]`` (авторизованного гейтом): в МЕСЯЧНЫЙ счётчик
+    идёт ТОЛЬКО ``from_monthly_min`` (PAYG-минуты НЕ дублируются в месячный лимит — фикс
+    двойного учёта), а PAYG-кредиты списываются по ``payg_credits_for_split``. Без decision
+    (биллинг выключен → гейт не запускался) — старое поведение: полные минуты в месячный счёт,
+    PAYG не трогаем (баланс не консультировался).
+    """
     if not user_id:
         return
-    minutes = (job.metrics.duration_sec / 60.0) if job.metrics else 0.0
+    full_minutes = (job.metrics.duration_sec / 60.0) if job.metrics else 0.0
+    decision = holder.get("decision")
+    if decision is not None:
+        monthly_minutes = float(decision.from_monthly_min)
+        payg_credits = billing.payg_credits_for_split(decision)
+    else:
+        monthly_minutes = full_minutes
+        payg_credits = 0
     try:
-        db.record_usage(user_id, job_id, minutes, billing.current_month())
+        db.record_usage(user_id, job_id, monthly_minutes, billing.current_month())
+        if payg_credits > 0:
+            db.deduct_payg(user_id, payg_credits)
     except Exception:
         _log.exception("usage record failed: job=%s user=%s", job_id, user_id)
 
@@ -202,16 +223,19 @@ def run_pipeline_job(
     def on_status(status: JobStatus, progress: int) -> None:
         db.update_status(job_id, status.value, progress)
 
+    # Холдер несёт авторизованный гейтом QuotaDecision (split) от on_meta до метеринга —
+    # один источник истины списания (нет дрейфа гейт↔метеринг).
+    quota: dict[str, Any] = {}
     try:
         job = run_pipeline(
             job_id,
             source_url=source_ref,
             on_status=on_status,
             max_clips=max_clips,
-            on_meta=_quota_gate(user_id),
+            on_meta=_quota_gate(user_id, quota),
         )
         db.set_done(job_id, job)
-        _meter(user_id, job_id, job)
+        _meter(user_id, job_id, job, quota)
     except JobError as e:
         db.set_failed(job_id, str(e))
     except Exception as e:  # noqa: BLE001 — фон-таск: любое падение → статус failed, не молча
@@ -238,6 +262,7 @@ def run_upload_job(
     def on_status(status: JobStatus, progress: int) -> None:
         db.update_status(job_id, status.value, progress)
 
+    quota: dict[str, Any] = {}
     try:
         db.update_status(job_id, JobStatus.downloading.value, 8)
         import_upload(Path(upload_path), DATA_ROOT / job_id, job_id=job_id, title=title)
@@ -246,10 +271,10 @@ def run_upload_job(
             source_url=None,
             on_status=on_status,
             max_clips=max_clips,
-            on_meta=_quota_gate(user_id),
+            on_meta=_quota_gate(user_id, quota),
         )
         db.set_done(job_id, job)
-        _meter(user_id, job_id, job)
+        _meter(user_id, job_id, job, quota)
     except JobError as e:
         db.set_failed(job_id, str(e))
     except Exception as e:  # noqa: BLE001 — фон-таск: любое падение → статус failed, не молча

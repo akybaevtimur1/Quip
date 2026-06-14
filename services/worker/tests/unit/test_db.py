@@ -167,3 +167,40 @@ def test_monthly_usage_empty_is_zero(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(db, "_DB_PATH", tmp_path / "u.db")
     db.init_db()
     assert db.get_monthly_usage("nobody", "2026-06") == {"videos": 0, "minutes": 0.0, "credits": 0}
+
+
+# ─────────────────────────── BE-H: deduct_payg (списание PAYG) ───────────────────────────
+# Денежный инвариант: PAYG-баланс убывает ровно на покрытый объём, НИКОГДА не отрицателен.
+
+
+def test_deduct_payg_decrements_balance(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(db, "_DB_PATH", tmp_path / "p.db")
+    db.init_db()
+    db.add_payg_credits("u1", 5)
+    db.deduct_payg("u1", 2)
+    assert db.get_profile("u1")["payg_credits"] == 3
+
+
+def test_deduct_payg_floors_at_zero_never_negative(monkeypatch, tmp_path) -> None:
+    # Списание больше баланса не должно уводить в минус (защита от двойного учёта/гонки).
+    monkeypatch.setattr(db, "_DB_PATH", tmp_path / "p.db")
+    db.init_db()
+    db.add_payg_credits("u1", 1)
+    db.deduct_payg("u1", 4)
+    assert db.get_profile("u1")["payg_credits"] == 0
+
+
+def test_deduct_payg_zero_is_noop(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(db, "_DB_PATH", tmp_path / "p.db")
+    db.init_db()
+    db.add_payg_credits("u1", 3)
+    db.deduct_payg("u1", 0)
+    assert db.get_profile("u1")["payg_credits"] == 3
+
+
+def test_deduct_payg_missing_profile_is_safe(monkeypatch, tmp_path) -> None:
+    # Нет профиля → нечего списывать, не падаем и не создаём отрицательный баланс.
+    monkeypatch.setattr(db, "_DB_PATH", tmp_path / "p.db")
+    db.init_db()
+    db.deduct_payg("ghost", 2)
+    assert db.get_profile("ghost")["payg_credits"] == 0
