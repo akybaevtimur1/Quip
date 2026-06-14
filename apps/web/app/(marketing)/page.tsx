@@ -29,8 +29,10 @@ export default function HomePage() {
       <WhyQuip />
       <Craft />
       <Comparison />
-      <Pricing />
       <Faq />
+      {/* Pricing sits low, right before the closing CTA — visitors see the plans
+          before we ask them to start free. */}
+      <Pricing />
       <FinalCta />
     </>
   );

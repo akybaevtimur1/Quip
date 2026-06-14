@@ -1,8 +1,9 @@
+import Image from "next/image";
 import Link from "next/link";
 import { cn } from "@/lib/cn";
 
-/** Quip wordmark: coral mark + Onest-extrabold wordmark. Coral is the one
- *  brand color (also the hook plate burned into every exported clip). */
+/** Quip wordmark: the brand Q mark (charcoal ring + coral play) + Onest-extrabold
+ *  wordmark. Same mark as the favicon and the hook plate burned into every clip. */
 export function Logo({
   className,
   href = "/",
@@ -12,20 +13,17 @@ export function Logo({
   href?: string | null;
   size?: "sm" | "md";
 }) {
+  const px = size === "sm" ? 24 : 30;
   const inner = (
     <span className="inline-flex items-center gap-2">
-      <span
-        className={cn(
-          "grid shrink-0 place-items-center rounded-md bg-accent text-white",
-          "shadow-[0_1px_0_rgba(255,255,255,.25)_inset]",
-          size === "sm" ? "size-6" : "size-7",
-        )}
+      <Image
+        src="/icon.png"
+        alt=""
+        width={px}
+        height={px}
+        className={cn("shrink-0", size === "sm" ? "size-6" : "size-[30px]")}
         aria-hidden
-      >
-        <svg viewBox="0 0 24 24" fill="none" className={size === "sm" ? "size-3.5" : "size-4"}>
-          <path d="M9 7.2v9.6l7.2-4.8L9 7.2Z" fill="currentColor" />
-        </svg>
-      </span>
+      />
       <span
         className={cn(
           "font-display font-extrabold tracking-tight text-ink",
