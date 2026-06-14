@@ -1,5 +1,6 @@
 "use client";
 
+import { Loader2 } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { getUsage, type UsageInfo } from "@/lib/api";
@@ -24,6 +25,9 @@ function planLabel(plan: string, name: string): string {
 
 export function UsageMeter({ className }: { className?: string }) {
   const [usage, setUsage] = useState<UsageInfo>(FREE_DEFAULT);
+  // Immediate feedback on click: /pricing nav can lag (cold route / slow network), and a
+  // dead-looking link makes people click twice. Spinner + locked link until we leave.
+  const [navigating, setNavigating] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -80,8 +84,17 @@ export function UsageMeter({ className }: { className?: string }) {
         </div>
       )}
 
-      <Link href="/pricing" className="mt-4 inline-block text-sm text-accent hover:underline">
-        Upgrade limits &rarr;
+      <Link
+        href="/pricing"
+        onClick={() => setNavigating(true)}
+        aria-busy={navigating || undefined}
+        className={cn(
+          "mt-4 inline-flex items-center gap-1.5 text-sm text-accent hover:underline",
+          navigating && "pointer-events-none opacity-70",
+        )}
+      >
+        {navigating && <Loader2 className="size-3.5 animate-spin" aria-hidden />}
+        {navigating ? "Opening…" : "Upgrade limits →"}
       </Link>
     </div>
   );

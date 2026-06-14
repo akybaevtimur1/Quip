@@ -1,6 +1,5 @@
 import { Check, Sparkles, Zap } from "lucide-react";
-import Link from "next/link";
-import { buttonVariants } from "@/components/ui/Button";
+import { CheckoutCta } from "@/components/ui/CheckoutCta";
 import { Reveal } from "@/components/ui/Reveal";
 import { cn } from "@/lib/cn";
 import { PAYG, PLANS } from "@/lib/plans";
@@ -56,22 +55,17 @@ export function PricingCards() {
                   <p className="mt-0.5 text-xs leading-snug text-muted">{plan.limitNote}</p>
                 </div>
 
-                <Link
+                {/* Recommended CTA = near-white primary (highest contrast + the site's
+                    established primary-CTA style). Coral emphasis lives in the ring +
+                    badge, keeping the accent scarce and AA-clean. */}
+                <CheckoutCta
                   href={checkoutHref(plan.id)}
-                  prefetch={false}
-                  className={cn(
-                    "mt-6 w-full",
-                    // Recommended CTA = near-white primary (highest contrast + the site's
-                    // established primary-CTA style). Coral emphasis lives in the ring +
-                    // badge, keeping the accent scarce and AA-clean.
-                    buttonVariants({
-                      variant: recommended ? "primary" : "secondary",
-                      size: "md",
-                    }),
-                  )}
+                  variant={recommended ? "primary" : "secondary"}
+                  size="md"
+                  className="mt-6 w-full"
                 >
                   {plan.cta}
-                </Link>
+                </CheckoutCta>
 
                 <ul className="mt-7 space-y-3 border-t border-line pt-7">
                   {plan.features.map((f) => (
@@ -106,13 +100,9 @@ export function PricingCards() {
               </span>
               <span className="text-sm text-faint">/ video</span>
             </div>
-            <Link
-              href={paygCheckoutHref()}
-              prefetch={false}
-              className={buttonVariants({ variant: "secondary", size: "md" })}
-            >
+            <CheckoutCta href={paygCheckoutHref()} variant="secondary" size="md">
               {PAYG.cta}
-            </Link>
+            </CheckoutCta>
           </div>
         </div>
       </Reveal>
