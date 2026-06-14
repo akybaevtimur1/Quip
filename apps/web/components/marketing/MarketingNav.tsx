@@ -3,6 +3,7 @@ import { MobileMenu } from "@/components/marketing/MobileMenu";
 import { buttonVariants } from "@/components/ui/Button";
 import { Container } from "@/components/ui/Container";
 import { Logo } from "@/components/ui/Logo";
+import { getOptionalUser } from "@/lib/supabase/server";
 
 const links = [
   { href: "#how-it-works", label: "How it works" },
@@ -11,8 +12,9 @@ const links = [
   { href: "#faq", label: "FAQ" },
 ];
 
-/** Sticky marketing nav. RSC; mobile menu is a native <details> (zero JS, a11y). */
-export function MarketingNav() {
+/** Sticky marketing nav. RSC; auth-aware CTAs (logged-in → Dashboard, not Sign in). */
+export async function MarketingNav() {
+  const authed = Boolean(await getOptionalUser());
   return (
     <header className="sticky top-0 z-50 border-b border-line/70 bg-bg/75 backdrop-blur-xl">
       <Container className="flex h-16 items-center justify-between gap-6">
@@ -31,17 +33,25 @@ export function MarketingNav() {
         </nav>
 
         <div className="flex items-center gap-2">
-          <Link
-            href="/login"
-            className="hidden rounded-md px-3 py-2 text-sm text-muted transition-colors hover:text-ink sm:inline-flex"
-          >
-            Sign in
-          </Link>
-          <Link href="/signup" className={buttonVariants({ variant: "primary", size: "sm" })}>
-            Try it free
-          </Link>
+          {authed ? (
+            <Link href="/dashboard" className={buttonVariants({ variant: "primary", size: "sm" })}>
+              Dashboard
+            </Link>
+          ) : (
+            <>
+              <Link
+                href="/login"
+                className="hidden rounded-md px-3 py-2 text-sm text-muted transition-colors hover:text-ink sm:inline-flex"
+              >
+                Sign in
+              </Link>
+              <Link href="/signup" className={buttonVariants({ variant: "primary", size: "sm" })}>
+                Try it free
+              </Link>
+            </>
+          )}
 
-          <MobileMenu links={links} />
+          <MobileMenu links={links} authed={authed} />
         </div>
       </Container>
     </header>

@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
-import { SUPABASE_ANON_KEY, SUPABASE_URL } from "./config";
+import { cache } from "react";
+import { SUPABASE_ANON_KEY, SUPABASE_URL, isSupabaseConfigured } from "./config";
 
 /** Server Supabase client (Server Components / Route Handlers / Server Actions).
  *  `cookies()` is async in Next 16. Use only when isSupabaseConfigured. */
@@ -24,3 +25,16 @@ export async function createSupabaseServerClient() {
     },
   });
 }
+
+/** Optional auth check for public (marketing) surfaces: returns the user or null.
+ *  Dual-mode safe — returns null WITHOUT touching cookies() when Supabase isn't
+ *  configured, so the marketing page stays static until auth is live. `cache()`
+ *  dedupes to a single auth check per request even when several components call it. */
+export const getOptionalUser = cache(async () => {
+  if (!isSupabaseConfigured) return null;
+  const supabase = await createSupabaseServerClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  return user;
+});

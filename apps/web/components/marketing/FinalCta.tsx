@@ -3,8 +3,10 @@ import { buttonVariants } from "@/components/ui/Button";
 import { Container } from "@/components/ui/Container";
 import { Reveal } from "@/components/ui/Reveal";
 import { Section } from "@/components/ui/Section";
+import { getOptionalUser } from "@/lib/supabase/server";
 
-export function FinalCta() {
+export async function FinalCta() {
+  const authed = Boolean(await getOptionalUser());
   return (
     <Section className="relative overflow-hidden">
       <div
@@ -21,18 +23,23 @@ export function FinalCta() {
             reason it works.
           </p>
           <div className="mt-9 flex flex-wrap items-center justify-center gap-3">
-            <Link href="/signup" className={buttonVariants({ variant: "primary", size: "lg" })}>
-              Try Quip free
+            <Link
+              href={authed ? "/dashboard" : "/signup"}
+              className={buttonVariants({ variant: "primary", size: "lg" })}
+            >
+              {authed ? "Open the app" : "Try Quip free"}
               <span aria-hidden>→</span>
             </Link>
             <Link href="#pricing" className={buttonVariants({ variant: "secondary", size: "lg" })}>
               See pricing
             </Link>
           </div>
-          <p className="mt-7 text-sm text-faint">
-            <span className="font-medium text-muted">No credit card.</span> 2 free videos every
-            month.
-          </p>
+          {!authed && (
+            <p className="mt-7 text-sm text-faint">
+              <span className="font-medium text-muted">No credit card.</span> 2 free videos every
+              month.
+            </p>
+          )}
         </Reveal>
       </Container>
     </Section>

@@ -9,7 +9,13 @@ import { useEffect, useRef, useState } from "react";
  * click/tap outside or Escape, same as the app's account menu and ExportMenu. (The old
  * native <details> only toggled via its own button, so tapping elsewhere left it open.)
  */
-export function MobileMenu({ links }: { links: { href: string; label: string }[] }) {
+export function MobileMenu({
+  links,
+  authed = false,
+}: {
+  links: { href: string; label: string }[];
+  authed?: boolean;
+}) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -58,12 +64,12 @@ export function MobileMenu({ links }: { links: { href: string; label: string }[]
             </a>
           ))}
           <Link
-            href="/login"
+            href={authed ? "/dashboard" : "/login"}
             role="menuitem"
             onClick={() => setOpen(false)}
             className="mt-1 block rounded-md px-3 py-2.5 text-sm text-muted transition-colors hover:bg-surface-2 hover:text-ink"
           >
-            Sign in
+            {authed ? "Dashboard" : "Sign in"}
           </Link>
         </div>
       )}

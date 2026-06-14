@@ -4,8 +4,10 @@ import { ReasoningCard } from "@/components/marketing/ReasoningCard";
 import { buttonVariants } from "@/components/ui/Button";
 import { Container } from "@/components/ui/Container";
 import { Reveal } from "@/components/ui/Reveal";
+import { getOptionalUser } from "@/lib/supabase/server";
 
-export function Hero() {
+export async function Hero() {
+  const authed = Boolean(await getOptionalUser());
   return (
     <section className="relative overflow-hidden">
       {/* restrained atmosphere: warm near-black + coral/amber blooms (Warm Precision, concept C) */}
@@ -36,8 +38,11 @@ export function Hero() {
           </Reveal>
           <Reveal delay={180}>
             <div className="mt-9 flex flex-wrap items-center gap-3">
-              <Link href="/signup" className={buttonVariants({ variant: "primary", size: "lg" })}>
-                Paste a video link
+              <Link
+                href={authed ? "/dashboard" : "/signup"}
+                className={buttonVariants({ variant: "primary", size: "lg" })}
+              >
+                {authed ? "Open the app" : "Paste a video link"}
                 <span aria-hidden>→</span>
               </Link>
               <Link
@@ -48,12 +53,14 @@ export function Hero() {
               </Link>
             </div>
           </Reveal>
-          <Reveal delay={240}>
-            <p className="mt-7 text-sm text-faint">
-              <span className="font-medium text-muted">No credit card.</span> 2 free videos every
-              month.
-            </p>
-          </Reveal>
+          {!authed && (
+            <Reveal delay={240}>
+              <p className="mt-7 text-sm text-faint">
+                <span className="font-medium text-muted">No credit card.</span> 2 free videos every
+                month.
+              </p>
+            </Reveal>
+          )}
         </div>
 
         {/* right: the product + its reasons */}
