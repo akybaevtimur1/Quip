@@ -51,18 +51,31 @@
 ## ⚠️ Открыто — требует РЕШЕНИЯ/ДЕЙСТВИЯ фаундера (не починено агентами осознанно)
 
 ### Перед запуском биллинга
-1. ✅ **СДЕЛАНО (идемпотентность usage)** — `record_usage` теперь check-then-act по `job_id`
-   (возвращает False на дубль → `_meter` не списывает PAYG второй раз), в SQLite и Supabase.
-   Durable-гарантия Postgres = `migrations/0003_usage_idempotency.sql` — **тебе применить**
-   (Dashboard → SQL Editor) перед включением `BILLING_ENABLED`. +6 тестов.
+1. ✅✅ **СДЕЛАНО + ПРИМЕНЕНО В ПРОДЕ** — идемпотентность usage в коде (check-then-act по
+   `job_id`, SQLite+Supabase) И миграция `0003` **применена к боевому Supabase** (проект
+   `qiagetbnsssvbiowuxpp`, индекс `usage_events_job_id_key` создан; 0002 уже была на месте,
+   схема jobs/profiles/usage_events/clip_edits подтверждена). Делать тебе тут больше нечего.
 
 ### Прод-деплой (Modal)
 2. ✅ **СДЕЛАНО (upload на Modal больше не виснет)** — `create_upload_job` на Modal
    (`MODAL_SPAWN=1`) теперь стейджит исходник в R2 (`storage.upload_source`) и спавнит новую
    долгоживущую `upload_job` (она качает исходник на свой контейнер → `run_upload_job`), как
    YouTube-путь. Локально без изменений (BackgroundTask). +2 теста на ветку диспатча.
-   ⚠️ **Нужна твоя live-проверка на Modal** (я не могу деплоить — нет кред): после `modal deploy`
-   прогнать одну загрузку файла e2e (ветка протестирована юнитами, но R2-раундтрип — только вживую).
+   ✅✅ **ЗАДЕПЛОЕНО В ПРОД** — `modal deploy` выполнен (аккаунт `akybaevtimur7`), функции
+   `web`/`run_job`/`upload_job`/`render_job` живут, web отвечает 200 на /healthz
+   (`https://akybaevtimur7--quip-worker-web.modal.run`). Весь ночной код теперь в проде.
+   ⚠️ Остаётся ОДНА твоя проверка: прогнать e2e-загрузку файла через UI (R2-раундтрип upload_job
+   проверяется только живым прогоном; стоит ~$0.05 Deepgram — поэтому не запускал сам без спроса).
+
+### Что осталось чисто за тобой (нужны дашборды/решения, MCP/CLI не покрывают)
+- **`BILLING_ENABLED`** на Modal НЕ включал намеренно: включение начнёт гейтить квоты (402) для
+  юзеров без профиля и требует настроенного Polar-вебхука. Это твоё продуктовое решение.
+- **Polar**: `POLAR_ACCESS_TOKEN`/`POLAR_SERVER`/`POLAR_WEBHOOK_SECRET` (дашборд Polar) — для
+  живого checkout/вебхука.
+- **Supabase Auth → Email-шаблон OTP** (`{{ .Token }}`) ИЛИ сменить UI регистрации на «ссылка»
+  (FE-B): шаблоны писем MCP не правит — это дашборд Supabase Auth.
+- **Фронт `NEXT_PUBLIC_WORKER_URL`** = `https://akybaevtimur7--quip-worker-web.modal.run` на том
+  проекте, что реально собирает `apps/web` (см. заметку: видимый Vercel-проект — лендинг-репо).
 3. **Modal billing/storage env-десинхрон**: `STORAGE_BACKEND=r2` без `BILLING_ENABLED` →
    джобы в Postgres, а биллинг в эфемерный SQLite → usage/plan/PAYG теряются на scale-to-zero.
    Ставить оба флага вместе.
