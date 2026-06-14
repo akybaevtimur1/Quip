@@ -54,6 +54,10 @@ palettes_preview.png
 ui_*.png
 .playwright-mcp/
 
+# ── Lighthouse CI: локальные отчёты замеров скорости (pnpm --filter web perf) ──
+apps/web/.lighthouseci/
+.lighthouseci/
+
 # ── Brainstorming visual-companion мокапы (локальные, не коммитим) ──
 .superpowers/
 
