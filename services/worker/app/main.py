@@ -628,13 +628,20 @@ def post_render(job_id: str, clip_id: str, bg: BackgroundTasks) -> dict[str, Any
 
 @app.get("/jobs/{job_id}/clips/{clip_id}/render")
 def get_render(job_id: str, clip_id: str) -> dict[str, Any]:
+    from app import storage
+
     row = db.get_clip_edit_row(job_id, clip_id)
     if row is None:
         raise HTTPException(status_code=404, detail="clip not found")
     url = row.get("render_url")
-    # url абсолютный (http → R2 CDN/presigned) отдаём как есть; относительный → воркер-раздача.
-    if url and not str(url).startswith("http"):
-        url = f"media/{job_id}/{url}"
+    # D6: долговечный маркер ключа r2://<key> → СВЕЖИЙ presign на чтении (не протухает);
+    # абсолютный http (R2 CDN/presigned) — как есть; относительный → воркер-раздача /media.
+    if url:
+        url = str(url)
+        if storage.is_r2_key_ref(url):
+            url = storage.resolve_media_url(url)
+        elif not url.startswith("http"):
+            url = f"media/{job_id}/{url}"
     return {
         "status": row.get("render_status"),
         "video_url": url or None,

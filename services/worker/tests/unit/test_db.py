@@ -93,6 +93,53 @@ def test_cloud_row_passes_through_absolute_r2_url_and_reads_clips_list() -> None
     assert wire["metrics"] == {"cost_usd": 0.16, "duration_sec": 120.0, "elapsed_sec": 30.0}
 
 
+def test_cloud_row_keeps_r2_key_ref_marker_untouched() -> None:
+    # D6: долговечный маркер ключа r2://<key> (не presigned URL) НЕ префиксится media/ —
+    # его резолвит I/O-слой (get_job) свежим presign'ом на каждом чтении (не протухает).
+    row = {
+        "id": "job_z",
+        "status": "done",
+        "stage": "done",
+        "progress": 100,
+        "error": None,
+        "clips": [{"id": "clip_01", "video_url": "r2://job_z/clip_01.mp4"}],
+        "cost_usd": 0.0,
+        "duration_sec": 0.0,
+        "elapsed_sec": 0.0,
+    }
+    wire = row_to_wire(row)
+    assert wire["clips"][0]["video_url"] == "r2://job_z/clip_01.mp4"  # без media/-префикса
+
+
+def test_get_job_re_presigns_r2_key_ref_on_read(monkeypatch, tmp_path) -> None:
+    # D6: get_job ре-подписывает долговечный маркер r2://<key> СВЕЖИМ URL на КАЖДОМ чтении —
+    # клип не отдаёт 403 спустя час/неделю (старый код пёк presigned URL намертво в строку).
+    monkeypatch.setattr(db, "_DB_PATH", tmp_path / "j.db")
+    db.init_db()
+    clip = {"id": "clip_01", "video_url": "r2://job_q/clip_01.mp4"}
+    import json as _json
+
+    with db._conn() as c:
+        c.execute(
+            "INSERT INTO jobs (id,status,stage,progress,clips_json,cost_usd,duration_sec,"
+            "elapsed_sec,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            ("job_q", "done", "done", 100, _json.dumps([clip]), 0.0, 0.0, 0.0, 0.0, 0.0),
+        )
+    from app import storage
+
+    calls: list[str] = []
+
+    def fake_resolve(stored: str) -> str:
+        calls.append(stored)
+        return "https://signed.example/fresh?sig=NEW"
+
+    monkeypatch.setattr(storage, "resolve_media_url", fake_resolve)
+    wire = db.get_job("job_q")
+    assert wire is not None
+    assert wire["clips"][0]["video_url"] == "https://signed.example/fresh?sig=NEW"
+    assert calls == ["r2://job_q/clip_01.mp4"]  # маркер прошёл через ре-подпись
+
+
 # ─────────────────────────── T6: usage-адаптер (SQLite-режим) ───────────────────────────
 
 

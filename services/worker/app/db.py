@@ -152,7 +152,8 @@ def set_failed(job_id: str, error: str) -> None:
 def row_to_wire(row: dict[str, Any]) -> dict[str, Any]:
     """Строка БД → wire-Job (dict).
 
-    ``video_url`` клипов: уже абсолютный (http → R2 CDN/presigned) отдаём КАК ЕСТЬ;
+    ``video_url`` клипов: абсолютный http (R2 CDN/presigned) ИЛИ долговечный маркер ключа
+    ``r2://<key>`` (D6) — отдаём КАК ЕСТЬ (маркер ре-подписывает I/O-слой get_job на чтении);
     относительный (локальный SQLite, ``clips/clip_01.mp4``) префиксим воркер-раздачей
     ``media/<job>/...``. Так одна pure-функция обслуживает и облако, и локальный dev.
     Клипы приходят либо jsonb-списком (Postgres ``clips``), либо строкой (SQLite ``clips_json``).
@@ -163,7 +164,7 @@ def row_to_wire(row: dict[str, Any]) -> dict[str, Any]:
     clips: list[dict[str, Any]] = list(raw)
     for c in clips:
         u = str(c.get("video_url") or "")
-        if u and not u.startswith("http"):
+        if u and not u.startswith("http") and not u.startswith("r2://"):
             c["video_url"] = f"media/{row['id']}/{u}"
     metrics = None
     if row.get("status") == "done":
@@ -184,13 +185,29 @@ def row_to_wire(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _resolve_clip_urls(wire: dict[str, Any]) -> dict[str, Any]:
+    """D6: ре-подписать долговечные R2-маркеры клипов СВЕЖИМ presigned URL на чтении.
+
+    I/O-обёртка над pure row_to_wire: маркер ``r2://<key>`` → живой presign (TTL не успевает
+    протухнуть между минтом и отдачей). http/относительный — без изменений. Так клипы не
+    отдают 403 спустя час/неделю (старый код пёк presigned URL в строку джоба намертво).
+    """
+    from app import storage
+
+    for c in wire.get("clips") or []:
+        u = str(c.get("video_url") or "")
+        if storage.is_r2_key_ref(u):
+            c["video_url"] = storage.resolve_media_url(u)
+    return wire
+
+
 def get_job(job_id: str) -> dict[str, Any] | None:
     if cs.cloud_enabled():
         row = cs.get_job_row(job_id)
-        return row_to_wire(row) if row is not None else None
+        return _resolve_clip_urls(row_to_wire(row)) if row is not None else None
     with _conn() as c:
         row = c.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
-    return row_to_wire(dict(row)) if row is not None else None
+    return _resolve_clip_urls(row_to_wire(dict(row))) if row is not None else None
 
 
 # ── артефакты пайплайна (meta/segments/transcript) — durable для лёгкого API на Modal ──

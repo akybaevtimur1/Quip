@@ -19,6 +19,26 @@ from typing import Any
 from app.config import get_settings
 from app.errors import JobError
 
+# D6: долговечный маркер ссылки на объект R2. Вместо протухающего presigned URL
+# (TTL ≤ 7 дней → клип отдаёт 403, когда юзер вернётся) храним в БД r2://<key> и
+# заново подписываем на КАЖДОМ чтении (как уже делает /jobs/{job}/source.mp4).
+R2_KEY_SCHEME = "r2://"
+
+
+def key_ref(key: str) -> str:
+    """Долговечная ссылка на R2-объект по ключу (не presigned). PURE."""
+    return f"{R2_KEY_SCHEME}{key}"
+
+
+def is_r2_key_ref(value: str) -> bool:
+    """value — это маркер R2-ключа (r2://<key>)? PURE."""
+    return value.startswith(R2_KEY_SCHEME)
+
+
+def key_from_ref(ref: str) -> str:
+    """Достать R2-ключ из маркера r2://<key>. PURE."""
+    return ref[len(R2_KEY_SCHEME) :]
+
 
 def _clip_name(clip_id: str, variant: str) -> str:
     """Имя файла клипа: ``clip_01`` (clean) или ``clip_01_captioned`` (вариант). PURE.
@@ -114,13 +134,16 @@ def download_source(job_id: str, dest: Path) -> None:
 
 
 def upload_clip(local_path: Path, job_id: str, clip_id: str, *, variant: str = "") -> str:
-    """Сохранить готовый клип → вернуть ``video_url``.
+    """Сохранить готовый клип → вернуть ДОЛГОВЕЧНЫЙ ``video_url``.
 
     ``variant`` (например ``"captioned"``) пишет в ОТДЕЛЬНЫЙ ключ/файл — чистый reframe-клип
     (``variant=""``) никогда не перетирается прожжённым экспортом (D1: один ключ ≠ два смысла).
     local-режим: клип уже на диске, возвращаем относительный путь (раздаётся на ``/media``).
-    r2-режим: льём mp4 в R2 (upsert), возвращаем публичный CDN-URL (если задан R2_PUBLIC_URL)
-    либо presigned GET URL. JobError при сбое (правило №8 — никаких тихих фолбэков).
+    r2-режим: льём mp4 в R2 (upsert) и возвращаем:
+      • публичный CDN-URL, если задан R2_PUBLIC_URL — он вечный;
+      • иначе ДОЛГОВЕЧНЫЙ маркер ключа ``r2://<key>`` (D6) — НЕ presigned URL. Presign минтится
+        заново на КАЖДОМ чтении (resolve_media_url), иначе TTL≤7д протухает → клип отдаёт 403,
+        когда юзер вернётся к своим клипам спустя час/день. JobError при сбое (правило №8).
     """
     s = get_settings()
     if s.storage_backend != "r2":
@@ -138,7 +161,21 @@ def upload_clip(local_path: Path, job_id: str, clip_id: str, *, variant: str = "
         raise JobError("storage", f"R2 upload {clip_id} failed: {e}") from e
     if s.r2_public_url:
         return public_url(s.r2_public_url, key)
+    return key_ref(key)
+
+
+def resolve_media_url(stored: str) -> str:
+    """Резолв сохранённого ``video_url``/``render_url`` в живой URL на ЧТЕНИИ (I/O, cloud).
+
+    D6: маркер ключа ``r2://<key>`` → СВЕЖИЙ presigned GET (не протухает между чтениями).
+    Публичный/presigned http-URL и относительный путь — отдаём как есть (резолвит вызыватель/
+    фронт). Единая точка ре-подписи: и для клипов грида (row_to_wire), и для render_url.
+    """
+    if not is_r2_key_ref(stored):
+        return stored
+    s = get_settings()
+    key = key_from_ref(stored)
     try:
-        return _presigned_get(client, s.r2_bucket, key, s.signed_url_ttl)
+        return _presigned_get(_r2_client(), s.r2_bucket, key, s.signed_url_ttl)
     except Exception as e:  # noqa: BLE001
-        raise JobError("storage", f"R2 presign {clip_id} failed: {e}") from e
+        raise JobError("storage", f"R2 presign {key} failed: {e}") from e
