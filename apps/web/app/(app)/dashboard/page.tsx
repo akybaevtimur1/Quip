@@ -1,6 +1,6 @@
 "use client";
 
-import { Plus } from "lucide-react";
+import { Plus, UploadCloud } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import { AppHeader } from "@/components/app/AppHeader";
@@ -26,9 +26,35 @@ function labelFromUrl(url: string): string {
   }
 }
 
+/** Shown the instant a file upload starts (before bytes even move) so a big upload
+ *  never looks frozen. Real % comes from XHR upload-progress events. */
+function UploadProgress({ pct }: { pct: number }) {
+  return (
+    <div className="w-full max-w-md text-center">
+      <span className="mx-auto mb-5 grid size-12 place-items-center rounded-full border border-line bg-surface-2 text-accent">
+        <UploadCloud className="size-6" aria-hidden />
+      </span>
+      <h2 className="font-display text-2xl font-bold text-ink">Uploading your video…</h2>
+      <p className="mt-2 text-sm text-muted">
+        {pct < 100 ? "Hang tight — large files take a moment." : "Almost there — getting it ready…"}
+      </p>
+      <div className="mt-6 h-2 overflow-hidden rounded-full bg-surface-2">
+        <div
+          className="h-full rounded-full bg-accent transition-[width] duration-200 ease-out"
+          style={{ width: `${Math.max(4, pct)}%` }}
+        />
+      </div>
+      <p className="mt-2 font-mono text-sm text-muted" aria-live="polite">
+        {pct}%
+      </p>
+    </div>
+  );
+}
+
 function DashboardInner() {
   const { job, error: pollError, elapsed, start, reset } = useJob();
   const [submitting, setSubmitting] = useState(false);
+  const [uploadPct, setUploadPct] = useState<number | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const error = submitError ?? pollError;
 
@@ -59,11 +85,14 @@ function DashboardInner() {
   async function handleSubmitFile(file: File, maxClips: number) {
     setSubmitError(null);
     setSubmitting(true);
+    setUploadPct(0); // show the uploading screen immediately, before bytes move
     try {
-      const { id } = await createUploadJob(file, maxClips);
+      const { id } = await createUploadJob(file, maxClips, setUploadPct);
+      setUploadPct(null);
       addRecentProject({ id, label: file.name, at: Date.now() });
       start(id);
     } catch (e) {
+      setUploadPct(null);
       setSubmitError(e instanceof Error ? e.message : "Couldn’t upload file");
     } finally {
       setSubmitting(false);
@@ -74,6 +103,7 @@ function DashboardInner() {
     reset();
     setSubmitError(null);
     setSubmitting(false);
+    setUploadPct(null);
   }
 
   const phase = error
@@ -114,6 +144,10 @@ function DashboardInner() {
               <UsageMeter />
               <RecentProjects />
             </aside>
+          </div>
+        ) : uploadPct !== null ? (
+          <div className="flex justify-center py-8">
+            <UploadProgress pct={uploadPct} />
           </div>
         ) : phase === "tracking" ? (
           <div className="flex justify-center py-8">

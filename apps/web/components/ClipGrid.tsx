@@ -3,7 +3,7 @@
 import { CheckSquare, Download, Square } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/Button";
-import { mmss, usd } from "@/lib/format";
+import { mmss } from "@/lib/format";
 import type { Job } from "@/lib/types";
 import { ClipCard, resolveUrl } from "./ClipCard";
 
@@ -71,8 +71,7 @@ export function ClipGrid({ job }: { job: Job }) {
     <div className="w-full">
       {m ? (
         <p className="mb-4 font-mono text-sm text-muted">
-          {clips.length} clips · source {mmss(m.duration_sec)} · {Math.round(m.elapsed_sec)}s ·{" "}
-          {usd(m.cost_usd)}
+          {clips.length} clips · source {mmss(m.duration_sec)} · {Math.round(m.elapsed_sec)}s
         </p>
       ) : null}
 

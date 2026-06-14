@@ -64,19 +64,49 @@ async function throwOnAuthOrQuota(res: Response): Promise<void> {
 export async function createUploadJob(
   file: File,
   maxClips?: number,
+  onProgress?: (pct: number) => void,
 ): Promise<{ id: string }> {
   const form = new FormData();
   form.append("file", file);
   if (maxClips != null) form.append("max_clips", String(maxClips));
-  // НЕ задаём Content-Type вручную — браузер сам выставит multipart boundary.
-  const res = await fetch(`${BASE}/jobs/upload`, {
-    method: "POST",
-    headers: await authHeaders(),
-    body: form,
+  const headers = await authHeaders();
+
+  // XMLHttpRequest (not fetch) so we get real upload-progress events — a big file
+  // from a laptop can take a while, and a dead-looking screen reads as "broken".
+  // Don't set Content-Type — the browser adds the multipart boundary itself.
+  return new Promise<{ id: string }>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `${BASE}/jobs/upload`);
+    for (const [k, v] of Object.entries(headers)) xhr.setRequestHeader(k, v);
+
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable && onProgress) onProgress(Math.round((e.loaded / e.total) * 100));
+    };
+    xhr.onload = () => {
+      if (xhr.status === 401) return reject(new Error("Sign in to create clips."));
+      if (xhr.status === 402) {
+        let detail: string | undefined;
+        try {
+          detail = (JSON.parse(xhr.responseText) as { detail?: string }).detail;
+        } catch {
+          detail = undefined;
+        }
+        return reject(
+          new Error(detail ?? "Monthly limit reached. Upgrade your plan on the pricing page."),
+        );
+      }
+      if (xhr.status < 200 || xhr.status >= 300) {
+        return reject(new Error(`createUploadJob failed: ${xhr.status}`));
+      }
+      try {
+        resolve(JSON.parse(xhr.responseText) as { id: string });
+      } catch {
+        reject(new Error("createUploadJob: invalid server response"));
+      }
+    };
+    xhr.onerror = () => reject(new Error("Upload failed — check your connection and try again"));
+    xhr.send(form);
   });
-  await throwOnAuthOrQuota(res);
-  if (!res.ok) throw new Error(`createUploadJob failed: ${res.status}`);
-  return res.json();
 }
 
 /** Живой расход (план + остаток кредитов) для UsageMeter. Бросает при недоступности —

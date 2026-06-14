@@ -11,7 +11,9 @@ const STEPS: { key: JobStatus; label: string }[] = [
 ];
 
 export function JobProgress({ status, elapsed }: { status: JobStatus; elapsed: number }) {
-  const cur = ORDER.indexOf(status);
+  // While "queued" (cur=0) the first real step ("Downloading", index 1) reads as active,
+  // so the stepper never looks dead between submit and the first status change.
+  const cur = Math.max(ORDER.indexOf(status), 1);
 
   return (
     <div className="w-full max-w-3xl">
