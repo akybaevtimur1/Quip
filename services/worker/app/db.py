@@ -173,12 +173,15 @@ def row_to_wire(row: dict[str, Any]) -> dict[str, Any]:
             "duration_sec": float(row.get("duration_sec") or 0.0),
             "elapsed_sec": float(row.get("elapsed_sec") or 0.0),
         }
+    # D5: source_kind отражает реальный источник (upload-джоб ≠ youtube). Берём из строки
+    # (insert_job пишет source_type); неизвестное/пустое → youtube (безопасный дефолт).
+    source_kind = "upload" if row.get("source_type") == "upload" else "youtube"
     return {
         "id": row["id"],
         "status": row["status"],
         "stage": row["stage"],
         "progress": row["progress"] or 0,
-        "source_kind": "youtube",
+        "source_kind": source_kind,
         "error": row.get("error"),
         "clips": clips,
         "metrics": metrics,

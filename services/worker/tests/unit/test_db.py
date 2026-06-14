@@ -38,6 +38,14 @@ def test_done_row_rewrites_video_url_and_has_metrics() -> None:
     assert wire["metrics"] == {"cost_usd": 0.16, "duration_sec": 1987.0, "elapsed_sec": 200.0}
 
 
+def test_source_kind_reflects_upload_jobs() -> None:
+    # D5: upload-джоб не должен врать source_kind="youtube".
+    base = {"id": "j", "status": "queued", "stage": "queued", "progress": 0, "error": None}
+    assert row_to_wire({**base, "source_type": "upload"})["source_kind"] == "upload"
+    assert row_to_wire({**base, "source_type": "youtube"})["source_kind"] == "youtube"
+    assert row_to_wire(base)["source_kind"] == "youtube"  # отсутствует → дефолт
+
+
 def test_in_progress_row_has_empty_clips_and_no_metrics() -> None:
     row = {
         "id": "job_x",
