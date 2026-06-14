@@ -49,7 +49,7 @@ export const metadata: Metadata = {
     creator: siteConfig.twitterHandle,
   },
   robots: { index: true, follow: true },
-  icons: { icon: "/favicon.ico" },
+  // Favicon / app icon come from app/icon.png + app/apple-icon.png (Next file convention).
 };
 
 export default function RootLayout({

@@ -1,14 +1,18 @@
+import Image from "next/image";
 import { cn } from "@/lib/cn";
 
-/** A faithful 9:16 clip preview: dark talking-head scene + coral hook plate on
- *  top + burned-in subtitle with an emphasized word + progress scrubber.
- *  Mirrors what Quip actually renders (hook plate color = HookOverlay.box_color). */
+/** A faithful 9:16 clip preview: a real talking-head frame (or a CSS-lit fallback
+ *  scene) + coral hook plate on top + burned-in subtitle with an emphasized word +
+ *  progress scrubber. Mirrors what Quip actually renders (hook plate color =
+ *  HookOverlay.box_color). Pass `image` (a 9:16 photo) to show real footage. */
 export function ClipMockup({
   hook = "The mistake that cost me 3 years",
   subtitle = "so i ",
   emphasis = "rebuilt",
   subtitleTail = " the whole thing",
   progress = 0.42,
+  image,
+  priority = false,
   className,
 }: {
   hook?: string;
@@ -16,6 +20,8 @@ export function ClipMockup({
   emphasis?: string;
   subtitleTail?: string;
   progress?: number;
+  image?: string;
+  priority?: boolean;
   className?: string;
 }) {
   return (
@@ -28,12 +34,31 @@ export function ClipMockup({
       role="img"
       aria-label={`Vertical clip preview. Hook: ${hook}. Caption: ${subtitle}${emphasis}${subtitleTail}`}
     >
-      {/* lit scene: cool base + warm key light on the subject */}
-      <div className="absolute inset-0 bg-[radial-gradient(120%_85%_at_60%_38%,#2a211c_0%,#161519_46%,#0a0a0d_100%)]" />
-      <div className="absolute inset-0 mix-blend-screen bg-[radial-gradient(46%_30%_at_62%_40%,rgba(255,176,138,.26),transparent_62%)]" />
-      {/* head + shoulders silhouette */}
-      <div className="absolute left-1/2 top-[52%] size-[42%] -translate-x-1/2 -translate-y-1/2 rounded-[50%_50%_46%_46%] bg-[radial-gradient(circle_at_50%_34%,#6d5346,#34261f_72%)]" />
-      <div className="absolute bottom-[16%] left-1/2 h-[34%] w-[58%] -translate-x-1/2 rounded-t-[44%] bg-[#241a14]" />
+      {image ? (
+        <>
+          {/* real footage */}
+          <Image
+            src={image}
+            alt=""
+            fill
+            priority={priority}
+            sizes="(min-width: 1024px) 320px, (min-width: 640px) 280px, 70vw"
+            className="object-cover"
+          />
+          {/* scrims: keep the hook plate and burned caption legible over any frame */}
+          <div className="absolute inset-x-0 top-0 h-1/4 bg-gradient-to-b from-black/45 to-transparent" />
+          <div className="absolute inset-x-0 bottom-0 h-2/5 bg-gradient-to-t from-black/75 via-black/15 to-transparent" />
+        </>
+      ) : (
+        <>
+          {/* lit scene fallback: cool base + warm key light on the subject */}
+          <div className="absolute inset-0 bg-[radial-gradient(120%_85%_at_60%_38%,#2a211c_0%,#161519_46%,#0a0a0d_100%)]" />
+          <div className="absolute inset-0 mix-blend-screen bg-[radial-gradient(46%_30%_at_62%_40%,rgba(255,176,138,.26),transparent_62%)]" />
+          {/* head + shoulders silhouette */}
+          <div className="absolute left-1/2 top-[52%] size-[42%] -translate-x-1/2 -translate-y-1/2 rounded-[50%_50%_46%_46%] bg-[radial-gradient(circle_at_50%_34%,#6d5346,#34261f_72%)]" />
+          <div className="absolute bottom-[16%] left-1/2 h-[34%] w-[58%] -translate-x-1/2 rounded-t-[44%] bg-[#241a14]" />
+        </>
+      )}
 
       {/* hook plate (coral, top) */}
       <div className="absolute inset-x-3 top-3">

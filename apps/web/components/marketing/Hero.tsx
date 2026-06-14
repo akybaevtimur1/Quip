@@ -59,7 +59,11 @@ export function Hero() {
         {/* right: the product + its reasons */}
         <Reveal delay={140} className="relative mx-auto w-full max-w-[360px] lg:mx-0 lg:ml-auto">
           <div className="relative">
-            <ClipMockup className="w-[78%] sm:w-[68%] lg:w-[74%]" />
+            <ClipMockup
+              image="/clips/hero-clip.webp"
+              priority
+              className="w-[78%] sm:w-[68%] lg:w-[74%]"
+            />
             <ReasoningCard
               className="absolute -bottom-6 left-0 w-[80%] sm:left-[18%] sm:w-[74%] lg:-left-10 lg:w-[82%]"
               type="strong_quote"
