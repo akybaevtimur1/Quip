@@ -58,7 +58,16 @@ def verify_signature(
     if abs(current - ts) > tolerance_sec:
         return False
 
-    raw_secret = secret[len("whsec_") :] if secret.startswith("whsec_") else secret
+    # Снять префикс секрета: Standard Webhooks = ``whsec_``, Polar = ``polar_whs_``.
+    # (Без снятия polar_whs_ ключ декодировался неверно → подпись НИКОГДА не матчилась → 401
+    # на все реальные вебхуки Polar.) Плюс восстановить недостающий base64-паддинг (Polar часто
+    # отдаёт секрет без ``=``), иначе b64decode падает на длине не кратной 4.
+    raw_secret = secret
+    for prefix in ("polar_whs_", "whsec_"):
+        if raw_secret.startswith(prefix):
+            raw_secret = raw_secret[len(prefix) :]
+            break
+    raw_secret += "=" * (-len(raw_secret) % 4)
     try:
         key = base64.b64decode(raw_secret)
     except (ValueError, binascii.Error):

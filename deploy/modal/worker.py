@@ -127,8 +127,11 @@ if _COOKIES.exists():
 
 app = modal.App("quip-worker", image=image, include_source=False)
 
-# Секрет с ключами (Deepgram/Gemini/Supabase/R2/billing). Создаётся ОДИН раз (см. docstring).
+# Секрет с ключами (Deepgram/Gemini/Supabase/R2). Создаётся ОДИН раз (см. docstring).
 _SECRET = modal.Secret.from_name("quip-worker")
+# Биллинг ОТДЕЛЬНЫМ секретом (BILLING_ENABLED + POLAR_WEBHOOK_SECRET + POLAR_PRODUCT_*), чтобы
+# включать/крутить оплату, НЕ перекраивая рабочий quip-worker. Modal сливает env обоих секретов.
+_BILLING_SECRET = modal.Secret.from_name("quip-billing")
 
 
 # ⚠️ Функции САМОДОСТАТОЧНЫ: тело bootstrap'а /root инлайнено в каждую, БЕЗ модульного
@@ -137,7 +140,7 @@ _SECRET = modal.Secret.from_name("quip-worker")
 # → ModuleNotFoundError при десериализации. PYTHONPATH=/root и так в образе — это страховка.
 
 
-@app.function(secrets=[_SECRET], timeout=900, min_containers=0, serialized=True)
+@app.function(secrets=[_SECRET, _BILLING_SECRET], timeout=900, min_containers=0, serialized=True)
 @modal.asgi_app()
 def web() -> object:
     """Лёгкий FastAPI (app.main): POST /jobs (spawn run_job), GET статусы, редактор. Scale-to-zero."""
@@ -150,7 +153,7 @@ def web() -> object:
     return fastapi_app
 
 
-@app.function(secrets=[_SECRET], timeout=3600, min_containers=0, serialized=True)
+@app.function(secrets=[_SECRET, _BILLING_SECRET], timeout=3600, min_containers=0, serialized=True)
 def run_job(
     job_id: str,
     source_type: str,
@@ -171,7 +174,7 @@ def run_job(
     run_pipeline_job(job_id, source_type, source_ref, max_clips, user_id)
 
 
-@app.function(secrets=[_SECRET], timeout=3600, min_containers=0, serialized=True)
+@app.function(secrets=[_SECRET, _BILLING_SECRET], timeout=3600, min_containers=0, serialized=True)
 def upload_job(
     job_id: str,
     filename: str,
@@ -198,7 +201,7 @@ def upload_job(
     run_upload_job(job_id, str(upload_path), filename, max_clips, user_id)
 
 
-@app.function(secrets=[_SECRET], timeout=1200, min_containers=0, serialized=True)
+@app.function(secrets=[_SECRET, _BILLING_SECRET], timeout=1200, min_containers=0, serialized=True)
 def render_job(job_id: str, clip_id: str) -> None:
     """Пере-рендер клипа из текущего edit-state (редактор). source.mp4 скачивается из R2."""
     import sys
