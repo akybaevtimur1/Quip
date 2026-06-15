@@ -73,10 +73,18 @@ export function AppHeader() {
                   </p>
                 )}
                 <Link
-                  href="/#pricing"
+                  href="/account"
                   role="menuitem"
                   onClick={() => setMenuOpen(false)}
                   className="mt-1 block rounded-md px-3 py-2 text-sm text-muted transition-colors hover:bg-surface-2 hover:text-ink"
+                >
+                  Account &amp; subscription
+                </Link>
+                <Link
+                  href="/#pricing"
+                  role="menuitem"
+                  onClick={() => setMenuOpen(false)}
+                  className="block rounded-md px-3 py-2 text-sm text-muted transition-colors hover:bg-surface-2 hover:text-ink"
                 >
                   Pricing
                 </Link>
