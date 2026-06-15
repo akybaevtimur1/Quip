@@ -38,3 +38,30 @@ def test_apply_preset_sets_style_and_highlight():
     assert out.captions.highlight is not None and out.captions.highlight.color == "#FF00FF"
     # replies untouched
     assert out.captions.replies == edit.captions.replies
+
+
+def test_apply_preset_preserves_caption_position():
+    # B-#2: пресет НЕ должен сбрасывать ручную позицию субтитра (margin_v/alignment).
+    # Юзер выставил margin_v=400 + alignment=8; пресет "Подкаст" несёт margin_v=1100/alignment=2.
+    words = [Word(text="a", start=0.0, end=0.4)]
+    edit = default_clip_edit(
+        "clip_01",
+        Segment(start=0.0, end=1.0, reason="r", score=0.5, type="hook"),
+        words,
+    )
+    moved = edit.captions.style.model_copy(update={"margin_v": 400, "alignment": 8})
+    edit = edit.model_copy(update={"captions": edit.captions.model_copy(update={"style": moved})})
+
+    podcast = next(p for p in seed_presets() if p.id == "preset_h")
+    assert podcast.style.margin_v == 1100  # sanity: пресет реально двигал бы позицию
+
+    out = apply_preset(edit, podcast)
+    # позиция СОХРАНЕНА (не из пресета)
+    assert out.captions.style.margin_v == 400
+    assert out.captions.style.alignment == 8
+    # остальной стиль — из пресета
+    assert out.captions.style.size == podcast.style.size
+    assert out.captions.style.color == podcast.style.color
+    assert out.captions.style.box_color == podcast.style.box_color
+    assert out.captions.highlight is not None and podcast.highlight is not None
+    assert out.captions.highlight.color == podcast.highlight.color

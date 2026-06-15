@@ -11,10 +11,15 @@ from app.run import DATA_ROOT
 
 
 def apply_preset(edit: ClipEdit, preset: CaptionPreset) -> ClipEdit:
-    """Записать style+highlight пресета в captions клипа. Реплики не трогает. PURE."""
-    captions = edit.captions.model_copy(
-        update={"style": preset.style, "highlight": preset.highlight}
-    )
+    """Записать style+highlight пресета в captions клипа. Реплики не трогает. PURE.
+
+    B-#2: ПОЗИЦИЯ субтитра (margin_v + alignment) — ручная настройка юзера → пресет её НЕ
+    сбрасывает (фаундер: «пресет не должен ресетить позицию»). Берём look пресета, но
+    сохраняем текущие margin_v/alignment клипа.
+    """
+    cur = edit.captions.style
+    style = preset.style.model_copy(update={"margin_v": cur.margin_v, "alignment": cur.alignment})
+    captions = edit.captions.model_copy(update={"style": style, "highlight": preset.highlight})
     return edit.model_copy(update={"captions": captions})
 
 

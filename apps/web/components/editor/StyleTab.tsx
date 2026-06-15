@@ -1,11 +1,10 @@
 "use client";
 
-import { useRef, useState } from "react";
 import { Checkbox } from "@/components/ui/Checkbox";
 import { Select } from "@/components/ui/Select";
-import { cn } from "@/lib/cn";
 import type { CaptionStyle, ClipEdit, HighlightStyle } from "@/lib/types";
 import { PresetStrip } from "../PresetStrip";
+import { ColorField, DebouncedSlider } from "./StyleControls";
 
 // ── Таб «Стиль»: галерея пресетов + кастомизация ПОВЕРХ пресета ──
 // Любая правка → PATCH captions.style/highlight → refetch ASS → libass
@@ -166,102 +165,5 @@ export function StyleTab({
         </div>
       </section>
     </div>
-  );
-}
-
-function ColorField({
-  label,
-  value,
-  disabled,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  disabled: boolean;
-  onChange: (v: string) => void;
-}) {
-  // локальный стейт: color-input шлёт input-события на каждый пиксель пипетки —
-  // PATCH только на change (отпускание). Синк с пропом — adjust-during-render.
-  const [local, setLocal] = useState(value);
-  const [prevValue, setPrevValue] = useState(value);
-  if (prevValue !== value) {
-    setPrevValue(value);
-    setLocal(value);
-  }
-  return (
-    <label className="flex flex-col gap-1.5 text-xs text-muted">
-      {label}
-      {/* h-10 matches Select/Input so grid rows line up (color + select side by side). */}
-      <span
-        className={cn(
-          "flex h-10 items-center gap-2.5 rounded-sm border border-line bg-surface-2 px-2.5",
-          "transition-colors focus-within:border-accent/60",
-          disabled ? "opacity-50" : "hover:border-line-strong",
-        )}
-      >
-        {/* ring keeps a dark swatch (e.g. #000000) visible against the dark field */}
-        <input
-          type="color"
-          value={local}
-          disabled={disabled}
-          onInput={(e) => setLocal((e.target as HTMLInputElement).value)}
-          onChange={(e) => onChange(e.target.value.toUpperCase())}
-          aria-label={label}
-          className="size-6 shrink-0 cursor-pointer rounded bg-transparent p-0 outline outline-1 -outline-offset-1 outline-line-strong disabled:cursor-not-allowed [&::-webkit-color-swatch-wrapper]:p-0.5 [&::-webkit-color-swatch]:rounded-[3px] [&::-webkit-color-swatch]:border-0"
-        />
-        <span className="font-mono text-xs uppercase tracking-wide text-ink">{local}</span>
-      </span>
-    </label>
-  );
-}
-
-function DebouncedSlider({
-  label,
-  min,
-  max,
-  value,
-  disabled,
-  hint,
-  onCommit,
-}: {
-  label: string;
-  min: number;
-  max: number;
-  value: number;
-  disabled: boolean;
-  hint?: string;
-  onCommit: (v: number) => void;
-}) {
-  const [local, setLocal] = useState(value);
-  const [prevValue, setPrevValue] = useState(value);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  if (prevValue !== value) {
-    setPrevValue(value);
-    setLocal(value);
-  }
-
-  const handle = (v: number) => {
-    setLocal(v);
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => onCommit(v), 300);
-  };
-
-  return (
-    <label className="flex flex-col gap-1 text-xs text-muted">
-      <span className="flex items-center justify-between">
-        {label}
-        <span className="font-mono text-[11px] text-ink">{local}</span>
-      </span>
-      <input
-        type="range"
-        min={min}
-        max={max}
-        value={local}
-        disabled={disabled}
-        onChange={(e) => handle(Number(e.target.value))}
-        className="h-1.5 cursor-pointer appearance-none rounded-full bg-surface-2 accent-accent"
-      />
-      {hint && <span className="text-[10px] text-muted/70">{hint}</span>}
-    </label>
   );
 }

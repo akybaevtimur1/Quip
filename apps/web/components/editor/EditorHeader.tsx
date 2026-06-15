@@ -1,14 +1,14 @@
 "use client";
 
 import { ArrowLeft, CheckCircle, ChevronLeft, ChevronRight, Film, Loader2 } from "lucide-react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ExportMenu } from "@/components/ExportMenu";
 import { Button } from "@/components/ui/Button";
 
 // ── Хедер страницы редактора ──
-// «← Все клипы» ведёт на /?job=<id> (deep-link главной восстанавливает грид —
-// возврат БЕЗ потери состояния). ‹ › переключают клипы той же задачи.
+// «← Все клипы» ведёт на /dashboard?job=<id> (deep-link грид восстанавливается).
+// ‹ › переключают клипы той же задачи. ЛЮБАЯ навигация СНАЧАЛА дожимает несохранённые
+// правки (onBeforeLeave = flushPending) → уход НИКОГДА не теряет правки (B-#5).
 
 export type RenderState =
   | { kind: "idle" }
@@ -24,6 +24,8 @@ export function EditorHeader({
   renderState,
   busy,
   dirty,
+  saving,
+  onBeforeLeave,
   onRender,
 }: {
   jobId: string;
@@ -35,6 +37,10 @@ export function EditorHeader({
   busy: boolean;
   /** Есть правки после последнего рендера → результат увидишь только после «Рендер». */
   dirty: boolean;
+  /** Есть НЕсохранённые правки (debounce-PATCH в полёте) → индикатор «Сохраняю…». */
+  saving?: boolean;
+  /** Дожать несохранённые правки ПЕРЕД уходом со страницы (без потери данных). */
+  onBeforeLeave?: () => Promise<void>;
   onRender: () => void;
 }) {
   const router = useRouter();
@@ -42,25 +48,34 @@ export function EditorHeader({
   const prevId = idx > 0 ? clipIds[idx - 1] : null;
   const nextId = idx >= 0 && idx < clipIds.length - 1 ? clipIds[idx + 1] : null;
 
-  const goTo = (id: string) => router.push(`/edit/${jobId}/${id}`);
+  // Любая навигация: сначала дожать pending-правки, потом push (правки не теряются).
+  const leaveTo = async (href: string) => {
+    try {
+      await onBeforeLeave?.();
+    } catch {
+      /* даже если flush упал — не блокируем уход (keepalive-эффект подстрахует) */
+    }
+    router.push(href);
+  };
 
   return (
     <header className="flex h-14 shrink-0 items-center justify-between gap-4 border-b border-line bg-surface px-4">
       {/* лево: назад + навигация по клипам */}
       <div className="flex min-w-0 items-center gap-3">
-        <Link
-          href={`/dashboard?job=${jobId}`}
+        <button
+          type="button"
+          onClick={() => leaveTo(`/dashboard?job=${jobId}`)}
           className="inline-flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-sm text-muted transition hover:border-accent/50 hover:text-ink focus:outline-none focus:ring-2 focus:ring-accent/40"
         >
           <ArrowLeft className="size-4" />
           All clips
-        </Link>
+        </button>
 
         <div className="flex items-center gap-1">
           <button
             type="button"
             disabled={!prevId || busy}
-            onClick={() => prevId && goTo(prevId)}
+            onClick={() => prevId && leaveTo(`/edit/${jobId}/${prevId}`)}
             title="Previous clip"
             className="inline-flex size-8 items-center justify-center rounded-lg border border-line text-muted transition enabled:hover:border-accent/50 enabled:hover:text-ink disabled:opacity-30"
           >
@@ -72,7 +87,7 @@ export function EditorHeader({
           <button
             type="button"
             disabled={!nextId || busy}
-            onClick={() => nextId && goTo(nextId)}
+            onClick={() => nextId && leaveTo(`/edit/${jobId}/${nextId}`)}
             title="Next clip"
             className="inline-flex size-8 items-center justify-center rounded-lg border border-line text-muted transition enabled:hover:border-accent/50 enabled:hover:text-ink disabled:opacity-30"
           >
@@ -83,8 +98,17 @@ export function EditorHeader({
         <span className="hidden font-mono text-xs text-muted sm:inline">{totalSec.toFixed(1)}s</span>
       </div>
 
-      {/* право: статус рендера + действия */}
+      {/* право: статус сохранения + рендера + действия */}
       <div className="flex shrink-0 items-center gap-2">
+        {saving && (
+          <span
+            title="Saving your edits…"
+            className="inline-flex items-center gap-1.5 rounded-md border border-line bg-surface-2 px-2.5 py-1.5 text-xs text-muted"
+          >
+            <Loader2 className="size-3 animate-spin" />
+            <span className="hidden sm:inline">Saving…</span>
+          </span>
+        )}
         {dirty && renderState.kind !== "rendering" && (
           <span
             title="The preview already shows your edits live. The downloadable file is still the old one. Click “Render” to write edits to the file."

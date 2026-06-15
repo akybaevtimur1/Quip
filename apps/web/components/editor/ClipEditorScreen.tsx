@@ -13,12 +13,14 @@ import {
   getRenderStatus,
   getTimeline,
   patchClipEdit,
+  patchClipEditKeepalive,
   setClipAspect,
   setClipInterval,
   setCropOverride,
   startRenderClip,
   trimClip,
 } from "@/lib/api";
+import { patchAssStyles } from "@/lib/assStyle";
 import type {
   CaptionReply,
   CaptionStyle,
@@ -114,6 +116,9 @@ export default function ClipEditorScreen({
   // есть правки после последнего рендера → юзеру явно видно, что скачивание/результат
   // отстаёт от превью, пока не нажмёт «Рендер» (фидбек фаундера)
   const [dirty, setDirty] = useState(false);
+  // есть НЕсохранённые правки (debounce-PATCH ещё не ушёл / в полёте) — индикатор
+  // «Сохраняю…/Сохранено» + гарантия flush перед уходом (B-#5, без потери данных).
+  const [unsaved, setUnsaved] = useState(false);
 
   // ── WYSIWYG-превью ──
   const [assText, setAssText] = useState("");
@@ -123,6 +128,8 @@ export default function ClipEditorScreen({
   const [nowSec, setNowSec] = useState(0);
   // драг позиции субтитров: текущая Y-доля гайда (null = не тащим)
   const [dragFrac, setDragFrac] = useState<number | null>(null);
+  // драг позиции хука (верхний якорь): своя Y-доля гайда (null = не тащим)
+  const [hookDragFrac, setHookDragFrac] = useState<number | null>(null);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -288,13 +295,126 @@ export default function ClipEditorScreen({
     [jobId, clipId, loadReframe],
   );
 
+  // ── правки субтитров/стиля → PATCH + refetch ASS ──
+  // ОЧЕРЕДЬ мутаций: правки на ходу (цвет/анимация/текст во время воспроизведения)
+  // могут сыпаться быстрее, чем отвечает сервер. Параллельные PATCH'и со старой
+  // версией давали 409 → полный reload редактора. Теперь мутации выполняются
+  // строго по одной, каждая берёт СВЕЖИЕ captions/version на момент исполнения.
+  const patchChain = useRef<Promise<void>>(Promise.resolve());
+  // Дебаунс-персист правок субтитров/хука: instant-превью локально (patchAssStyles +
+  // оптимистичный edit-state), PATCH на сервер — коалесированно через ~300мс. Сервер
+  // остаётся источником правды (refreshAss реконсилит ASS; экспорт всегда из Python-ASS).
+  // pendingCaptionsRef = последнее желаемое captions; flushTimerRef = таймер дебаунса.
+  const pendingCaptionsRef = useRef<ClipEdit["captions"] | null>(null);
+  const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Отправить накопленные captions на сервер (через очередь мутаций) + реконсиляция ASS.
+  // ⚠️ НЕ вызывать ИЗНУТРИ patchChain.then (в конце ждёт patchChain.current → дедлок).
+  const flushCaptions = useCallback(async () => {
+    if (flushTimerRef.current) {
+      clearTimeout(flushTimerRef.current);
+      flushTimerRef.current = null;
+    }
+    const captions = pendingCaptionsRef.current;
+    if (captions !== null) {
+      pendingCaptionsRef.current = null;
+      patchChain.current = patchChain.current.then(async () => {
+        const cur = editRef.current;
+        if (!cur) return;
+        try {
+          const newEdit = await patchClipEdit(jobId, clipId, cur.version ?? 1, captions);
+          // Реконсиляция версии/полей, но СОХРАНЯЕМ свежие локальные captions: юзер мог
+          // править во время раунд-трипа — нельзя откатывать его правки (баг-класс очереди).
+          editRef.current = {
+            ...newEdit,
+            captions: editRef.current?.captions ?? newEdit.captions,
+          };
+          setEdit((prev) => (prev ? { ...newEdit, captions: prev.captions } : newEdit));
+          setDirty(true);
+          // Нет более свежей правки → авторитетный ASS (реконсиляция) + «Сохранено».
+          if (pendingCaptionsRef.current === null) {
+            setUnsaved(false);
+            await refreshAss();
+          }
+        } catch (e) {
+          failOr409(e);
+        }
+      });
+    }
+    await patchChain.current;
+  }, [jobId, clipId, refreshAss, failOr409]);
+
+  const scheduleFlush = useCallback(() => {
+    if (flushTimerRef.current) clearTimeout(flushTimerRef.current);
+    flushTimerRef.current = setTimeout(() => void flushCaptions(), 300);
+  }, [flushCaptions]);
+
+  // Правка субтитров/хука: оптимистичный edit-state + МГНОВЕННЫЙ локальный ASS-патч
+  // (patchAssStyles) + дебаунс-персист. Лаги уходят: libass обновляется сразу, PATCH в фоне.
+  const editCaptions = useCallback(
+    (update: (captions: ClipEdit["captions"]) => ClipEdit["captions"]) => {
+      const cur = editRef.current;
+      if (!cur) return;
+      setError(null);
+      const next = update(cur.captions);
+      const optimistic = { ...cur, captions: next };
+      editRef.current = optimistic;
+      setEdit(optimistic);
+      // instant: переписать Style-строки локально (цвет/размер/шрифт/контур/плашка/позиция).
+      // Правки Dialogue-тегов (анимация/текст/uppercase) добьёт реконсиляция через ~300мс.
+      setAssText((prev) => patchAssStyles(prev, next.style, next.highlight, next.hook));
+      setDirty(true);
+      setUnsaved(true);
+      pendingCaptionsRef.current = next;
+      scheduleFlush();
+    },
+    [scheduleFlush],
+  );
+
+  // Гарантированный flush ДО операции, бампающей версию (trim/interval/frame/aspect/preset),
+  // или ухода со страницы — чтобы накопленные правки субтитров не потерялись (B-#5).
+  // Алиас (не useCallback) — flushCaptions уже мемоизирован, обёртка лишь мешала бы React Compiler.
+  const flushPending = flushCaptions;
+
+  // ── ДОЛГОВЕЧНОСТЬ (B-#5): дожать pending-правки при уходе со страницы ──
+  // pagehide/beforeunload (закрытие/refresh), visibilitychange→hidden (свернул вкладку),
+  // и cleanup (SPA-навигация = размонтирование). keepalive-PATCH переживает unload —
+  // обычный fetch на unload отменяется и правки тихо теряются (страх фаундера «всё снеслось»).
+  useEffect(() => {
+    const persistNow = () => {
+      const captions = pendingCaptionsRef.current;
+      const cur = editRef.current;
+      if (captions !== null && cur) {
+        pendingCaptionsRef.current = null;
+        patchClipEditKeepalive(jobId, clipId, cur.version ?? 1, captions);
+      }
+    };
+    const onHide = () => persistNow();
+    const onVis = () => {
+      if (document.visibilityState === "hidden") persistNow();
+    };
+    window.addEventListener("pagehide", onHide);
+    window.addEventListener("beforeunload", onHide);
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      window.removeEventListener("pagehide", onHide);
+      window.removeEventListener("beforeunload", onHide);
+      document.removeEventListener("visibilitychange", onVis);
+      if (flushTimerRef.current) clearTimeout(flushTimerRef.current);
+      persistNow(); // размонтирование (уход из редактора) → keepalive-flush pending
+    };
+  }, [jobId, clipId]);
+
+  // ── trim / set-interval (таймлайн): сначала flush pending-правок (B-#5), потом версия-bump ──
   const handleSetInterval = useCallback(
     async (start: number, end: number) => {
       if (!edit) return;
       setPhase("saving");
       setError(null);
       try {
-        const newEdit = await setClipInterval(jobId, clipId, edit.version ?? 1, start, end);
+        await flushPending(); // персист накопленных правок субтитров ДО смены интервала
+        const v = editRef.current?.version ?? edit.version ?? 1;
+        const newEdit = await setClipInterval(jobId, clipId, v, start, end);
         await refetchAfter(newEdit);
         const video = videoRef.current;
         if (video) {
@@ -308,7 +428,7 @@ export default function ClipEditorScreen({
         failOr409(e);
       }
     },
-    [edit, jobId, clipId, refetchAfter, failOr409],
+    [edit, jobId, clipId, refetchAfter, failOr409, flushPending],
   );
 
   const handleCutReply = useCallback(
@@ -319,51 +439,20 @@ export default function ClipEditorScreen({
       setPhase("saving");
       setError(null);
       try {
-        const newEdit = await trimClip(jobId, clipId, edit.version ?? 1, reply.word_refs);
+        await flushPending();
+        const v = editRef.current?.version ?? edit.version ?? 1;
+        const newEdit = await trimClip(jobId, clipId, v, reply.word_refs);
         await refetchAfter(newEdit);
       } catch (e) {
         failOr409(e);
       }
     },
-    [edit, jobId, clipId, refetchAfter, failOr409],
-  );
-
-  // ── правки субтитров/стиля → PATCH + refetch ASS ──
-  // ОЧЕРЕДЬ мутаций: правки на ходу (цвет/анимация/текст во время воспроизведения)
-  // могут сыпаться быстрее, чем отвечает сервер. Параллельные PATCH'и со старой
-  // версией давали 409 → полный reload редактора. Теперь мутации выполняются
-  // строго по одной, каждая берёт СВЕЖИЕ captions/version на момент исполнения.
-  const patchChain = useRef<Promise<void>>(Promise.resolve());
-
-  const patchCaptions = useCallback(
-    (update: (captions: ClipEdit["captions"]) => ClipEdit["captions"]) => {
-      patchChain.current = patchChain.current.then(async () => {
-        const cur = editRef.current;
-        if (!cur) return;
-        setError(null);
-        try {
-          const newEdit = await patchClipEdit(
-            jobId,
-            clipId,
-            cur.version ?? 1,
-            update(cur.captions),
-          );
-          editRef.current = newEdit; // свежая версия доступна СЛЕДУЮЩЕЙ мутации сразу
-          setEdit(newEdit);
-          setDirty(true);
-          await refreshAss();
-        } catch (e) {
-          failOr409(e);
-        }
-      });
-      return patchChain.current;
-    },
-    [jobId, clipId, refreshAss, failOr409],
+    [edit, jobId, clipId, refetchAfter, failOr409, flushPending],
   );
 
   const handleCaptionsChange = useCallback(
     (replyIndex: number, text: string | null) => {
-      void patchCaptions((captions) => ({
+      editCaptions((captions) => ({
         ...captions,
         replies: (captions.replies ?? []).map(
           (reply, i): CaptionReply =>
@@ -371,24 +460,24 @@ export default function ClipEditorScreen({
         ),
       }));
     },
-    [patchCaptions],
+    [editCaptions],
   );
 
   const handleStyleChange = useCallback(
     (patch: Partial<CaptionStyle>) => {
       setActivePresetId(null); // кастомизация поверх пресета — пресет больше не «чистый»
-      void patchCaptions((captions) => ({
+      editCaptions((captions) => ({
         ...captions,
         style: { ...captions.style, ...patch },
       }));
     },
-    [patchCaptions],
+    [editCaptions],
   );
 
   const handleHighlightChange = useCallback(
     (patch: Partial<HighlightStyle> | null) => {
       setActivePresetId(null);
-      void patchCaptions((captions) => ({
+      editCaptions((captions) => ({
         ...captions,
         highlight:
           patch === null
@@ -403,44 +492,47 @@ export default function ClipEditorScreen({
               },
       }));
     },
-    [patchCaptions],
+    [editCaptions],
   );
 
   const handleMarginChange = useCallback(
     (marginV: number) => {
-      void patchCaptions((captions) => ({
+      editCaptions((captions) => ({
         ...captions,
         style: { ...captions.style, margin_v: clampMargin(marginV) },
       }));
     },
-    [patchCaptions],
+    [editCaptions],
   );
 
   // ── burn-тогл (таб «Субтитры», T4 #8): не накладывать наши субтитры ──
   const handleBurnChange = useCallback(
     (burn: boolean) => {
-      void patchCaptions((captions) => ({ ...captions, burn }));
+      editCaptions((captions) => ({ ...captions, burn }));
     },
-    [patchCaptions],
+    [editCaptions],
   );
 
-  // ── хук (таб «Хук») → PATCH captions.hook через ту же очередь мутаций ──
+  // ── хук (таб «Хук») → instant-превью + дебаунс-персист (та же модель, что стиль) ──
   // patch=null → убрать хук; иначе мерж поверх текущего (или нового {text:""}) —
   // опущенные поля дольёт pydantic (шрифт/плашка/размер по дефолту).
   const handleHookChange = useCallback(
     (patch: Partial<HookOverlay> | null) => {
-      void patchCaptions((captions) => ({
+      editCaptions((captions) => ({
         ...captions,
         hook: patch === null ? null : { ...(captions.hook ?? { text: "" }), ...patch },
       }));
     },
-    [patchCaptions],
+    [editCaptions],
   );
 
-  // применение пресета — в ТОЙ ЖЕ очереди мутаций (свежая версия, никаких 409 на ходу)
+  // применение пресета — в ТОЙ ЖЕ очереди мутаций (свежая версия, никаких 409 на ходу).
+  // Сначала flush накопленных правок (ВНЕ chain → без дедлока), чтобы пресет лёг поверх
+  // персистнутого состояния и ничего не потерялось.
   const handlePresetApply = useCallback(
-    (presetId: string) => {
-      patchChain.current = patchChain.current.then(async () => {
+    async (presetId: string) => {
+      await flushPending();
+      const p = patchChain.current.then(async () => {
         const cur = editRef.current;
         if (!cur) return;
         setError(null);
@@ -450,14 +542,16 @@ export default function ClipEditorScreen({
           setEdit(updated);
           setActivePresetId(presetId);
           setDirty(true);
+          setUnsaved(false);
           await refreshAss();
         } catch (e) {
           failOr409(e);
         }
       });
-      return patchChain.current;
+      patchChain.current = p;
+      return p;
     },
-    [jobId, clipId, refreshAss, failOr409],
+    [jobId, clipId, refreshAss, failOr409, flushPending],
   );
 
   // ── кадр (таб «Кадр») ──
@@ -470,7 +564,9 @@ export default function ClipEditorScreen({
       if (!edit) return;
       setError(null);
       try {
-        const newEdit = await setCropOverride(jobId, clipId, edit.version ?? 1, {
+        await flushPending();
+        const v = editRef.current?.version ?? edit.version ?? 1;
+        const newEdit = await setCropOverride(jobId, clipId, v, {
           source_start: outerStart,
           source_end: outerEnd,
           mode,
@@ -484,7 +580,7 @@ export default function ClipEditorScreen({
         failOr409(e);
       }
     },
-    [edit, jobId, clipId, outerStart, outerEnd, failOr409],
+    [edit, jobId, clipId, outerStart, outerEnd, failOr409, flushPending],
   );
 
   // ── соотношение сторон (T5): меняет выход + PlayRes ASS → рефетчим ASS ──
@@ -493,7 +589,9 @@ export default function ClipEditorScreen({
       if (!edit || edit.aspect === aspect) return;
       setError(null);
       try {
-        const newEdit = await setClipAspect(jobId, clipId, edit.version ?? 1, aspect);
+        await flushPending();
+        const v = editRef.current?.version ?? edit.version ?? 1;
+        const newEdit = await setClipAspect(jobId, clipId, v, aspect);
         editRef.current = newEdit; // см. editRef-комментарий: очередь читает свежую версию
         setEdit(newEdit);
         setDirty(true);
@@ -502,7 +600,7 @@ export default function ClipEditorScreen({
         failOr409(e);
       }
     },
-    [edit, jobId, clipId, refreshAss, failOr409],
+    [edit, jobId, clipId, refreshAss, failOr409, flushPending],
   );
 
   // ── рендер ──
@@ -643,6 +741,33 @@ export default function ClipEditorScreen({
     [openReplyEdit, handleMarginChange],
   );
 
+  // ── драг ХУКА по видео (верхний якорь): margin_v отсчитывается от ВЕРХА ──
+  const hookDragRef = useRef<{ boxH: number; boxTop: number } | null>(null);
+  const onHookHitPointerDown = useCallback((e: React.PointerEvent<HTMLButtonElement>) => {
+    const box = (e.currentTarget.offsetParent as HTMLElement | null)?.getBoundingClientRect();
+    if (!box) return;
+    hookDragRef.current = { boxH: box.height, boxTop: box.top };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  }, []);
+  const onHookHitPointerMove = useCallback((e: React.PointerEvent<HTMLButtonElement>) => {
+    const d = hookDragRef.current;
+    if (!d) return;
+    setHookDragFrac(Math.min(1, Math.max(0, (e.clientY - d.boxTop) / d.boxH)));
+  }, []);
+  const onHookHitPointerUp = useCallback(
+    (e: React.PointerEvent<HTMLButtonElement>) => {
+      const d = hookDragRef.current;
+      hookDragRef.current = null;
+      setHookDragFrac(null);
+      if (!d) return;
+      const frac = Math.min(1, Math.max(0, (e.clientY - d.boxTop) / d.boxH));
+      // верхний якорь: margin_v = доля сверху × PlayResY, кламп в диапазон слайдера хука
+      const mv = Math.min(900, Math.max(40, Math.round(frac * 1920)));
+      handleHookChange({ margin_v: mv });
+    },
+    [handleHookChange],
+  );
+
   // ── РЕАЛЬНЫЙ режим кадра для превью на текущий момент ──
   // Приоритет: ручной override (таб «Кадр», виден сразу) → план от /reframe (D2: единый
   // путь рендера, всегда для ТЕКУЩИХ интервалов) → дефолт fill-центр.
@@ -720,6 +845,8 @@ export default function ClipEditorScreen({
         renderState={renderState}
         busy={busy}
         dirty={dirty}
+        saving={unsaved}
+        onBeforeLeave={flushPending}
         onRender={handleRender}
       />
 
@@ -811,6 +938,29 @@ export default function ClipEditorScreen({
                       <div className="h-px w-full bg-accent shadow-[0_0_8px_rgba(255,90,61,0.9)]" />
                       <span className="absolute right-2 top-1 rounded bg-accent px-1.5 py-0.5 font-mono text-[10px] text-white">
                         caption position
+                      </span>
+                    </div>
+                  )}
+
+                  {/* хит-зона ХУКА (таб «Хук», хук включён): драг по Y = позиция сверху */}
+                  {useLibass && edit?.captions.hook?.enabled && tab === "hook" && (
+                    <button
+                      type="button"
+                      aria-label="Hook: drag to reposition"
+                      onPointerDown={onHookHitPointerDown}
+                      onPointerMove={onHookHitPointerMove}
+                      onPointerUp={onHookHitPointerUp}
+                      className="absolute inset-x-0 top-0 z-20 h-[22%] w-full cursor-grab touch-none bg-transparent active:cursor-grabbing"
+                    />
+                  )}
+                  {hookDragFrac !== null && (
+                    <div
+                      className="pointer-events-none absolute inset-x-0 z-40"
+                      style={{ top: `${hookDragFrac * 100}%` }}
+                    >
+                      <div className="h-px w-full bg-accent shadow-[0_0_8px_rgba(255,90,61,0.9)]" />
+                      <span className="absolute right-2 top-1 rounded bg-accent px-1.5 py-0.5 font-mono text-[10px] text-white">
+                        hook position
                       </span>
                     </div>
                   )}

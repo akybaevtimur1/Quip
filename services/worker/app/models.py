@@ -234,6 +234,10 @@ class HookOverlay(BaseModel):
     box_opacity: float = Field(default=1.0, ge=0.0, le=1.0)
     margin_v: int = 150  # отступ от ВЕРХА кадра (ASS top alignment)
     uppercase: bool = True
+    # Анимация ВХОДА всего заголовка (не пословно — хук одиночный). Layout-нейтральные
+    # \fscy/\alpha-теги (без \fscx/\move → нет реврапа/координат). none = без анимации
+    # (дефолт → старый кэш хуков валиден). Компилится в build_hook_event тем же ASS.
+    animation: Literal["none", "pop", "fade", "bounce"] = "none"
 
 
 class CaptionReply(BaseModel):

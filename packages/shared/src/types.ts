@@ -107,6 +107,7 @@ export interface CaptionTrack {
  * второго пайплайна. Не пересекается с нижними субтитрами.
  */
 export interface HookOverlay {
+  animation?: "none" | "pop" | "fade" | "bounce";
   box_color?: string | null;
   box_opacity?: number;
   color?: string;

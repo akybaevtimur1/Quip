@@ -60,6 +60,24 @@ def pick_keyword_positions(texts: list[str], *, max_emph: int = 2, min_len: int 
     return sorted(i for i, _ in top)
 
 
+def _hook_entrance_tags(animation: str) -> str:
+    """ASS override-теги ВХОДА всего заголовка хука (одиночный блок, не пословно). PURE.
+
+    \\t отсчитывается от старта события (= старт окна хука) → офсеты от 0.
+    ⚠️ Layout-нейтральные теги ТОЛЬКО (\\fscy/\\alpha): \\fscx/\\fsp меняют ШИРИНУ строки →
+    libass перепереносит её на каждом кадре (текст «прыгает» — жёсткий запрет, см.
+    word_animation_tags). bounce зеркалит word_animation_tags (старт приподнят → оседает к 100).
+    Возвращает СОДЕРЖИМОЕ override-блока без скобок ("" для none).
+    """
+    if animation == "pop":
+        return "\\fscy60\\t(0,150,\\fscy105)\\t(150,260,\\fscy100)"
+    if animation == "fade":
+        return "\\alpha&HFF&\\t(0,200,\\alpha&H00&)"
+    if animation == "bounce":
+        return "\\fscy115\\t(0,90,\\fscy115)\\t(90,170,\\fscy96)\\t(170,250,\\fscy100)"
+    return ""
+
+
 def build_hook_event(hook: HookOverlay, clip_duration: float) -> tuple[str, str]:
     """Хук → (Style-строка "Hook", Dialogue top-event). PURE (T1).
 
@@ -92,6 +110,12 @@ def build_hook_event(hook: HookOverlay, clip_duration: float) -> tuple[str, str]
     if hook.uppercase:
         text = text.upper()
     text = escape_ass_text(text)  # {/\ в тексте хука → tag-инъекция libass (см. escape_ass_text)
+    # Анимация входа: override-блок {…} ПЕРЕД экранированным текстом (его настоящие скобки
+    # НЕ прогоняем через escape_ass_text — иначе \{…\} перестанет быть тегом). \t от 0 (старт
+    # окна). animation="none" → блока нет → байт-в-байт старый вывод (кэш хуков валиден).
+    entrance = _hook_entrance_tags(hook.animation)
+    if entrance:
+        text = f"{{{entrance}}}{text}"
     dialogue = f"Dialogue: 0,{format_ass_time(0.0)},{format_ass_time(window)},Hook,,0,0,,{text}"
     return style, dialogue
 

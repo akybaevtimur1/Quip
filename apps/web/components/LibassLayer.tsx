@@ -33,6 +33,11 @@ export function LibassLayer({ videoRef, assText, sourceStart, onError }: LibassL
   const assRef = useRef(assText);
   const startRef = useRef(sourceStart);
   const onErrorRef = useRef(onError);
+  // Базовая точка троттла рендера — ОБЩАЯ между rAF-циклом и эффектом setTrack.
+  // Сброс в -1 форсит немедленный редроу при смене ASS (иначе на ПАУЗЕ время не
+  // меняется → setCurrentTime не зовётся → libass держит СТАРЫЙ кадр трека = «не
+  // обновилось / задвоилось» при правке). См. B-#1 в спеке.
+  const lastTRef = useRef(-1);
   useEffect(() => {
     assRef.current = assText;
     startRef.current = sourceStart;
@@ -100,12 +105,12 @@ export function LibassLayer({ videoRef, assText, sourceStart, onError }: LibassL
         // время: ASS в клип-времени, видео в source-времени.
         // Троттл ~30Гц: каждый setCurrentTime = полный рендер в воркере
         // (targetFps воркера = 24) — 60Гц-чёрн давал бы неровные обновления.
-        let lastT = -1;
+        lastTRef.current = -1;
         const tick = () => {
           if (disposed) return;
           const t = Math.max(0, video.currentTime - startRef.current);
-          if (Math.abs(t - lastT) >= 1 / 30 && local) {
-            lastT = t;
+          if (Math.abs(t - lastTRef.current) >= 1 / 30 && local) {
+            lastTRef.current = t;
             try {
               local.setCurrentTime(t);
             } catch {
@@ -137,15 +142,24 @@ export function LibassLayer({ videoRef, assText, sourceStart, onError }: LibassL
   }, [videoRef]);
 
   // ── живое обновление трека при смене assText (БЕЗ пересоздания) ──
+  // setTrack ЗАМЕНЯЕТ трек (не аппендит) — задвоение бывает не от него, а от
+  // stale-кадра: после setTrack нужен принудительный редроу на ТЕКУЩЕМ времени
+  // (особенно на паузе, где rAF-троттл время не двигает). Пустой ASS не сетим
+  // (libass #166 не рендерит пустой трек → визуальный мусор).
   useEffect(() => {
     const inst = instanceRef.current;
-    if (!inst || !assText) return;
+    if (!inst || !assText.trim()) return;
     try {
       inst.setTrack(assText);
+      // форсим немедленный редроу + сбрасываем троттл, чтобы rAF тоже перерисовал
+      const video = videoRef.current;
+      const t = video ? Math.max(0, video.currentTime - startRef.current) : 0;
+      lastTRef.current = -1;
+      inst.setCurrentTime(t);
     } catch {
       onErrorRef.current?.();
     }
-  }, [assText]);
+  }, [assText, videoRef]);
 
   return (
     <canvas

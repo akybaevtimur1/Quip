@@ -324,6 +324,31 @@ export async function patchClipEdit(
   return res.json();
 }
 
+/**
+ * Best-effort persist of caption edits when the page is going away (pagehide /
+ * visibilitychange-hidden / unmount). Uses `keepalive` so the request outlives the
+ * document — a normal fetch would be cancelled on unload, silently losing edits.
+ * Fire-and-forget: no body parsing, swallow errors (the page is leaving). This is
+ * the durability backstop so a long edit session is never lost on navigate/close.
+ */
+export function patchClipEditKeepalive(
+  jobId: string,
+  clipId: string,
+  version: number,
+  captions: CaptionTrack,
+): void {
+  try {
+    void fetch(`${BASE}/jobs/${jobId}/clips/${clipId}/edit`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ version, captions }),
+      keepalive: true,
+    });
+  } catch {
+    /* page is leaving — nothing we can do */
+  }
+}
+
 export async function getPresets(): Promise<CaptionPreset[]> {
   const res = await fetch(`${BASE}/presets`, { cache: "no-store" });
   if (!res.ok) throw new Error(`getPresets failed: ${res.status}`);

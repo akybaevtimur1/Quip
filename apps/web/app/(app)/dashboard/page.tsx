@@ -1,7 +1,7 @@
 "use client";
 
-import { Plus, UploadCloud } from "lucide-react";
-import { useSearchParams } from "next/navigation";
+import { Loader2, Plus, UploadCloud } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import { AppHeader } from "@/components/app/AppHeader";
 import { PromoRedeem } from "@/components/app/PromoRedeem";
@@ -53,6 +53,7 @@ function UploadProgress({ pct }: { pct: number }) {
 }
 
 function DashboardInner() {
+  const router = useRouter();
   const { job, jobId, error: pollError, elapsed, start, reset } = useJob();
   const [submitting, setSubmitting] = useState(false);
   const [uploadPct, setUploadPct] = useState<number | null>(null);
@@ -105,18 +106,28 @@ function DashboardInner() {
     setSubmitError(null);
     setSubmitting(false);
     setUploadPct(null);
+    // Drop ?job= so a deep-linked project doesn't keep us out of the idle "New project"
+    // form (phase below treats a present ?job= as loading). Without this, reset couldn't
+    // return to idle when the URL still carried the job id.
+    if (jobParam) router.replace("/dashboard");
   }
 
   // `jobId` (set the moment a job starts) keeps us in "tracking" through the gap between submit
   // and the first status poll — otherwise the dashboard flashed back for a beat (worst on a Modal
   // cold start) before the first poll populated `job`.
+  // `jobParam`: a deep-link (e.g. editor's "All clips" → /dashboard?job=X) must NOT flash the idle
+  // "Create clips" form before the load effect runs. Treating a present ?job= as loading keeps us
+  // out of idle until the job resolves to its grid (done) — fixes "All clips lands on the dashboard".
   const phase = error
     ? "error"
     : job?.status === "done"
       ? "done"
-      : submitting || jobId
+      : submitting || jobId || jobParam
         ? "tracking"
         : "idle";
+  // Opening an existing project via deep-link, before the first poll populates `job`: show a neutral
+  // loader (not the JobProgress stepper, which implies "still processing" for an already-done clip).
+  const openingProject = !!jobParam && !job && !submitting;
 
   return (
     <div className="min-h-dvh">
@@ -156,7 +167,14 @@ function DashboardInner() {
           </div>
         ) : phase === "tracking" ? (
           <div className="flex justify-center py-8">
-            <JobProgress status={job?.status ?? "queued"} elapsed={elapsed} />
+            {openingProject ? (
+              <div className="flex flex-col items-center gap-3 py-10 text-center">
+                <Loader2 className="size-6 animate-spin text-accent" aria-hidden />
+                <p className="text-sm text-muted">Opening your project…</p>
+              </div>
+            ) : (
+              <JobProgress status={job?.status ?? "queued"} elapsed={elapsed} />
+            )}
           </div>
         ) : phase === "done" && job ? (
           <ClipGrid key={job.id} job={job} />

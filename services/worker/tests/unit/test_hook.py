@@ -154,6 +154,70 @@ class TestBuildHookEvent:
         assert "одна две" in dialogue
 
 
+# ─────────────────── build_hook_event анимация входа (A2) ───────────────────
+
+
+class TestBuildHookEventAnimation:
+    def _body(self, dialogue: str) -> str:
+        # текст события = после ПОСЛЕДНЕГО ",," (поле Text; Effect пустое перед ним)
+        return dialogue.rsplit(",,", 1)[1]
+
+    def test_none_is_baseline_unchanged(self) -> None:
+        # animation="none" (дефолт) → байт-в-байт как раньше (старый кэш хуков валиден)
+        h_none = HookOverlay(text="привет", uppercase=False, animation="none")
+        h_default = HookOverlay(text="привет", uppercase=False)
+        _, d_none = build_hook_event(h_none, clip_duration=10.0)
+        _, d_default = build_hook_event(h_default, clip_duration=10.0)
+        assert d_none == d_default
+        # никакого override-блока с \t у "none"
+        assert "{" not in self._body(d_none)
+
+    def test_pop_prepends_override_before_text(self) -> None:
+        _, dialogue = build_hook_event(
+            HookOverlay(text="привет", uppercase=False, animation="pop"), clip_duration=10.0
+        )
+        body = self._body(dialogue)
+        # override-блок В НАЧАЛЕ текста, перед самим текстом
+        assert body.startswith("{")
+        tag = body[: body.index("}") + 1]
+        assert "\\t(" in tag
+        assert "\\fscy" in tag
+        assert "\\fscx" not in tag  # ширину не трогаем (реврап-запрет)
+        assert "\\fsp" not in tag
+        # реальный текст идёт ПОСЛЕ override-блока
+        assert body[body.index("}") + 1 :] == "привет"
+
+    def test_fade_emits_alpha(self) -> None:
+        _, dialogue = build_hook_event(
+            HookOverlay(text="x", uppercase=False, animation="fade"), clip_duration=10.0
+        )
+        body = self._body(dialogue)
+        tag = body[: body.index("}") + 1]
+        assert "\\alpha" in tag
+        assert "\\t(" in tag
+        assert "\\fscx" not in tag
+
+    def test_bounce_emits_fscy_and_no_fscx(self) -> None:
+        _, dialogue = build_hook_event(
+            HookOverlay(text="x", uppercase=False, animation="bounce"), clip_duration=10.0
+        )
+        body = self._body(dialogue)
+        tag = body[: body.index("}") + 1]
+        assert "\\fscy" in tag
+        assert "\\t(" in tag
+        assert "\\fscx" not in tag
+
+    def test_animation_keeps_text_escaped(self) -> None:
+        # текст с {} остаётся экранированным; override-блок — настоящие скобки впереди
+        _, dialogue = build_hook_event(
+            HookOverlay(text="why {it}", uppercase=False, animation="pop"), clip_duration=10.0
+        )
+        body = self._body(dialogue)
+        assert body.startswith("{")  # override-блок
+        # экранированный пользовательский текст уцелел
+        assert "why \\{it\\}" in body
+
+
 # ─────────────────────────── compile_ass с хуком ───────────────────────────
 
 
