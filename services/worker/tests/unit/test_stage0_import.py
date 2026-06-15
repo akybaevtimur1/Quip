@@ -4,11 +4,32 @@
 длительности (stream → format). Поэтому тест-первым.
 """
 
+from pathlib import Path
+
 import pytest
 
 from app.errors import JobError
 from app.models import SourceKind
-from app.pipeline.stage0_import import build_source_meta, parse_fps
+from app.pipeline.stage0_import import build_preview_cmd, build_source_meta, parse_fps
+
+
+class TestBuildPreviewCmd:
+    """Pure-билдер ffmpeg-команды для лёгкого preview-прокси редактора."""
+
+    def test_h264_faststart_aac(self) -> None:
+        src, dst = Path("/d/source.mp4"), Path("/d/preview.mp4")
+        cmd = build_preview_cmd(src, dst, height=720, crf=30)
+        assert cmd[0] == "ffmpeg"
+        assert cmd[cmd.index("-c:v") + 1] == "libx264"  # H.264 → hw-декод в браузере (не AV1)
+        assert cmd[cmd.index("-movflags") + 1] == "+faststart"  # moov вперёд → быстрый старт
+        assert cmd[cmd.index("-c:a") + 1] == "aac"
+        assert cmd[-1] == str(dst)  # str(Path) → OS-разделители (Windows \ vs POSIX /)
+        assert str(src) in cmd
+
+    def test_height_and_crf_parametrized(self) -> None:
+        cmd = build_preview_cmd(Path("s.mp4"), Path("p.mp4"), height=540, crf=28)
+        assert cmd[cmd.index("-vf") + 1] == "scale=-2:540"  # -2 = чётная ширина по аспекту
+        assert cmd[cmd.index("-crf") + 1] == "28"
 
 
 class TestParseFps:

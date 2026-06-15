@@ -205,6 +205,34 @@ def extract_audio(mp4: Path, wav: Path) -> None:
         raise JobError(_STAGE, f"ffmpeg не создал {wav}")
 
 
+def build_preview_cmd(src: Path, dst: Path, *, height: int = 720, crf: int = 30) -> list[str]:
+    """ffmpeg-команда для лёгкого preview-прокси редактора. PURE.
+
+    Полный source.mp4 (1080p, 50-100МБ, иногда AV1) грузился в редакторе долго. Прокси =
+    масштаб до ``height`` (``-2`` = чётная ширина по аспекту), H.264 (hw-декод в браузере, не
+    софт-AV1), low-bitrate ``crf``, ``+faststart`` (moov вперёд → мгновенный старт/seek). Рендер
+    финального клипа идёт из ПОЛНОГО source → качество не падает. ``height`` вызывающий клампит
+    высотой источника (без апскейла).
+    """
+    return [
+        "ffmpeg", "-y", "-i", str(src),
+        "-vf", f"scale=-2:{height}",
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", str(crf),
+        "-c:a", "aac", "-b:a", "96k",
+        "-movflags", "+faststart",
+        str(dst),
+    ]  # fmt: skip
+
+
+def build_preview_proxy(src: Path, dst: Path, *, height: int = 720, crf: int = 30) -> None:
+    """Сгенерировать preview.mp4 из source.mp4 (кэш по наличию). JobError при сбое ffmpeg."""
+    if dst.exists():
+        return  # уже есть — не перекодируем (повторный прогон = $0/0с)
+    _run(build_preview_cmd(src, dst, height=height, crf=crf))
+    if not dst.exists():
+        raise JobError(_STAGE, f"ffmpeg не создал preview {dst}")
+
+
 def probe_video(mp4: Path) -> dict[str, Any]:
     """ffprobe → dict (streams[0]: width/height/r_frame_rate/duration + format.duration)."""
     proc = _run(

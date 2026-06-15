@@ -22,7 +22,7 @@ from app import db, storage
 from app.config import get_settings
 from app.errors import JobError
 from app.models import ClipOut, Job, JobStatus, Metrics, Segment, Transcript, Word
-from app.pipeline.stage0_import import SourceMeta, import_youtube
+from app.pipeline.stage0_import import SourceMeta, build_preview_proxy, import_youtube
 from app.pipeline.stage1_transcribe import DEEPGRAM_NOVA_USD_PER_MIN, transcribe_to_file
 from app.pipeline.stage2_select import select_segments
 from app.pipeline.stage3_reframe import reframe_segment
@@ -237,9 +237,20 @@ def run_pipeline(
     stages["reframe"] = round(reframe_t, 2)
     stages["render"] = round(render_t, 2)
 
-    # ── persist для облака (Modal): источник в R2 (редактор-рендер на другом контейнере) +
+    # ── preview-прокси: лёгкий source для БЫСТРОЙ загрузки в редакторе (≤preview_height H.264
+    #    faststart). Кэш по наличию (повтор = $0/0с). Высота клампится высотой источника (без
+    #    апскейла). Рендер клипов идёт из ПОЛНОГО source выше → качество не падает. ──
+    t0 = time.perf_counter()
+    build_preview_proxy(
+        out / "source.mp4", out / "preview.mp4",
+        height=min(s.preview_height, meta.height), crf=s.preview_crf,
+    )  # fmt: skip
+    stages["preview_proxy"] = round(time.perf_counter() - t0, 2)
+
+    # ── persist для облака (Modal): источник + preview-прокси в R2 (редактор на др. контейнере) +
     #    артефакты (meta/segments/transcript) в Postgres job_artifacts. Локально оба = no-op. ──
     storage.upload_source(out / "source.mp4", job_id)
+    storage.upload_preview(out / "preview.mp4", job_id)
     db.put_job_artifacts(
         job_id,
         meta.model_dump(),

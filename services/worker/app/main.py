@@ -324,18 +324,40 @@ def get_job(job_id: str) -> dict[str, Any]:
 
 @app.get("/jobs/{job_id}/source.mp4")
 def get_source(job_id: str) -> Response:
-    """Исходное видео для live-превью редактора. local → файл с диска; r2 → 302 на presigned R2."""
+    """Полный исходник (редактор-рендер / фолбэк превью). local → диск; r2 → 302 на CDN (или
+    presigned). Раньше всегда presigned-origin без кэша = медленно; теперь CDN при R2_PUBLIC_URL."""
     s = get_settings()
     if s.storage_backend == "r2":
         from fastapi.responses import RedirectResponse
 
-        from app.storage import presigned_source_url
+        from app.storage import source_read_url
 
-        return RedirectResponse(presigned_source_url(job_id))
+        return RedirectResponse(source_read_url(job_id))
     path = DATA_ROOT / job_id / "source.mp4"
     if not path.exists():
         raise HTTPException(status_code=404, detail="source not found")
     return FileResponse(str(path), media_type="video/mp4")
+
+
+@app.get("/jobs/{job_id}/preview.mp4")
+def get_preview(job_id: str) -> Response:
+    """Лёгкий preview-прокси для БЫСТРОЙ загрузки видео в редакторе (≤720p H.264 faststart, пара МБ
+    вместо 50-100МБ source; H.264 = hw-декод, не софт-AV1). Нет прокси (старый джоб до фичи) →
+    прозрачный фолбэк на полный source. local → диск; r2 → 302 на CDN/presigned."""
+    s = get_settings()
+    if s.storage_backend == "r2":
+        from fastapi.responses import RedirectResponse
+
+        from app.storage import preview_read_url
+
+        return RedirectResponse(preview_read_url(job_id))
+    prev = DATA_ROOT / job_id / "preview.mp4"
+    if prev.exists():
+        return FileResponse(str(prev), media_type="video/mp4")
+    src = DATA_ROOT / job_id / "source.mp4"
+    if src.exists():
+        return FileResponse(str(src), media_type="video/mp4")
+    raise HTTPException(status_code=404, detail="preview/source not found")
 
 
 @app.get("/jobs/{job_id}/timeline")

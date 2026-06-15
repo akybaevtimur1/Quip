@@ -137,6 +137,57 @@ def download_source(job_id: str, dest: Path) -> None:
         raise JobError("storage", f"R2 download source {job_id} failed: {e}") from e
 
 
+def preview_object_key(job_id: str) -> str:
+    """Ключ лёгкого preview-прокси (для быстрой загрузки в редакторе) в R2. PURE."""
+    return f"{job_id}/preview.mp4"
+
+
+def upload_preview(local_path: Path, job_id: str) -> None:
+    """Залить preview.mp4 в R2 (cloud). local — no-op. Стрим (upload_file). JobError при сбое."""
+    s = get_settings()
+    if s.storage_backend != "r2":
+        return
+    try:
+        _r2_client().upload_file(
+            str(local_path),
+            s.r2_bucket,
+            preview_object_key(job_id),
+            ExtraArgs={"ContentType": "video/mp4"},
+        )
+    except Exception as e:  # noqa: BLE001
+        raise JobError("storage", f"R2 upload preview {job_id} failed: {e}") from e
+
+
+def _r2_read_url(key: str) -> str:
+    """Живой URL R2-объекта для чтения браузером: публичный CDN (если задан R2_PUBLIC_URL),
+    ИНАЧЕ presigned GET. CDN = кэш на краю + нет presigned-протухания → быстрее source/preview.
+    """
+    s = get_settings()
+    if s.r2_public_url:
+        return public_url(s.r2_public_url, key)
+    return _presigned_get(_r2_client(), s.r2_bucket, key, s.signed_url_ttl)
+
+
+def source_read_url(job_id: str) -> str:
+    """URL source.mp4 для редактора — CDN (если есть) иначе presigned (быстрее presigned-origin)."""
+    return _r2_read_url(source_object_key(job_id))
+
+
+def preview_read_url(job_id: str) -> str:
+    """URL preview-прокси, если он есть в R2; ИНАЧЕ — source (фолбэк для старых джоб без прокси).
+
+    head_object — дешёвая проверка наличия. Любой сбой/404 → отдаём source: прокси = ОПТИМИЗАЦИЯ,
+    source = источник правды, видео в редакторе всё равно загрузится (деградация, не поломка).
+    """
+    s = get_settings()
+    key = preview_object_key(job_id)
+    try:
+        _r2_client().head_object(Bucket=s.r2_bucket, Key=key)
+    except Exception:  # noqa: BLE001 — нет прокси (старый джоб) / R2-блип → фолбэк на source
+        return source_read_url(job_id)
+    return _r2_read_url(key)
+
+
 def upload_clip(local_path: Path, job_id: str, clip_id: str, *, variant: str = "") -> str:
     """Сохранить готовый клип → вернуть ДОЛГОВЕЧНЫЙ ``video_url``.
 

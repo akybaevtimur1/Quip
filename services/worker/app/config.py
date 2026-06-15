@@ -107,6 +107,12 @@ class Settings(BaseSettings):
     # storage.py отдаёт presigned GET URL (работает на голых R2-ключах, без публичного бакета).
     r2_public_url: str = ""
     signed_url_ttl: int = 604800  # presigned GET TTL, сек (R2 максимум = 7 дней)
+    # ── preview-прокси (лёгкий source для редактора: быстрая загрузка, H.264, faststart) ──
+    # Полный source.mp4 (1080p, 50-100МБ, иногда AV1 = софт-декод) грузился в редакторе долго.
+    # preview.mp4 = ≤preview_height H.264 crf preview_crf → пара МБ, hw-декод. Рендер — из source
+    # (качество не падает). preview_height клампится сверху высотой источника (без апскейла).
+    preview_height: int = 720
+    preview_crf: int = 30
     # job-стейт через psycopg-пулер (опц.). Воркер по умолчанию пишет стейт через PostgREST
     # (см. app/cloud_state.py) — этот URL НЕ обязателен. Оставлен для будущего psycopg-пути.
     supabase_db_url: str = ""

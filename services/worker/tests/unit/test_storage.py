@@ -6,13 +6,21 @@ from app.storage import (
     key_from_ref,
     key_ref,
     local_url,
+    preview_object_key,
     public_url,
+    source_object_key,
     storage_object_key,
 )
 
 
 def test_storage_object_key() -> None:
     assert storage_object_key("job_abc", "clip_01") == "job_abc/clip_01.mp4"
+
+
+def test_source_and_preview_keys_distinct() -> None:
+    assert source_object_key("job_abc") == "job_abc/source.mp4"
+    assert preview_object_key("job_abc") == "job_abc/preview.mp4"
+    assert source_object_key("job_abc") != preview_object_key("job_abc")
 
 
 def test_public_url_joins_base_and_key() -> None:

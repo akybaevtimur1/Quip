@@ -136,8 +136,10 @@ export default function ClipEditorScreen({
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Воркер-эндпоинт: локально отдаёт source.mp4 с диска, на Modal — 302 на presigned R2.
-  const sourceSrc = useMemo(() => resolveUrl(`jobs/${jobId}/source.mp4`), [jobId]);
+  // Воркер-эндпоинт: лёгкий preview-прокси (≤720p H.264 faststart, пара МБ) для БЫСТРОЙ загрузки.
+  // Бэкенд прозрачно фолбэчит на полный source.mp4 для старых джоб без прокси. На Modal — 302 на
+  // CDN (cdn.quip.ink). Превью-кроп — по долям (res-независим), субтитры — libass-оверлей → 720p ок.
+  const sourceSrc = useMemo(() => resolveUrl(`jobs/${jobId}/preview.mp4`), [jobId]);
   const outerStart = edit?.source_intervals[0]?.source_start ?? 0;
   const outerEnd =
     edit?.source_intervals[edit.source_intervals.length - 1]?.source_end ?? 0;
