@@ -190,6 +190,24 @@ def test_parse_payg_order_respects_quantity() -> None:
     )
 
 
+def test_parse_payg_order_accepts_comma_separated_product_ids() -> None:
+    # ``product_payg`` = список id через запятую (основной $2 + тестовый $1) → заказ любого
+    # из них начисляет кредиты; продукт вне списка игнорируется.
+    ids = "p_main, p_test_1"
+    main = {
+        "type": "order.paid",
+        "data": {"product_id": "p_main", "customer": {"external_id": "u"}},
+    }
+    test = {
+        "type": "order.paid",
+        "data": {"product_id": "p_test_1", "customer": {"external_id": "u"}},
+    }
+    other = {"type": "order.paid", "data": {"product_id": "p_x", "customer": {"external_id": "u"}}}
+    assert polar.parse_payg_order(main, product_payg=ids) == ("u", 1)
+    assert polar.parse_payg_order(test, product_payg=ids) == ("u", 1)
+    assert polar.parse_payg_order(other, product_payg=ids) is None
+
+
 def test_parse_payg_order_ignores_other_product() -> None:
     payload = {
         "type": "order.paid",

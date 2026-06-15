@@ -159,12 +159,18 @@ def parse_payg_order(
     None, если ивент не про разовую оплату, продукт не наш, или нет user_id.
     """
     event = str(payload.get("type", ""))
-    if event not in _ORDER_PAID_EVENTS or not product_payg:
+    if event not in _ORDER_PAID_EVENTS:
+        return None
+    # ``product_payg`` может быть СПИСКОМ id через запятую (несколько PAYG-продуктов: основной
+    # + тестовый $1 и т.п.) — заказ любого из них начисляет кредиты. PURE, по product_id (он
+    # всегда в payload), без зависимости от вложенных метаданных.
+    payg_ids = {p.strip() for p in product_payg.split(",") if p.strip()}
+    if not payg_ids:
         return None
     data = payload.get("data") or {}
     if not isinstance(data, dict):
         return None
-    if str(data.get("product_id", "")) != product_payg:
+    if str(data.get("product_id", "")) not in payg_ids:
         return None
     user_id = _extract_user_id(data)
     if not user_id:
