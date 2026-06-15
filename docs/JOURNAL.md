@@ -743,3 +743,66 @@ accurate) Рё С„РѕСЂРє `if reframe_speaker:` вЂ” РґРІР° Рѕ
   `?job=` до `start()`; reset чистит `?job=`).
 - DoD: `just check` зелёный (550 pytest), `next build` зелёный. ⚠️ Визуал (libass рисует хук-анимацию/
   стиль, драг, instant) — судит фаундер глазами (libass автоматом не верифицируется).
+
+### Сессия 2026-06-15 (вечер): video-speedup + ПЕРЕПИСАН upload (direct→R2) + правки
+Продолжение той же сессии (hook styling + editor lag — запись выше). Всё на main, задеплоено
+(worker на Modal: `modal deploy deploy/modal/worker.py`; frontend на Vercel: push в main).
+
+**Editor video-load ускорен (коммит `b8d4d4c`):** редактор грузил ВЕСЬ source.mp4 (50-160МБ, иногда
+AV1 = софт-декод в браузере) ради 30с-окна; на проде source шёл presigned-origin БЕЗ CDN.
+- preview-прокси: `build_preview_proxy`/`build_preview_cmd` (stage0) → ≤720p H.264 faststart;
+  генерится в `run_pipeline` (кэш по наличию `preview.mp4`), льётся в R2 (`storage.upload_preview`).
+  Рендер клипов — из ПОЛНОГО source (качество не падает). Замер: AV1 58МБ→H.264 29МБ, H.264 99МБ→28МБ,
+  faststart=True. Главный выигрыш — AV1→H.264 (hw-декод) + faststart + меньше размер.
+- CDN для source/preview: `source_read_url`/`preview_read_url`/`_r2_read_url` отдают cdn.quip.ink
+  (R2_PUBLIC_URL) вместо presigned-origin (кэш на краю, без протухания). `preview_read_url`
+  head_object → нет прокси (старый джоб) фолбэк на source.
+- Эндпоинты: `GET /jobs/{job}/preview.mp4` (фолбэк на source); `GET .../source.mp4` теперь тоже CDN.
+- Фронт: редактор грузит `jobs/<job>/preview.mp4`. config: `preview_height=720`, `preview_crf=30`.
+
+**Vercel Analytics (коммит `5056621`):** `<Analytics/>` (`@vercel/analytics/next`) в root layout —
+НИЧЕГО не рисует, шлёт pageview/события в Vercel. ⚠️ ФАУНДЕРУ: ВКЛЮЧИТЬ Analytics в дашборде проекта
+Vercel (вкладка Analytics → Enable), иначе данные не собираются. В dev — no-op.
+
+**Upload ПЕРЕПИСАН на direct browser→R2 (коммит `d12a06c`) — ГЛАВНОЕ изменение архитектуры:**
+- Проблема: большие видео через ОДИН долгий POST на Modal web-функцию РВАЛИСЬ. Эволюция диагноза:
+  (1) 900s-таймаут web-функции (стрял на 100%+500) → стрим `upload_source` + web timeout 3600
+  (коммит `abe450f`); (2) всё равно рвалось — оборванный (truncated) multipart → сервер 400, браузер
+  показывал как CORS «No ACAO header»/ERR_FAILED. ДОКАЗАНО тестами: оборванный POST→400; presigned
+  PUT→R2 200+readback; CORS-конфиг корректен (401 несёт ACAO); Modal-лимит=4GiB (не размер).
+  КОРЕНЬ — фрагильность ОДНОГО долгого запроса через Modal web на больших файлах.
+- Фикс: браузер грузит файл ПРЯМО в R2 (Cloudflare edge, надёжно), МИНУЯ Modal web-функцию:
+  - `storage.presigned_put_url` (SigV4 path-style как `_r2_client`) + `storage.set_upload_cors`.
+  - `POST /jobs/upload-url` → {id, put_url} в cloud | {local:true} в dev (→ старый multipart-путь).
+  - `POST /jobs/{id}/upload-complete` → `db.insert_job` + spawn `upload_job` (качает source из R2 —
+    путь не изменился). Джоб создаётся ТУТ (после успешного PUT) → отменённая загрузка не оставляет
+    «queued»-сироту. Квота `_enforce_quota` гейтится в upload-url И в upload-complete (security review).
+  - Фронт `createUploadJob`: upload-url → PUT в R2 (XHR ради progress+abort) → upload-complete;
+    local-фолбэк (multipart POST /jobs/upload) сохранён для dev.
+  - `deploy/modal/r2_setup.py` — one-off: проверка presigned PUT + симуляция браузерного CORS-флоу.
+- ⚠️⚠️ ТРЕБУЕТ CORS-правило на R2-бакете (токен воркера БЕЗ bucket-admin → ставит ФАУНДЕР в дашборде
+  Cloudflare R2 → bucket `quip` → Settings → CORS Policy). **СДЕЛАНО фаундером 2026-06-15.** JSON
+  правила — в `deploy/modal/r2_setup.py` (AllowedOrigins app.quip.ink + *.vercel.app + localhost,
+  Methods PUT/GET/HEAD). Без CORS браузерный PUT блокируется. Проверено: preflight 204+ACAO, PUT 200+ACAO.
+
+**Security review (коммит `4a07518`):** `/upload-complete` теперь тоже `_enforce_quota` (не только в
+upload-url) — спавн платной джобы без гейта недопустим. IDOR по job_id закрыт дизайном (серверный
+случайный uuid + per-job presigned PUT → чужой id не угадать).
+
+**Прочие фиксы:**
+- Заброшенные загрузки (коммит `706051a`): `createUploadJob` принимает `AbortSignal`; dashboard абортит
+  на reset/unmount/новый-сабмит + double-submit guard. Уход во время загрузки не плодит сирот/гонок.
+- Vercel build break (коммит `ee31a12`): я реверетнул root `package.json` (от analytics) БЕЗ ресинка
+  lockfile → `--frozen-lockfile` на Vercel падал. УРОК: после `pnpm add` НЕ ревертить package.json
+  без `pnpm install` (lockfile рассинхронится). Фикс — `pnpm install` (analytics только в apps/web).
+- Видео БЕЗ аудио (коммит `6ee49a5`): `has_audio_stream` (ffprobe `-select_streams a`) → ЧЁТКАЯ ошибка
+  до ffmpeg вместо «Output file does not contain any stream / код 234». Quip режет по РЕЧИ → звук
+  обязателен. Проверено на РЕАЛЬНОМ 159МБ файле фаундера (75мин AV1, БЕЗ звуковой дорожки).
+
+**⚠️ Открытое / ручное на следующую сессию:**
+- ВКЛЮЧИТЬ Vercel Analytics в дашборде (код готов, ждёт тогла).
+- Editor-визуал (libass рисует hook/анимацию/стиль, instant-превью, драг) — судит фаундер ГЛАЗАМИ
+  (libass автотестами не верифицируется).
+- Direct-upload работает ТОЛЬКО в cloud; local dev = старый multipart (это ок).
+- R2 CORS выставлен; если бакет пересоздадут — повторить (JSON в `deploy/modal/r2_setup.py`).
+- Воркер deployed с этим кодом; frontend на main (Vercel auto-deploy). just check / next build зелёные.

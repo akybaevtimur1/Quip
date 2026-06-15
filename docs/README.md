@@ -25,6 +25,16 @@
   and verified. Pricing = **credit model** (Free $0 / 2 · Starter $10 / 10 · Pro $25 / 30 · PAYG $2);
   source of truth = `services/worker/app/billing.py`, mirrored by `apps/web/lib/plans.ts`.
 - **Auth:** Supabase (Google OAuth + email). The `(app)` route group is gated.
+- **Uploads = direct browser→R2** (presigned PUT), NOT through the worker. `POST /jobs/upload-url`
+  → browser PUTs straight to R2 → `POST /jobs/{id}/upload-complete` spawns processing. Needs an R2
+  **CORS rule** on the bucket (set in Cloudflare dashboard — done; JSON in `deploy/modal/r2_setup.py`).
+  Local dev still uses the old multipart `POST /jobs/upload`. (Old single-POST path broke on big files.)
+- **Editor preview video = a lightweight `preview.mp4` proxy** (≤720p H.264 faststart, made per job),
+  served via CDN (`cdn.quip.ink`); source also CDN now. Render still uses the full source. Old jobs
+  fall back to source. (Editor video used to load the full 50–160 MB source → slow.)
+- **Vercel Analytics** is wired (`<Analytics/>`), invisible. ⚠️ Must be **enabled once** in the Vercel
+  project dashboard (Analytics tab) for data to flow.
+- **Pipeline needs audio:** a video with no audio track fails early with a clear message (Quip cuts on speech).
 
 ### Shipped (this is "all of it" up to 2026-06-15)
 Phase 0 pipeline → Editor v3 → production shell (landing/auth/dashboard/pricing) → Modal deploy →
@@ -33,7 +43,14 @@ night-audit bug sweep → **billing live** (Polar signature fix, PAYG decrement,
 **site-wide support email** (`ceo@quip.ink`) → **promo codes** (`redeem_promo` RPC; code `PODCAST2`
 = 2 credits live) → **upload-only source form** (YouTube link hidden for now) → **Free per-video cap
 removed** (video length limited only by remaining minutes + 3h technical ceiling) → dashboard
-flash fix. Founder account = Pro + 1000 credits (for testing).
+flash fix → **hook styling parity** (preset gallery + controls + entrance animation + drag) →
+**editor lag/UX** (instant client-side caption preview, durable edits, libass stale-frame fix, preset
+no longer resets position, "All clips" → grid directly) → **Vercel Analytics** → **editor video speedup**
+(preview-proxy + CDN) → **upload rewrite** (direct browser→R2, fixes large uploads) → no-audio clear
+error. Founder account = Pro + 1000 credits (for testing).
+
+> 2026-06-15 detail → `docs/JOURNAL.md` (last two entries). ⚠️ The upload architecture changed this
+> session — read the "Upload ПЕРЕПИСАН на direct→R2" journal entry before touching the upload path.
 
 ---
 
