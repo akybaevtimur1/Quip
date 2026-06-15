@@ -183,8 +183,37 @@ def download_youtube(
     return mp4
 
 
+def has_audio_stream(mp4: Path) -> bool:
+    """ffprobe: есть ли в файле хоть один аудио-поток. Видео без звука → False."""
+    proc = _run(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-select_streams",
+            "a",
+            "-show_entries",
+            "stream=index",
+            "-of",
+            "csv=p=0",
+            str(mp4),
+        ]  # fmt: skip
+    )
+    return bool(proc.stdout.strip())
+
+
 def extract_audio(mp4: Path, wav: Path) -> None:
-    """ffmpeg: source.mp4 → 16000 Hz mono pcm_s16le WAV (для транскрипции)."""
+    """ffmpeg: source.mp4 → 16000 Hz mono pcm_s16le WAV (для транскрипции).
+
+    Нет аудио-потока (видео без звука) → ЧЁТКАЯ ошибка до ffmpeg (иначе пустой WAV → «Output file
+    does not contain any stream», код 234 — непонятно юзеру). Quip режет по РЕЧИ → звук обязателен.
+    """
+    if not has_audio_stream(mp4):
+        raise JobError(
+            _STAGE,
+            "This video has no audio track. Quip finds clips from speech, "
+            "so please upload a video that has sound.",
+        )
     _run(
         [
             "ffmpeg",
