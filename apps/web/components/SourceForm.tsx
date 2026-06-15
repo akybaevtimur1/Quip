@@ -1,6 +1,6 @@
 "use client";
 
-import { Link2, Minus, Plus, Scissors, Upload, X } from "lucide-react";
+import { Minus, Plus, Scissors, Upload, X } from "lucide-react";
 import { useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { IconButton } from "@/components/ui/IconButton";
@@ -11,23 +11,22 @@ const DEFAULT_CLIPS = 6;
 const MAX_UPLOAD_MB = 500;
 
 export function SourceForm({
-  onSubmit,
   onSubmitFile,
   busy,
 }: {
-  onSubmit: (url: string, maxClips: number) => void;
+  // onSubmit (YouTube-link path) kept optional for compatibility — the link input is hidden
+  // for now (upload-only); re-add the URL field here to restore it.
+  onSubmit?: (url: string, maxClips: number) => void;
   onSubmitFile: (file: File, maxClips: number) => void;
   busy: boolean;
 }) {
-  const [url, setUrl] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
   const [count, setCount] = useState(DEFAULT_CLIPS);
   const [dragging, setDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const urlValid = /youtu\.?be/i.test(url) && url.trim().length > 12;
-  const canSubmit = !busy && (file != null || urlValid);
+  const canSubmit = !busy && file != null;
   const clamp = (n: number) => Math.max(MIN_CLIPS, Math.min(MAX_CLIPS, n));
 
   function pickFile(f: File | null) {
@@ -45,45 +44,16 @@ export function SourceForm({
       return;
     }
     setFile(f);
-    setUrl(""); // file chosen → clear URL (file takes priority)
   }
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!canSubmit) return;
-    if (file) onSubmitFile(file, count);
-    else onSubmit(url.trim(), count);
+    if (!canSubmit || !file) return;
+    onSubmitFile(file, count);
   }
 
   return (
     <form onSubmit={handleSubmit} className="w-full max-w-xl">
-      <div className="flex flex-col gap-3 sm:flex-row">
-        <div className="relative flex-1">
-          <Link2 className="pointer-events-none absolute left-3 top-1/2 size-5 -translate-y-1/2 text-muted" />
-          <input
-            type="url"
-            inputMode="url"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            placeholder="Paste a YouTube video link"
-            disabled={busy || file != null}
-            aria-label="YouTube video link"
-            className="h-12 w-full rounded-sm border border-line bg-surface pl-10 pr-3 text-ink placeholder:text-faint outline-none transition-colors duration-200 ease-snappy hover:border-line-strong focus:border-accent/60 disabled:opacity-50"
-          />
-        </div>
-        <Button
-          type="submit"
-          variant="accent"
-          size="lg"
-          loading={busy}
-          disabled={!canSubmit}
-          className="h-12"
-        >
-          {!busy && <Scissors className="size-5" />}
-          {busy ? "Starting…" : "Make clips"}
-        </Button>
-      </div>
-
       {/* Загрузка файла: drop-zone или плашка выбранного файла */}
       {file == null ? (
         <div
@@ -101,15 +71,18 @@ export function SourceForm({
           role="button"
           tabIndex={0}
           aria-label="Upload a video file"
-          className={`mt-3 flex cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed px-4 py-3 text-sm text-muted transition duration-200 ease-snappy hover:border-line-strong hover:text-ink ${
+          className={`flex cursor-pointer flex-col items-center justify-center gap-2 rounded-md border border-dashed px-4 py-10 text-center text-sm text-muted transition duration-200 ease-snappy hover:border-line-strong hover:text-ink ${
             dragging ? "border-accent bg-surface-2" : "border-line bg-surface"
           } ${busy ? "pointer-events-none opacity-50" : ""}`}
         >
-          <Upload className="size-4" />
-          Drag a video here or <span className="font-medium text-ink">choose a file</span>
+          <Upload className="size-6 text-accent" />
+          <span>
+            Drag a video here or <span className="font-medium text-ink">choose a file</span>
+          </span>
+          <span className="text-xs text-faint">MP4, MOV… up to {MAX_UPLOAD_MB} MB</span>
         </div>
       ) : (
-        <div className="mt-3 flex items-center justify-between gap-2 rounded-md border border-line bg-surface px-4 py-3">
+        <div className="flex items-center justify-between gap-2 rounded-md border border-line bg-surface px-4 py-3">
           <span className="flex items-center gap-2 truncate text-sm text-ink">
             <Upload className="size-4 shrink-0 text-accent" />
             <span className="truncate">{file.name}</span>
@@ -133,7 +106,7 @@ export function SourceForm({
       />
       {fileError ? <p className="mt-1 pl-1 text-sm text-bad">{fileError}</p> : null}
 
-      <div className="mt-3 flex items-center gap-3 pl-1">
+      <div className="mt-4 flex items-center gap-3 pl-1">
         <span className="text-sm text-muted">Clips:</span>
         <div className="inline-flex items-center gap-1 rounded-md border border-line bg-surface p-1">
           <IconButton
@@ -160,8 +133,22 @@ export function SourceForm({
         </div>
         <span className="text-xs text-muted">AI suggests — uncheck any you don’t want</span>
       </div>
-      <p className="mt-2 pl-1 text-sm text-muted">
-        One speaker, up to 90 minutes. YouTube link or a file from your computer.
+
+      <Button
+        type="submit"
+        variant="accent"
+        size="lg"
+        loading={busy}
+        disabled={!canSubmit}
+        className="mt-4 h-12 w-full sm:w-auto"
+      >
+        {!busy && <Scissors className="size-5" />}
+        {busy ? "Starting…" : "Make clips"}
+      </Button>
+
+      <p className="mt-3 pl-1 text-sm text-muted">
+        Upload any video — its length just has to fit your remaining minutes (and up to 3 hours per
+        video). 1 credit = 60 minutes.
       </p>
     </form>
   );

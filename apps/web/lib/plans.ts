@@ -5,7 +5,7 @@
  * Video-minutes model: 1 "video" = 60 min of source. A plan's monthly limit is a pool of
  * minutes (videos × 60); a longer video just uses minutes proportionally (90 min = 1.5
  * videos), so the balance is shown as both videos and minutes. No token casino, no surprise
- * paywalls. Free caps a single video at 60 min (upsell to Starter for longer).
+ * paywalls. A single video can be up to 3 hours; length is limited only by your remaining minutes.
  */
 export type PlanId = "free" | "starter" | "pro";
 
@@ -31,7 +31,7 @@ export const PLANS: PlanDisplay[] = [
     price: 0,
     tagline: "See it work, no card required.",
     limit: "2 videos / month",
-    limitNote: "120 min total. A single video can be up to 60 min.",
+    limitNote: "120 minutes of source to use however you like.",
     cta: "Start free",
     features: [
       "Explainable clips with hook, score and reason",

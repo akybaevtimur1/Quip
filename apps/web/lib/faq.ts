@@ -22,6 +22,6 @@ export const FAQ: { q: string; a: string }[] = [
   },
   {
     q: "Is the free plan actually free?",
-    a: "Yes. 2 videos a month, up to 60 minutes each, no card required. Free exports carry a small watermark; paid plans drop it and export at 1080p.",
+    a: "Yes. 2 videos a month — that’s 120 minutes of source to use however you like (one long episode or a few short ones), no card required. Free exports carry a small watermark; paid plans drop it and export at 1080p.",
   },
 ];

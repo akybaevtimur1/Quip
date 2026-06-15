@@ -68,11 +68,14 @@ class TestCheckQuota:
         assert check_quota("free", 119.0, 0.0, 1.0).allowed is True
         assert check_quota("free", 120.0, 0.0, 5.0).allowed is False
 
-    def test_free_per_video_cap_60_min_upsell(self) -> None:
-        # одно видео > 60 мин на free → апселл на Starter (даже если месячных минут хватает)
-        d = check_quota("free", 0.0, 0.0, 90.0)
-        assert d.allowed is False
-        assert d.reason is not None and "60 min" in d.reason and "Starter" in d.reason
+    def test_free_has_no_per_video_cap_only_quota(self) -> None:
+        # Free больше НЕ капит длину одного видео: 90-мин видео ОК, если влезает в месячный
+        # пул (120 мин). Длина ограничена только остатком минут + техпотолком.
+        assert check_quota("free", 0.0, 0.0, 90.0).allowed is True
+        # видео длиннее остатка минут (120) → отказ по КВОТЕ, не по per-video кэпу
+        over = check_quota("free", 0.0, 0.0, 130.0)
+        assert over.allowed is False
+        assert over.reason is not None and "minutes" in over.reason.lower()
 
     def test_hard_ceiling_blocks_very_long_for_any_plan(self) -> None:
         d = check_quota("pro", 0.0, 0.0, MAX_VIDEO_MINUTES + 1)

@@ -53,7 +53,8 @@ PLANS: dict[str, PlanLimits] = {
         name="Free",
         price_usd=0.0,
         monthly_videos=2,  # 2 видео = 120 мин/мес
-        max_video_minutes=60,  # одно видео ≤ 60 мин (длиннее → апселл на Starter)
+        max_video_minutes=None,  # без per-video кэпа: длина видео ограничена только остатком
+        # минут (квота) + техпотолок MAX_VIDEO_MINUTES. Раньше Free капился 60 мин/видео.
         watermark=True,
         max_resolution=720,
     ),  # fmt: skip
