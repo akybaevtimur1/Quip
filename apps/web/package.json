@@ -15,6 +15,7 @@
     "@remotion/captions": "^4.0.475",
     "@supabase/ssr": "^0.12.0",
     "@supabase/supabase-js": "^2.108.1",
+    "@vercel/analytics": "^2.0.1",
     "libass-wasm": "^4.1.0",
     "lucide-react": "^1.17.0",
     "next": "16.2.7",

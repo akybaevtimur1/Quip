@@ -1,3 +1,4 @@
+import { Analytics } from "@vercel/analytics/next";
 import type { Metadata } from "next";
 import { IBM_Plex_Mono, Onest } from "next/font/google";
 import { FeedbackWidget } from "@/components/app/FeedbackWidget";
@@ -71,6 +72,10 @@ export default function RootLayout({
         <NavProgress />
         {children}
         <FeedbackWidget />
+        {/* Vercel Web Analytics — НИЧЕГО не рисует, только шлёт pageview/событие в Vercel
+            (смотреть на дашборде проекта, вкладка Analytics). На Vercel надо один раз включить
+            Analytics в настройках проекта; в локальном dev — no-op. */}
+        <Analytics />
       </body>
     </html>
   );
