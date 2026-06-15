@@ -1,5 +1,9 @@
 # Deploying the Quip web app (apps/web)
 
+> ⚠️ **OUTDATED step 1.** The web app already lives on the Vercel project **`quip-app`**, which
+> **auto-deploys on every push to `main`** — you do NOT need to "create a new Vercel project."
+> The env-var table below is still correct. Current truth: `docs/README.md`.
+
 The whole site (landing + auth + dashboard + editor + pricing) is **one Next.js app**
 in `apps/web`. Everything that changes per-environment is **env-driven — no code edits to
 move domains.** This is the checklist to put it on a real domain.
