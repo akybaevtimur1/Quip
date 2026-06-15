@@ -17,6 +17,13 @@ export const siteConfig = {
   supportEmail: process.env.NEXT_PUBLIC_SUPPORT_EMAIL ?? "ceo@quip.ink",
   // Founder can fill these in; used only for social cards / JSON-LD if present.
   twitterHandle: process.env.NEXT_PUBLIC_TWITTER_HANDLE ?? undefined,
+  // Search-engine ownership verification tokens (PUBLIC — they render in the page,
+  // not secrets). Yandex.Webmaster token confirmed 2026-06-15. Env overrides the
+  // default so the token can rotate without a code change. Also served as a static
+  // file at /yandex_<token>.html (public/) for Yandex's HTML-file method.
+  yandexVerification:
+    process.env.NEXT_PUBLIC_YANDEX_VERIFICATION ?? "4232fdc5dc030e61",
+  googleVerification: process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION ?? undefined,
 } as const;
 
 export type SiteConfig = typeof siteConfig;
