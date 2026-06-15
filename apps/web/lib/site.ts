@@ -24,6 +24,9 @@ export const siteConfig = {
   yandexVerification:
     process.env.NEXT_PUBLIC_YANDEX_VERIFICATION ?? "4232fdc5dc030e61",
   googleVerification: process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION ?? undefined,
+  // Yandex.Metrica counter id (PUBLIC). Drives behavioral signals for Yandex ranking
+  // (Webvisor enabled in the dashboard). Env overrides for rotation; empty disables.
+  yandexMetrikaId: process.env.NEXT_PUBLIC_YANDEX_METRIKA_ID ?? "109870225",
 } as const;
 
 export type SiteConfig = typeof siteConfig;
