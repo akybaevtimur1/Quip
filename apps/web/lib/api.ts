@@ -68,6 +68,7 @@ export async function createUploadJob(
   file: File,
   maxClips?: number,
   onProgress?: (pct: number) => void,
+  signal?: AbortSignal,
 ): Promise<{ id: string }> {
   const form = new FormData();
   form.append("file", file);
@@ -81,6 +82,24 @@ export async function createUploadJob(
     const xhr = new XMLHttpRequest();
     xhr.open("POST", `${BASE}/jobs/upload`);
     for (const [k, v] of Object.entries(headers)) xhr.setRequestHeader(k, v);
+
+    // Abort support: leaving the page / "New project" / a second upload must CANCEL this
+    // in-flight upload — otherwise the orphaned XHR still creates a job on the worker and
+    // its late resolve stomps the UI (duplicate jobs, progress jumping). See dashboard.
+    if (signal) {
+      if (signal.aborted) {
+        xhr.abort();
+        return reject(new DOMException("Upload aborted", "AbortError"));
+      }
+      signal.addEventListener(
+        "abort",
+        () => {
+          xhr.abort();
+          reject(new DOMException("Upload aborted", "AbortError"));
+        },
+        { once: true },
+      );
+    }
 
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable && onProgress) onProgress(Math.round((e.loaded / e.total) * 100));

@@ -2,7 +2,7 @@
 
 import { Loader2, Plus, UploadCloud } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { AppHeader } from "@/components/app/AppHeader";
 import { PromoRedeem } from "@/components/app/PromoRedeem";
 import { RecentProjects } from "@/components/app/RecentProjects";
@@ -59,6 +59,11 @@ function DashboardInner() {
   const [uploadPct, setUploadPct] = useState<number | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const error = submitError ?? pollError;
+  // In-flight upload controller — abort on reset / unmount / new submit. Без этого брошенная
+  // загрузка (ушёл со страницы / «Новый проект» / залил второй раз) продолжала XHR: создавала
+  // лишний джоб на воркере, а её поздний resolve перетирал UI (дубли джоб, скачущий прогресс).
+  const uploadCtrl = useRef<AbortController | null>(null);
+  useEffect(() => () => uploadCtrl.current?.abort(), []); // unmount → отменить загрузку
 
   // Deep-link: open an existing job via ?job=<id>. Reactive to the query param so
   // navigating from /dashboard to /dashboard?job=X (e.g. clicking a recent project
@@ -71,6 +76,7 @@ function DashboardInner() {
   }, [jobParam]);
 
   async function handleSubmit(url: string, maxClips: number) {
+    if (submitting) return; // guard: не плодим параллельные джобы двойным сабмитом
     setSubmitError(null);
     setSubmitting(true);
     try {
@@ -85,23 +91,35 @@ function DashboardInner() {
   }
 
   async function handleSubmitFile(file: File, maxClips: number) {
+    if (submitting) return; // guard двойного сабмита (форма и так дизейблится — belt+braces)
+    uploadCtrl.current?.abort(); // отменить прежнюю незавершённую загрузку перед новой
+    const ctrl = new AbortController();
+    uploadCtrl.current = ctrl;
     setSubmitError(null);
     setSubmitting(true);
     setUploadPct(0); // show the uploading screen immediately, before bytes move
     try {
-      const { id } = await createUploadJob(file, maxClips, setUploadPct);
+      const { id } = await createUploadJob(file, maxClips, setUploadPct, ctrl.signal);
+      if (ctrl.signal.aborted) return; // отменена/вытеснена — не трогаем стейт
       setUploadPct(null);
       addRecentProject({ id, label: file.name, at: Date.now() });
       start(id);
     } catch (e) {
+      // намеренная отмена (reset/unmount/новый сабмит) → НЕ показываем ошибку
+      if (ctrl.signal.aborted || (e instanceof DOMException && e.name === "AbortError")) return;
       setUploadPct(null);
       setSubmitError(e instanceof Error ? e.message : "Couldn’t upload file");
     } finally {
-      setSubmitting(false);
+      if (uploadCtrl.current === ctrl) {
+        uploadCtrl.current = null;
+        setSubmitting(false);
+      }
     }
   }
 
   function handleReset() {
+    uploadCtrl.current?.abort(); // отменить незавершённую загрузку — иначе она позже войдёт в tracking
+    uploadCtrl.current = null;
     reset();
     setSubmitError(null);
     setSubmitting(false);
