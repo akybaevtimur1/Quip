@@ -261,6 +261,62 @@ async def create_upload_job(
     return {"id": job_id, "status": "queued", "stage": "queued", "progress": 0}
 
 
+class UploadUrlBody(BaseModel):
+    filename: str = "upload.mp4"
+    max_clips: int | None = Field(default=None, ge=1, le=10)
+
+
+@app.post("/jobs/upload-url")
+def create_upload_url(
+    body: UploadUrlBody,
+    authorization: str | None = Header(default=None),
+    x_user_id: str | None = Header(default=None),
+) -> dict[str, Any]:
+    """Прямая загрузка браузер→R2: вернуть presigned PUT (cloud) ИЛИ сигнал local-fallback.
+
+    Большие видео через ОДИН долгий POST на Modal web рвались (truncated multipart → 400). Тут
+    браузер PUT'ит файл ПРЯМО в R2 по presigned URL (Cloudflare edge, надёжно для больших файлов),
+    затем зовёт upload-complete. Локально (нет R2) → {"local": true} → фронт шлёт обычный multipart
+    POST /jobs/upload (dev ок). Квота гейтится ЗДЕСЬ (до загрузки).
+    """
+    user_id = _resolve_user(authorization, x_user_id)
+    _enforce_quota(user_id)
+    if get_settings().storage_backend != "r2":
+        return {"local": True}
+    # Джоб в БД создаём НЕ здесь, а в upload-complete (после успешного PUT) — иначе отменённая
+    # загрузка оставила бы «queued»-сироту. presigned PUT ключу в БД не требует.
+    job_id = f"job_{uuid.uuid4().hex[:12]}"
+    return {"id": job_id, "put_url": storage.presigned_put_url(job_id)}
+
+
+class UploadCompleteBody(BaseModel):
+    filename: str = "upload.mp4"
+    max_clips: int | None = Field(default=None, ge=1, le=10)
+
+
+@app.post("/jobs/{job_id}/upload-complete")
+def complete_upload(
+    job_id: str,
+    body: UploadCompleteBody,
+    authorization: str | None = Header(default=None),
+    x_user_id: str | None = Header(default=None),
+) -> dict[str, Any]:
+    """Браузер залил исходник в R2 (presigned PUT) → запустить пайплайн (spawn upload_job).
+
+    upload_job скачает исходник из R2 (тот же ключ source) и гоняет run_upload_job — как раньше.
+    """
+    user_id = _resolve_user(authorization, x_user_id)
+    if not dispatch.modal_spawn_enabled():
+        raise HTTPException(status_code=400, detail="direct upload only in cloud mode")
+    db.insert_job(job_id, "upload", body.filename, user_id=user_id)
+    try:
+        dispatch.spawn("upload_job", job_id, body.filename, body.max_clips, user_id)
+    except Exception as e:  # noqa: BLE001 — сбой диспатча = видимый failed, не вечная очередь
+        db.set_failed(job_id, f"dispatch failed: {e}")
+        raise HTTPException(status_code=500, detail=f"upload dispatch failed: {e}") from e
+    return {"id": job_id, "status": "queued", "stage": "queued", "progress": 0}
+
+
 @app.post("/webhooks/polar")
 async def polar_webhook(request: Request) -> dict[str, Any]:
     """Вебхук оплаты Polar.sh → profiles.plan. Проверяет подпись Standard Webhooks

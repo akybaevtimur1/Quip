@@ -64,28 +64,22 @@ async function throwOnAuthOrQuota(res: Response): Promise<void> {
   }
 }
 
-export async function createUploadJob(
-  file: File,
-  maxClips?: number,
-  onProgress?: (pct: number) => void,
-  signal?: AbortSignal,
-): Promise<{ id: string }> {
-  const form = new FormData();
-  form.append("file", file);
-  if (maxClips != null) form.append("max_clips", String(maxClips));
-  const headers = await authHeaders();
-
-  // XMLHttpRequest (not fetch) so we get real upload-progress events — a big file
-  // from a laptop can take a while, and a dead-looking screen reads as "broken".
-  // Don't set Content-Type — the browser adds the multipart boundary itself.
-  return new Promise<{ id: string }>((resolve, reject) => {
+/** XHR с upload-progress + abort. Резолвит {status, responseText}. (fetch не даёт upload-progress.) */
+function xhrRequest(
+  method: string,
+  url: string,
+  body: XMLHttpRequestBodyInit | null,
+  opts: {
+    headers?: Record<string, string>;
+    onProgress?: (pct: number) => void;
+    signal?: AbortSignal;
+  } = {},
+): Promise<{ status: number; responseText: string }> {
+  return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open("POST", `${BASE}/jobs/upload`);
-    for (const [k, v] of Object.entries(headers)) xhr.setRequestHeader(k, v);
-
-    // Abort support: leaving the page / "New project" / a second upload must CANCEL this
-    // in-flight upload — otherwise the orphaned XHR still creates a job on the worker and
-    // its late resolve stomps the UI (duplicate jobs, progress jumping). See dashboard.
+    xhr.open(method, url);
+    for (const [k, v] of Object.entries(opts.headers ?? {})) xhr.setRequestHeader(k, v);
+    const { signal } = opts;
     if (signal) {
       if (signal.aborted) {
         xhr.abort();
@@ -100,35 +94,86 @@ export async function createUploadJob(
         { once: true },
       );
     }
-
     xhr.upload.onprogress = (e) => {
-      if (e.lengthComputable && onProgress) onProgress(Math.round((e.loaded / e.total) * 100));
-    };
-    xhr.onload = () => {
-      if (xhr.status === 401) return reject(new Error("Sign in to create clips."));
-      if (xhr.status === 402) {
-        let detail: string | undefined;
-        try {
-          detail = (JSON.parse(xhr.responseText) as { detail?: string }).detail;
-        } catch {
-          detail = undefined;
-        }
-        return reject(
-          new Error(detail ?? "Monthly limit reached. Upgrade your plan on the pricing page."),
-        );
-      }
-      if (xhr.status < 200 || xhr.status >= 300) {
-        return reject(new Error(`createUploadJob failed: ${xhr.status}`));
-      }
-      try {
-        resolve(JSON.parse(xhr.responseText) as { id: string });
-      } catch {
-        reject(new Error("createUploadJob: invalid server response"));
+      if (e.lengthComputable && opts.onProgress) {
+        opts.onProgress(Math.round((e.loaded / e.total) * 100));
       }
     };
+    xhr.onload = () => resolve({ status: xhr.status, responseText: xhr.responseText });
     xhr.onerror = () => reject(new Error("Upload failed — check your connection and try again"));
-    xhr.send(form);
+    xhr.send(body);
   });
+}
+
+export async function createUploadJob(
+  file: File,
+  maxClips?: number,
+  onProgress?: (pct: number) => void,
+  signal?: AbortSignal,
+): Promise<{ id: string }> {
+  const headers = await authHeaders();
+  // 1. Спросить у воркера URL для ПРЯМОЙ загрузки браузер→R2 (cloud) или сигнал local-fallback.
+  // Большие видео через ОДИН долгий POST на Modal web рвались (truncated multipart → 400 + CORS).
+  // В облаке браузер PUT'ит файл ПРЯМО в R2 (Cloudflare edge, надёжно), минуя Modal web-функцию.
+  const initRes = await fetch(`${BASE}/jobs/upload-url`, {
+    method: "POST",
+    headers: { ...headers, "Content-Type": "application/json" },
+    body: JSON.stringify({ filename: file.name, max_clips: maxClips ?? null }),
+    signal,
+  });
+  if (initRes.status === 401) throw new Error("Sign in to create clips.");
+  if (initRes.status === 402) {
+    const b = (await initRes.json().catch(() => null)) as { detail?: string } | null;
+    throw new Error(b?.detail ?? "Monthly limit reached. Upgrade your plan on the pricing page.");
+  }
+  if (!initRes.ok) throw new Error(`upload init failed: ${initRes.status}`);
+  const init = (await initRes.json()) as { id?: string; put_url?: string; local?: boolean };
+
+  if (init.put_url && init.id) {
+    // 2. PUT файла ПРЯМО в R2 (XHR ради progress+abort). Content-Type в presigned URL не подписан
+    //    → можно слать любой; ставим тип файла (R2 хранит). Нужен CORS на бакете (фаундер в дашборде).
+    const put = await xhrRequest("PUT", init.put_url, file, {
+      headers: { "Content-Type": file.type || "video/mp4" },
+      onProgress,
+      signal,
+    });
+    if (put.status < 200 || put.status >= 300) {
+      throw new Error(`Upload to storage failed: ${put.status}`);
+    }
+    // 3. Финализация → воркер создаёт джоб + спавнит обработку.
+    const done = await fetch(`${BASE}/jobs/${init.id}/upload-complete`, {
+      method: "POST",
+      headers: { ...headers, "Content-Type": "application/json" },
+      body: JSON.stringify({ filename: file.name, max_clips: maxClips ?? null }),
+      signal,
+    });
+    if (!done.ok) throw new Error(`Couldn’t start processing: ${done.status}`);
+    return { id: init.id };
+  }
+
+  // Local dev (нет R2): стримим через воркер — на localhost ок (старый multipart-путь).
+  const form = new FormData();
+  form.append("file", file);
+  if (maxClips != null) form.append("max_clips", String(maxClips));
+  const res = await xhrRequest("POST", `${BASE}/jobs/upload`, form, { headers, onProgress, signal });
+  if (res.status === 401) throw new Error("Sign in to create clips.");
+  if (res.status === 402) {
+    let detail: string | undefined;
+    try {
+      detail = (JSON.parse(res.responseText) as { detail?: string }).detail;
+    } catch {
+      detail = undefined;
+    }
+    throw new Error(detail ?? "Monthly limit reached. Upgrade your plan on the pricing page.");
+  }
+  if (res.status < 200 || res.status >= 300) {
+    throw new Error(`createUploadJob failed: ${res.status}`);
+  }
+  try {
+    return JSON.parse(res.responseText) as { id: string };
+  } catch {
+    throw new Error("createUploadJob: invalid server response");
+  }
 }
 
 /** Живой расход (план + остаток кредитов) для UsageMeter. Бросает при недоступности —

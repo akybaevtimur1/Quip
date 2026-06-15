@@ -128,6 +128,55 @@ def presigned_source_url(job_id: str) -> str:
         raise JobError("storage", f"R2 presign source {job_id} failed: {e}") from e
 
 
+def presigned_put_url(job_id: str) -> str:
+    """Presigned PUT URL для ПРЯМОЙ загрузки исходника браузером в R2 (минуя Modal web-функцию).
+
+    Большие видео через один долгий POST на Modal web рвались (truncated multipart → 400). Браузер
+    PUT'ит файл прямо в R2 (Cloudflare edge, надёжнее) по этому URL; затем дёргает upload-complete →
+    spawn. ContentType НЕ подписываем — иначе клиент обязан слать ровно тот же заголовок (хрупко);
+    клиент сам ставит Content-Type, R2 хранит. JobError при сбое (правило №8).
+    """
+    s = get_settings()
+    key = source_object_key(job_id)
+    try:
+        url: str = _r2_client().generate_presigned_url(
+            "put_object",
+            Params={"Bucket": s.r2_bucket, "Key": key},
+            ExpiresIn=3600,
+        )
+        return url
+    except Exception as e:  # noqa: BLE001
+        raise JobError("storage", f"R2 presign PUT {job_id} failed: {e}") from e
+
+
+def set_upload_cors() -> dict[str, object]:
+    """Прописать R2-бакету CORS для браузерных PUT (presigned direct upload) с наших origin'ов.
+
+    Запускается разово (Modal one-off). Без этого браузерный PUT в R2 блокируется CORS-политикой.
+    Возвращает текущую конфигурацию (для проверки).
+    """
+    s = get_settings()
+    cors = {
+        "CORSRules": [
+            {
+                "AllowedOrigins": [
+                    "https://app.quip.ink",
+                    "http://localhost:3000",
+                    "https://*.vercel.app",
+                ],
+                "AllowedMethods": ["PUT", "GET", "HEAD"],
+                "AllowedHeaders": ["*"],
+                "ExposeHeaders": ["ETag"],
+                "MaxAgeSeconds": 3600,
+            }
+        ]
+    }
+    client = _r2_client()
+    client.put_bucket_cors(Bucket=s.r2_bucket, CORSConfiguration=cors)
+    result: dict[str, object] = client.get_bucket_cors(Bucket=s.r2_bucket)
+    return result
+
+
 def download_source(job_id: str, dest: Path) -> None:
     """Скачать source.mp4 из R2 в dest (для редактор-рендера). JobError при сбое."""
     s = get_settings()
