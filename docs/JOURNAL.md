@@ -720,3 +720,26 @@ accurate) Рё С„РѕСЂРє `if reframe_speaker:` вЂ” РґРІР° Рѕ
   (РїСЂР°РІРёР»Рѕ #10!), Р° РќР• РёР· `clipflow/apps/web`. РџСѓС€ РІ clipflow СЃР°Рј РїРѕ СЃРµР±Рµ app.quip.ink РќР• РґРµРїР»РѕРёС‚;
   РїСѓС‚СЊ РґРµРїР»РѕСЏ РёРЅСЃС‚СЂСѓРјРµРЅС‚Р° РѕС‚РґРµР»СЊРЅС‹Р№/РЅРµРІРёРґРёРј С‚РѕРєРµРЅСѓ. Vercel-env РќР• С‚СЂРѕРіР°Р»; `NEXT_PUBLIC_WORKER_URL`
   СЃС‚Р°РІРёС‚ С„Р°СѓРЅРґРµСЂ РЅР° РїСЂР°РІРёР»СЊРЅРѕРј РїСЂРѕРµРєС‚Рµ РїРѕСЃР»Рµ Modal-РґРµРїР»РѕСЏ.
+
+### Стилизация хука + лаги/баги редактора (ветка feat/hook-styling-editor-lag, 2026-06-15)
+Запрос фаундера: паритет стиля ХУКА с субтитрами + починить лаги/баги редактора (systematic-debugging,
+баги непостоянные → инструментировать). OSS-ресёрч (Submagic/OpusClip/libass-wasm) перед кодом. Спека:
+`docs/superpowers/specs/2026-06-15-hook-styling-and-editor-lag-design.md`. Коммит `98ffa63`.
+- **A — хук как субтитры:** `HookOverlay.animation` (none/pop/fade/bounce, `just types`) + вход-анимация
+  в `build_hook_event`; `HookTab` — галерея хук-пресетов (`lib/hookPresets.ts`, отдельная от caption —
+  как Submagic hookTitle) + контролы стиля (цвет/плашка/контур/шрифт/размер/позиция/UPPERCASE) + драг на
+  видео; общие `ColorField`/`DebouncedSlider` → `StyleControls.tsx` (DRY со StyleTab).
+- **B instant preview (#4/#3):** `lib/assStyle.ts` локально переписывает ASS `Style:`-строки (мгновенный
+  libass), PATCH дебаунсится ~300мс в фоне, сервер реконсилит ASS. Инвариант превью==экспорт цел (экспорт
+  всегда из Python-ASS; Style-строки кросс-чекнуты байт-в-байт с Python). Драг субтитров/хука едет живьём.
+- **B libass (#1):** форс `setCurrentTime` после `setTrack` (фикс stale-кадра на ПАУЗЕ — правка стиля не
+  обновлялась) + пропуск пустого ASS. Корень: rAF-троттл на паузе не двигал время → нет редроу.
+- **B пресет (#2):** `apply_preset` сохраняет ручную позицию (`margin_v`/`alignment`) — пресет больше не
+  «прыгает» вверх.
+- **B долговечность (#5, страх фаундера «всё снеслось»):** flush pending-правок ПЕРЕД навигацией/trim/
+  aspect/preset + `pagehide`/`visibilitychange`/unmount (keepalive-PATCH переживает unload) + индикатор
+  «Сохраняю…». Уход на «Все клипы»/reload после долгой сессии больше НЕ теряет правки.
+- **B навигация (#6):** «Все клипы» открывает грид джоба напрямую (фикс флеша idle-«Создать клипы» при
+  `?job=` до `start()`; reset чистит `?job=`).
+- DoD: `just check` зелёный (550 pytest), `next build` зелёный. ⚠️ Визуал (libass рисует хук-анимацию/
+  стиль, драг, instant) — судит фаундер глазами (libass автоматом не верифицируется).
