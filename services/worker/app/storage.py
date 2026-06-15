@@ -104,11 +104,15 @@ def upload_source(local_path: Path, job_id: str) -> None:
     if s.storage_backend != "r2":
         return
     try:
-        _r2_client().put_object(
-            Bucket=s.r2_bucket,
-            Key=source_object_key(job_id),
-            Body=local_path.read_bytes(),
-            ContentType="video/mp4",
+        # upload_file СТРИМИТ с диска + авто-multipart — НЕ read_bytes() (он держал ВЕСЬ
+        # исходник в RAM → большие загрузки = OOM/медленно прямо в web-запросе, который и так
+        # упирался в 900s-таймаут web-функции). Стрим = низкая память + быстрее → меньше шанс
+        # упереться в таймаут на стейджинге исходника в R2.
+        _r2_client().upload_file(
+            str(local_path),
+            s.r2_bucket,
+            source_object_key(job_id),
+            ExtraArgs={"ContentType": "video/mp4"},
         )
     except Exception as e:  # noqa: BLE001
         raise JobError("storage", f"R2 upload source {job_id} failed: {e}") from e

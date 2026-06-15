@@ -140,7 +140,11 @@ _BILLING_SECRET = modal.Secret.from_name("quip-billing")
 # → ModuleNotFoundError при десериализации. PYTHONPATH=/root и так в образе — это страховка.
 
 
-@app.function(secrets=[_SECRET, _BILLING_SECRET], timeout=900, min_containers=0, serialized=True)
+# timeout=3600 (НЕ 900): POST /jobs/upload СТРИМИТ весь файл ЧЕРЕЗ этот web-контейнер (приём
+# байтов + стейджинг в R2 = в одном запросе). Большое видео по обычному каналу грузится >15 мин →
+# на 900s Modal убивал input → «застряло на 100% + 500». 3600s (как run_job) даёт загрузке дойти.
+# (Правильный долгосрочный фикс — прямая presigned-загрузка браузер→R2; см. JOURNAL/доку.)
+@app.function(secrets=[_SECRET, _BILLING_SECRET], timeout=3600, min_containers=0, serialized=True)
 @modal.asgi_app()
 def web() -> object:
     """Лёгкий FastAPI (app.main): POST /jobs (spawn run_job), GET статусы, редактор. Scale-to-zero."""
