@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { AccountBilling } from "@/components/app/AccountBilling";
 import { AppHeader } from "@/components/app/AppHeader";
+import { PromoRedeem } from "@/components/app/PromoRedeem";
 
 export const metadata: Metadata = {
   title: "Account · Quip",
@@ -14,8 +15,9 @@ export default function AccountPage() {
       <main className="mx-auto max-w-2xl px-5 py-10 sm:px-8 sm:py-12">
         <h1 className="font-display text-h2 text-ink">Account</h1>
         <p className="mt-2 text-sm text-muted">Manage your plan and subscription.</p>
-        <div className="mt-8">
+        <div className="mt-8 space-y-5">
           <AccountBilling />
+          <PromoRedeem />
         </div>
       </main>
     </div>

@@ -4,6 +4,7 @@ import { Plus, UploadCloud } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import { AppHeader } from "@/components/app/AppHeader";
+import { PromoRedeem } from "@/components/app/PromoRedeem";
 import { RecentProjects } from "@/components/app/RecentProjects";
 import { UsageMeter } from "@/components/app/UsageMeter";
 import { ClipGrid } from "@/components/ClipGrid";
@@ -145,6 +146,7 @@ function DashboardInner() {
             </section>
             <aside className="space-y-5">
               <UsageMeter />
+              <PromoRedeem />
               <RecentProjects />
             </aside>
           </div>
