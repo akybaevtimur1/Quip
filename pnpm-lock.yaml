@@ -7,10 +7,6 @@ settings:
 importers:
 
   .:
-    dependencies:
-      '@vercel/analytics':
-        specifier: ^2.0.1
-        version: 2.0.1(next@16.2.7(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react@19.2.4)
     devDependencies:
       prettier:
         specifier: ^3.8.3
@@ -35,7 +31,7 @@ importers:
         version: 2.108.1
       '@vercel/analytics':
         specifier: ^2.0.1
-        version: 2.0.1(next@16.2.7(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react@19.2.4)
+        version: 2.0.1(next@16.2.7(@babel/core@7.29.7)(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react@19.2.4)
       libass-wasm:
         specifier: ^4.1.0
         version: 4.1.0
@@ -3915,7 +3911,7 @@ snapshots:
   '@unrs/resolver-binding-win32-x64-msvc@1.12.2':
     optional: true
 
-  '@vercel/analytics@2.0.1(next@16.2.7(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react@19.2.4)':
+  '@vercel/analytics@2.0.1(next@16.2.7(@babel/core@7.29.7)(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react@19.2.4)':
     optionalDependencies:
       next: 16.2.7(@babel/core@7.29.7)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       react: 19.2.4
