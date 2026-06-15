@@ -58,20 +58,23 @@ def verify_signature(
     if abs(current - ts) > tolerance_sec:
         return False
 
-    # Снять префикс секрета: Standard Webhooks = ``whsec_``, Polar = ``polar_whs_``.
-    # (Без снятия polar_whs_ ключ декодировался неверно → подпись НИКОГДА не матчилась → 401
-    # на все реальные вебхуки Polar.) Плюс восстановить недостающий base64-паддинг (Polar часто
-    # отдаёт секрет без ``=``), иначе b64decode падает на длине не кратной 4.
-    raw_secret = secret
-    for prefix in ("polar_whs_", "whsec_"):
-        if raw_secret.startswith(prefix):
-            raw_secret = raw_secret[len(prefix) :]
-            break
-    raw_secret += "=" * (-len(raw_secret) % 4)
-    try:
-        key = base64.b64decode(raw_secret)
-    except (ValueError, binascii.Error):
-        return False
+    # Вывод HMAC-ключа из секрета. ⚠️ КРИТИЧНО: Polar (secret ``polar_*``) и чистый Standard
+    # Webhooks (``whsec_``) делают это ПО-РАЗНОМУ:
+    #   • Polar: ключ = СЫРЫЕ UTF-8 байты ВСЕГО секрета (с префиксом). Его SDK base64-КОДИРУЕТ
+    #     строку секрета и отдаёт в standardwebhooks, который base64-ДЕКОДИРУЕТ обратно →
+    #     ровно ``secret.encode()``. (Раньше мы снимали префикс + base64-декодировали — НЕВЕРНЫЙ
+    #     ключ → ВСЕ реальные вебхуки Polar отбивались 401; самоподписанный тест давал ложный 200,
+    #     т.к. подписывал тем же неверным ключом. Доказано delivery-логом: 401×10.)
+    #   • Standard Webhooks (svix): снять ``whsec_`` + base64-decode остатка.
+    if secret.startswith("polar_"):
+        key = secret.encode("utf-8")
+    else:
+        raw = secret[len("whsec_") :] if secret.startswith("whsec_") else secret
+        raw += "=" * (-len(raw) % 4)  # терпим к недостающему base64-паддингу
+        try:
+            key = base64.b64decode(raw)
+        except (ValueError, binascii.Error):
+            return False
 
     payload = body.decode("utf-8") if isinstance(body, bytes) else body
     signed = f"{webhook_id}.{webhook_timestamp}.{payload}".encode()

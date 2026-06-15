@@ -34,11 +34,12 @@ def test_verify_signature_official_vector() -> None:
     )
 
 
-def test_verify_signature_accepts_polar_whs_prefix_and_unpadded() -> None:
-    # Polar отдаёт секрет как ``polar_whs_<base64>`` (часто БЕЗ ``=``-паддинга). Раньше код
-    # снимал только ``whsec_`` → ключ декодился неверно → 401 на все реальные вебхуки Polar.
-    key = b"0123456789abcdef0123456789abcdef"  # 32-байтный HMAC-ключ
-    secret = "polar_whs_" + base64.b64encode(key).decode().rstrip("=")  # без паддинга
+def test_verify_signature_polar_uses_raw_secret_bytes_as_key() -> None:
+    # ⚠️ Реальная конвенция Polar (НЕ как чистый svix): HMAC-ключ = СЫРЫЕ UTF-8 байты ВСЕГО
+    # секрета ``polar_whs_...`` (SDK Polar base64-кодирует секрет → standardwebhooks декодирует
+    # обратно = secret.encode()). Раньше код base64-декодировал → реальные вебхуки 401'или.
+    secret = "polar_whs_Tlxzcu5YFccySylUgp2EBIBtzBHioJ3pJwNGF1kJKJo"
+    key = secret.encode("utf-8")  # именно так Polar подписывает
     wid, ts, body = "msg_polar_1", "1700000000", '{"type": "order.paid"}'
     signed = f"{wid}.{ts}.{body}".encode()
     sig = base64.b64encode(hmac.new(key, signed, hashlib.sha256).digest()).decode()
