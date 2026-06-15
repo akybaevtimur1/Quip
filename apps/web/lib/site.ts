@@ -14,7 +14,7 @@ export const siteConfig = {
   // OG image is generated at /opengraph-image (app/opengraph-image.tsx).
   ogImageAlt: "Quip — explainable AI video clips",
   // Support inbox — refunds are handled here (no self-serve refund button by design).
-  supportEmail: process.env.NEXT_PUBLIC_SUPPORT_EMAIL ?? "support@quip.ink",
+  supportEmail: process.env.NEXT_PUBLIC_SUPPORT_EMAIL ?? "ceo@quip.ink",
   // Founder can fill these in; used only for social cards / JSON-LD if present.
   twitterHandle: process.env.NEXT_PUBLIC_TWITTER_HANDLE ?? undefined,
 } as const;
