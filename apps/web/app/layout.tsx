@@ -1,6 +1,7 @@
 import { Analytics } from "@vercel/analytics/next";
 import type { Metadata } from "next";
 import { IBM_Plex_Mono, Onest } from "next/font/google";
+import { YandexMetrika } from "@/components/analytics/YandexMetrika";
 import { FeedbackWidget } from "@/components/app/FeedbackWidget";
 import { NavProgress } from "@/components/ui/NavProgress";
 import { siteConfig } from "@/lib/site";
@@ -87,6 +88,8 @@ export default function RootLayout({
             (смотреть на дашборде проекта, вкладка Analytics). На Vercel надо один раз включить
             Analytics в настройках проекта; в локальном dev — no-op. */}
         <Analytics />
+        {/* Yandex.Metrica — поведенческие факторы для ранжирования в Яндексе (Вебвизор). */}
+        <YandexMetrika />
       </body>
     </html>
   );
