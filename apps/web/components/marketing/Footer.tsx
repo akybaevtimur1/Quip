@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { siteConfig } from "@/lib/site";
 import { Container } from "@/components/ui/Container";
 import { Logo } from "@/components/ui/Logo";
 
@@ -37,6 +38,15 @@ export function Footer() {
           <Logo />
           <p className="mt-4 text-sm leading-relaxed text-muted">
             Fewer clips, but you know why to post them. Explainable AI clips from your long videos.
+          </p>
+          <p className="mt-4 text-sm text-muted">
+            Support &amp; refunds:{" "}
+            <a
+              href={`mailto:${siteConfig.supportEmail}`}
+              className="text-accent transition-colors hover:underline"
+            >
+              {siteConfig.supportEmail}
+            </a>
           </p>
         </div>
         {cols.map((col) => (

@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { SignOutButton } from "@/components/auth/SignOutButton";
 import { UsagePill } from "@/components/app/UsagePill";
 import { Logo } from "@/components/ui/Logo";
+import { siteConfig } from "@/lib/site";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 
@@ -88,6 +89,14 @@ export function AppHeader() {
                 >
                   Pricing
                 </Link>
+                <a
+                  href={`mailto:${siteConfig.supportEmail}`}
+                  role="menuitem"
+                  onClick={() => setMenuOpen(false)}
+                  className="block rounded-md px-3 py-2 text-sm text-muted transition-colors hover:bg-surface-2 hover:text-ink"
+                >
+                  Contact support
+                </a>
                 <div className="px-3 py-2">
                   {isSupabaseConfigured ? (
                     <SignOutButton />

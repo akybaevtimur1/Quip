@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { IBM_Plex_Mono, Onest } from "next/font/google";
+import { FeedbackWidget } from "@/components/app/FeedbackWidget";
 import { NavProgress } from "@/components/ui/NavProgress";
 import { siteConfig } from "@/lib/site";
 import "./globals.css";
@@ -69,6 +70,7 @@ export default function RootLayout({
         />
         <NavProgress />
         {children}
+        <FeedbackWidget />
       </body>
     </html>
   );
