@@ -304,8 +304,14 @@ def complete_upload(
     """Браузер залил исходник в R2 (presigned PUT) → запустить пайплайн (spawn upload_job).
 
     upload_job скачает исходник из R2 (тот же ключ source) и гоняет run_upload_job — как раньше.
+
+    Безопасность: квоту гейтим ЗДЕСЬ ТОЖЕ (не только в upload-url) — спавн платной джобы не должен
+    проходить без проверки (consistency со старым POST /jobs/upload). Авторизация по job_id: id —
+    серверный случайный uuid из upload-url, а залить файл в ``job_id/source.mp4`` можно только по
+    per-job presigned PUT оттуда же → чужой job_id не угадать/не подделать (джоба всегда на своего).
     """
     user_id = _resolve_user(authorization, x_user_id)
+    _enforce_quota(user_id)
     if not dispatch.modal_spawn_enabled():
         raise HTTPException(status_code=400, detail="direct upload only in cloud mode")
     db.insert_job(job_id, "upload", body.filename, user_id=user_id)
