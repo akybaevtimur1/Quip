@@ -43,6 +43,9 @@ export const metadata: Metadata = {
     title: `${siteConfig.name} — ${siteConfig.tagline}`,
     description: siteConfig.description,
     url: siteConfig.url,
+    // Default landing copy is English; Russian use-case pages set ru_RU themselves.
+    locale: "en_US",
+    alternateLocale: ["ru_RU"],
   },
   twitter: {
     card: "summary_large_image",
@@ -51,6 +54,14 @@ export const metadata: Metadata = {
     creator: siteConfig.twitterHandle,
   },
   robots: { index: true, follow: true },
+  // Search-engine ownership verification. Set the env vars in Vercel once
+  // (Google Search Console + Yandex.Webmaster give you the token). Yandex.Webmaster
+  // is a P0 for the Russian market — Yandex is ~73% of RU search. Undefined env =
+  // tag omitted (no empty meta).
+  verification: {
+    google: siteConfig.googleVerification,
+    yandex: siteConfig.yandexVerification,
+  },
   // Favicon / app icon come from app/icon.png + app/apple-icon.png (Next file convention).
 };
 
