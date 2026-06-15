@@ -52,7 +52,7 @@ function UploadProgress({ pct }: { pct: number }) {
 }
 
 function DashboardInner() {
-  const { job, error: pollError, elapsed, start, reset } = useJob();
+  const { job, jobId, error: pollError, elapsed, start, reset } = useJob();
   const [submitting, setSubmitting] = useState(false);
   const [uploadPct, setUploadPct] = useState<number | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -106,11 +106,14 @@ function DashboardInner() {
     setUploadPct(null);
   }
 
+  // `jobId` (set the moment a job starts) keeps us in "tracking" through the gap between submit
+  // and the first status poll — otherwise the dashboard flashed back for a beat (worst on a Modal
+  // cold start) before the first poll populated `job`.
   const phase = error
     ? "error"
     : job?.status === "done"
       ? "done"
-      : job || submitting
+      : submitting || jobId
         ? "tracking"
         : "idle";
 

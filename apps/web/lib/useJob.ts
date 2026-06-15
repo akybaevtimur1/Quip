@@ -84,5 +84,7 @@ export function useJob() {
     };
   }, [jobId]);
 
-  return { job, error, elapsed, start, reset };
+  // jobId is exposed so the UI can stay in the "tracking" state the instant a job is started
+  // (jobId set) — без него фаза падала в idle между submit и первым поллингом → мелькал дашборд.
+  return { job, jobId, error, elapsed, start, reset };
 }
