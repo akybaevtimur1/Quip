@@ -840,3 +840,65 @@ RU-first программатик-страницы); (2) **переезд апе
 - Завести Google Search Console + **Яндекс.Вебмастер** + **Яндекс.Метрика (Вебвизор)**, проставить
   токены верификации в env, отправить sitemap, «переезд сайта» в Вебмастере.
 - Следующие фазы: i18n-рефактор лендинга на `/ru` (hreflang-пары), волны P1/P2 use-case, `/blog/*`.
+
+### 2026-06-15 — Адаптивность фронта (mobile pass) + редактор на телефоне
+Сквозной проход по адаптивности `apps/web` саб-агентами (домены не пересекались по файлам;
+оркестратор собрал + прогнал гейт). Принцип: **десктоп не трогаем** — все мобильные правки за
+responsive-префиксами (база = мобайл, `sm:`/`lg:` восстанавливают текущий десктоп).
+- **Маркетинг:** таблица сравнения (`Comparison.tsx`) на ≤sm стекается в карточки с подписями
+  колонок (на десктопе — та же 3-колоночная таблица); `MobileMenu` бургер 36→44px + меню
+  `max-w-[calc(100vw-2rem)]` (не вылезает за край).
+- **App-shell:** `FeedbackWidget`-модалка кламп по вьюпорту; `AppHeader`-дропдаун `max-w`;
+  `AccountBilling`/`UsageMeter`/`RecentProjects` — `min-w-0`/`truncate`/touch-цели; `SourceForm`
+  степперы крупнее на тач; `ClipPreview` контролы видимы на тач (паттерн `[@media(hover:hover)]`).
+- **Редактор (главное):** на телефоне `h-dvh` больше не давит всё в один экран — `main` стал
+  скролл-областью, **превью `sticky top-0`** (видно всегда), контролы скроллятся, таймлайн закреплён
+  снизу (паттерн CapCut). Шапка редактора ужата под 375px (иконки + `N/M` вместо `Clip N of M`,
+  ничего важного не прячем). `EditorHeader`/`ClipEditorScreen` — только layout, логика не тронута.
+- **Тач-контролы:** ручки таймлайна 3→16px хит-зона; контролы превью видимы при проигрывании на
+  тач (раньше `group-hover` → невидимы); слайдеры — общий `.range-touch` (палец-thumb 20px);
+  hover-only кнопки (вырезать/undo реплики, тулбар субтитров) показываются на тач; галереи пресетов
+  `no-scrollbar`+snap; узкие 2-кол сетки → 1-кол на мобайле; `ExportMenu` дропдаун с `max-w` вьюпорта.
+- Центральные утилиты добавлены в `globals.css`: `.no-scrollbar`, `.range-touch` (опт-ин).
+- Гейт: `tsc --noEmit` ✓, `eslint` ✓ (web). Живой прогон браузером (375px): лендинг/прайсинг —
+  0 горизонтального оверфлоу, без console-ошибок; таблица сравнения стекается на мобайле и остаётся
+  таблицей на 1280px. (Открыто: live-QA самого редактора на тач — нужен реальный job/clip за auth.)
+
+### 2026-06-16 — Прод-фиксы: домен/CORS, аплоад без потолка, скорость, ретеншн, шрифты, пан, download
+Большая сессия фиксов ЖИВОГО прода (всё задеплоено Modal + запушено Vercel). Саб-агенты (opus):
+ресёрч стоимости R2, аудит скорости пайплайна, дизайн stop/cancel, диагностика download/шрифта,
+расследование рывков рефрейма. Источники истины правлены в синхроне.
+- **Домен/CORS:** апекс `quip.ink` переехал на проект `quip-app` → воркер по CORS пускал только
+  `app.quip.ink` → `/usage` и аплоады с `quip.ink` резались (UsageMeter МОЛЧА падал в Free). Расширил
+  `allow_origin_regex` (`main.py`) + R2 `AllowedOrigins` (`storage.set_upload_cors`/`r2_setup`) на
+  `quip.ink`/`www.quip.ink`. Фаундер добавил origin в R2-CORS дашборда + Supabase Redirect URLs.
+- **UsageMeter/UsagePill:** убран тихий `catch`→Free (правило №8); явные loading(скелет)/error
+  (саппорт+ретрай) состояния (`lib/useUsage.ts`).
+- **Аплоад без 5 ГБ-потолка:** multipart browser→R2 (presigned-URL на каждую часть, параллельно 3,
+  abort при сбое; pure `plan_part_count`+тест). Кэп 500 МБ → 10 ГБ (guard; реальный предел — 3 ч,
+  `MAX_VIDEO_MINUTES`). Presigned PUT 1 ч → 6 ч.
+- **Скорость (из аудита):** Modal `cpu=4/memory=4096` на run_job/upload_job/render_job (дефолтный ~1/8
+  ядра душил ffmpeg-транскод); boto3 `TransferConfig` 64 МБ/20 потоков на source upload+download;
+  `_ensure_mp4` умный remux (видео-copy+аудио-aac до full re-encode, лог пути); Deepgram read 300→600;
+  `upload_clip` стрим (`upload_file`) вместо `read_bytes`.
+- **Пайплайн-таймаут** run_job/upload_job 1 ч → 3 ч (полный preview-транскод 3-часовика на 1 ч умирал).
+- **Ретеншн R2:** Modal Cron `cleanup_stale_sources` (04:00 UTC) удаляет source/preview старше 60 дней
+  (клипы — вечны). source = 70-90% хранилища; разовая оплата → иначе безлимитный рост. R2: egress free,
+  $0.015/ГБ-мес сверх 10 ГБ; маржу почти не ест (~1 п.п.), проблема — накопление. Инертен ~2 мес.
+- **Клипы:** до 30 (было 12/10) + режим **Auto** («сколько найдётся, до 30»); `resolve_max_clips hi=30`,
+  Field `le=30`. Фронт: сегмент-контрол Auto/Custom.
+- **Рефрейм-пан:** `build_fill_crop_expr` piecewise-CONST → piecewise-LINEAR (рампим cx) → ПЛАВНЫЙ пан.
+  Регрессия видимости от `6d0d7d6` (dead-zone keyframing) поверх ступенчатого рендера. ⛔ ИНВАРИАНТ ЦЕЛ:
+  trim-кадры и fit-чейн ИДЕНТИЧНЫ (доказано диффом фильтрграфа на реальном 29.97fps клипе) — меняется
+  ТОЛЬКО cx внутри fill-региона. Док явно благословляет (`REFRAME_FPS_GRID_INVARIANT.md §«Что МОЖНО»`).
+- **Шрифт хук==субтитры:** `Unbounded.ttf` без bold-начертания, а ASS просил `Bold=-1` → libass на
+  воркере (debian_slim без системных шрифтов) подменял СЕМЕЙСТВО на Montserrat. Фикс: `Bold=0` для
+  Unbounded (worker `captions_v2` + фронт `assStyle`, WYSIWYG). Жирное вернуть = завезти Unbounded-Bold.ttf.
+- **Download:** клип на `cdn.quip.ink` (cross-origin) с HTML download-атрибутом открывался в табе →
+  `Content-Disposition: attachment` на R2-загрузке (новые клипы); `getRenderStatus`→`fetchWithTimeout`.
+  **Моков в пути скачивания НЕТ** (`NEXT_PUBLIC_WORKER_URL` → реальный воркер).
+- **Опер:** ротация `GEMINI_API_KEY` в Modal-секрете `quip-worker` (квота кончилась; пересоздан с прод-
+  значениями из `.env` + `STORAGE_BACKEND=r2`, billing-секрет не тронут).
+- **Спроектировано, НЕ реализовано:** **stop/cancel** (биллинг безопасен by-construction — заряд только
+  после `set_done`; Modal `FunctionCall.cancel`→`InputCancellation`=BaseException минует `except`; нужна
+  миграция `0006_job_cancel.sql`). **async-export** (латентность download — sync-рендер на web-контейнере).

@@ -29,10 +29,17 @@
   → browser PUTs straight to R2 → `POST /jobs/{id}/upload-complete` spawns processing. Needs an R2
   **CORS rule** on the bucket (set in Cloudflare dashboard — done; JSON in `deploy/modal/r2_setup.py`).
   Local dev still uses the old multipart `POST /jobs/upload`. (Old single-POST path broke on big files.)
-  **Upload cap = 5 GB** (`SourceForm.MAX_UPLOAD_MB`) — the R2 single-PUT max; >5 GB would need a
-  multipart upload (not built). Length is bounded separately by **3 h** (`billing.MAX_VIDEO_MINUTES`).
-  Modal pipeline funcs (`run_job`/`upload_job`) run **`timeout=10800` (3 h)** so a long/heavy source
-  (full-source preview transcode + reframe/render) doesn't get killed mid-pipeline.
+  Files **>100 MB use R2 multipart** (parallel resumable parts: `/jobs/upload-url` returns a
+  presigned URL per part → `upload-complete` assembles → `/jobs/{id}/upload-abort` cleans up).
+  **Cap = 10 GB** (`SourceForm.MAX_UPLOAD_MB`, just a guard); real limit is **3 h**
+  (`billing.MAX_VIDEO_MINUTES`). Modal pipeline funcs (`run_job`/`upload_job`) run **`timeout=10800`
+  (3 h)** + **`cpu=4, memory=4096`** so a long/heavy source (preview transcode + reframe/render)
+  isn't killed and isn't starved. R2 CORS must allow the web origin + **expose `ETag`** (multipart).
+- **R2 retention:** daily Modal Cron `cleanup_stale_sources` deletes `source.mp4`/`preview.mp4`
+  older than **60 days** (clips kept forever) — source is 70–90 % of storage; without this R2 grows
+  unbounded (one-time payment, perpetual storage). Egress is free; only GB-month bills (>10 GB tier).
+- **Clips: up to 30** (`resolve_max_clips hi=30`) with an **Auto** mode ("as many as found, ≤30") vs
+  Custom 1–30 in `SourceForm`.
 - **Editor preview video = a lightweight `preview.mp4` proxy** (≤720p H.264 faststart, made per job),
   served via CDN (`cdn.quip.ink`); source also CDN now. Render still uses the full source. Old jobs
   fall back to source. (Editor video used to load the full 50–160 MB source → slow.)
