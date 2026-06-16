@@ -946,9 +946,15 @@ responsive-префиксами (база = мобайл, `sm:`/`lg:` восст
   read-only: (1) задвоение/stale → `LibassLayer` (`setTrack`+форс-редроу, B-#1); (2) пресет сбрасывал
   позицию → `apply_preset` сохраняет `margin_v`+`alignment` (B-#2); (3/4) лаги → оптимистичный
   client-side `patchAssStyles` без раунд-трипа + локальный драг. Открытое (не баг): live-QA за auth.
-- **W4 — частично:** ремап субтитров при сдвиге УЖЕ корректен — все ops (`set_interval`/trim/extend/
+- **W4 — СДЕЛАН:** (а) ремап субтитров при сдвиге УЖЕ корректен — все ops (`set_interval`/trim/extend/
   add_section) идут через `_with_intervals`→`rebuild_replies`; залочил регресс-тестом
-  (`test_set_interval_shift_remaps_captions_to_new_window`). **Хук НЕ перегенерится** при сдвиге
-  (хранимый текст) — содержательная часть W4 = одноразовый Gemini-реген под новый интервал (стиль W2);
-  отложено до решения фаундера («без чата гемини» в этой сессии).
+  (`test_set_interval_shift_remaps_captions_to_new_window`). (б) **Хук-реген под новый интервал**
+  (фаундер выбрал «сделать»): `POST /jobs/{id}/clips/{cid}/hook/regenerate` — узкий Gemini-вызов (НЕ
+  чат), транскрипт ТОЛЬКО этого клипа (`clip_words`, вынесен из `rebuild_replies` — DRY) + длина →
+  `regenerate_hook` (стиль W2, промпт `prompts/regenerate_hook.v1.txt`, схема `_LlmHook`); меняет лишь
+  `hook.text` (стиль/позиция W5 не тронуты), optimistic-lock. Фронт: кнопка «Regenerate for current
+  clip» в `HookTab` + хинт «хук не обновляется сам при сдвиге» (явный opt-in, не перетираем молча).
+  Цена ~$0.0003/реген (706/38 ток на реальном клипе) → НЕ метрим (как прочие правки редактора).
+  Реальный прогон: клип→хук «Почему Бог оставляет нас в живых» (curiosity, ru). TDD: clip_words +
+  parse_hook_response + build_hook_regen_prompt + API-тест (мок Gemini, версия+409).
 - **W3 (агентный чат-редактор) — НЕ начат** (явно отложен фаундером на эту сессию).

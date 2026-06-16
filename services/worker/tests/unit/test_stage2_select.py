@@ -214,6 +214,53 @@ class TestPadClipEnd:
         assert pad_clip_end(3.0, words, 1, duration=100.0, pad=0.3) >= 3.0
 
 
+class TestHookRegen:
+    """W4: одноразовая перегенерация хука под новый интервал (узкий Gemini-вызов, не чат)."""
+
+    def test_build_prompt_includes_text_duration_and_styles(self) -> None:
+        from app.pipeline.stage2_select import build_hook_regen_prompt
+
+        prompt = build_hook_regen_prompt("привет это клип про деньги", language="ru", duration=23.0)
+        assert "привет это клип про деньги" in prompt
+        assert "23" in prompt
+        assert "hook_style" in prompt.lower()
+
+    def test_parse_response_returns_hook_and_normalized_style(self) -> None:
+        import json
+
+        from app.pipeline.stage2_select import parse_hook_response
+
+        text = json.dumps({"tone": "shock", "hook_style": "  SHOCK ", "hook": "  Он потерял всё "})
+        hook, style = parse_hook_response(text)
+        assert hook == "Он потерял всё"
+        assert style == "shock"
+
+    def test_parse_response_empty_style_is_none(self) -> None:
+        import json
+
+        from app.pipeline.stage2_select import parse_hook_response
+
+        hook, style = parse_hook_response(json.dumps({"hook": "Текст", "hook_style": ""}))
+        assert hook == "Текст"
+        assert style is None
+
+    def test_parse_response_missing_hook_raises(self) -> None:
+        import json
+
+        from app.errors import JobError
+        from app.pipeline.stage2_select import parse_hook_response
+
+        with pytest.raises(JobError):
+            parse_hook_response(json.dumps({"hook_style": "pov", "hook": "   "}))
+
+    def test_parse_response_bad_json_raises(self) -> None:
+        from app.errors import JobError
+        from app.pipeline.stage2_select import parse_hook_response
+
+        with pytest.raises(JobError):
+            parse_hook_response("not json{")
+
+
 class TestSystemPromptV2:
     """W2: системный промпт вынесен в файл v2 (версионируем без передеплоя) и описывает
     двухступенчатую генерацию хука (тон → стиль → текст)."""

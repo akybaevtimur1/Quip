@@ -59,6 +59,7 @@ from app.models import (
     CaptionTrack,
     CropOverride,
     HighlightStyle,
+    HookOverlay,
 )
 from app.pipeline.stage5_render import aspect_to_dims
 from app.run import DATA_ROOT
@@ -624,6 +625,10 @@ class SetIntervalBody(BaseModel):
     source_end: float
 
 
+class RegenerateHookBody(BaseModel):
+    version: int
+
+
 def _save_or_409(job_id: str, clip_id: str, new_edit: Any, version: int) -> dict[str, Any]:
     try:
         return store.save_edit(job_id, clip_id, new_edit, expected_version=version).model_dump()
@@ -838,6 +843,43 @@ def op_set_interval(job_id: str, clip_id: str, body: SetIntervalBody) -> dict[st
         )
     )
     return _save_or_409(job_id, clip_id, new, body.version)
+
+
+@app.post("/jobs/{job_id}/clips/{clip_id}/hook/regenerate")
+def op_regenerate_hook(job_id: str, clip_id: str, body: RegenerateHookBody) -> dict[str, Any]:
+    """W4: перегенерировать ТЕКСТ хука под текущий интервал клипа (узкий Gemini-вызов, НЕ чат).
+
+    Хук — хранимый текст; сдвиг клипа на таймлайне его не меняет → устаревает. Эта ручка
+    (явная кнопка в редакторе = opt-in, не перетираем молча) берёт транскрипт ТОЛЬКО этого клипа
+    (слова в его интервалах) и просит Gemini новый хук в стиле W2. Меняем лишь ``hook.text`` —
+    стиль/позицию/плашку (W5) НЕ трогаем. Цена sub-cent → НЕ метрим (как прочие правки редактора).
+    Optimistic-lock (409 при version mismatch).
+    """
+    from app import artifacts
+    from app.editor.replies import clip_words
+    from app.pipeline.stage2_select import regenerate_hook
+
+    edit = _load_or_404(job_id, clip_id)
+    tr = artifacts.load_transcript(job_id)
+    cw = clip_words(tr.words, edit.source_intervals)
+    if not cw:
+        raise HTTPException(status_code=400, detail="clip has no words to base a hook on")
+    clip_text = " ".join(w.text for _i, w in cw)
+    duration = sum(iv.source_end - iv.source_start for iv in edit.source_intervals)
+    try:
+        hook_text, _style = regenerate_hook(clip_text, language=tr.language, duration=duration)
+    except JobError as e:
+        # Gemini недоступен/битый ответ → 502 (правило №8: явная причина, не тихий фолбэк).
+        raise HTTPException(status_code=502, detail=f"hook regeneration failed: {e}") from e
+    cur = edit.captions.hook
+    new_hook = (
+        cur.model_copy(update={"text": hook_text, "enabled": True})
+        if cur is not None
+        else HookOverlay(text=hook_text, enabled=True)
+    )
+    new_track = edit.captions.model_copy(update={"hook": new_hook})
+    new_edit = edit.model_copy(update={"captions": new_track})
+    return _save_or_409(job_id, clip_id, new_edit, body.version)
 
 
 @app.post("/jobs/{job_id}/clips/{clip_id}/render", status_code=202)

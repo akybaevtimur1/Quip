@@ -54,6 +54,26 @@ def test_trim_makes_hole_and_optimistic_lock(monkeypatch, tmp_path):
     assert stale.status_code == 409  # stale version
 
 
+def test_regenerate_hook_updates_text_and_bumps_version(monkeypatch, tmp_path):
+    # W4: ручка зовёт Gemini-реген (мокаем) и обновляет ТОЛЬКО hook.text + бампает версию.
+    from app.pipeline import stage2_select
+
+    monkeypatch.setattr(
+        stage2_select, "regenerate_hook", lambda *a, **k: ("Новый цепляющий хук", "shock")
+    )
+    client, job = _client(monkeypatch, tmp_path)
+    v = client.get(f"/jobs/{job}/clips/clip_01/edit").json()["version"]
+    r = client.post(f"/jobs/{job}/clips/clip_01/hook/regenerate", json={"version": v})
+    assert r.status_code == 200
+    edit = r.json()
+    assert edit["captions"]["hook"]["text"] == "Новый цепляющий хук"
+    assert edit["captions"]["hook"]["enabled"] is True
+    assert edit["version"] == v + 1
+    # optimistic-lock: повтор со старой версией → 409
+    stale = client.post(f"/jobs/{job}/clips/clip_01/hook/regenerate", json={"version": v})
+    assert stale.status_code == 409
+
+
 def test_get_edit_404_for_missing_clip(monkeypatch, tmp_path):
     client, job = _client(monkeypatch, tmp_path)
     r = client.get(f"/jobs/{job}/clips/clip_09/edit")

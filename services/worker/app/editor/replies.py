@@ -17,6 +17,18 @@ from app.models import (
 from app.pipeline.stage4_captions import group_words_into_chunks
 
 
+def clip_words(all_words: list[Word], intervals: list[SourceInterval]) -> list[tuple[int, Word]]:
+    """PURE. (индекс_в_all_words, слово) для слов внутри интервалов, в clip-порядке (по
+    порядку интервалов; внутри интервала — по возрастанию = source-порядок). Единая точка
+    отбора слов клипа: переиспользуется субтитрами (rebuild_replies) и хук-регеном (W4)."""
+    selected: list[tuple[int, Word]] = []
+    for iv in intervals:  # clip-порядок интервалов
+        for i, w in enumerate(all_words):  # внутри — по возрастанию (= source-порядок)
+            if iv.source_start <= w.start < iv.source_end:
+                selected.append((i, w))
+    return selected
+
+
 def rebuild_replies(
     all_words: list[Word],
     intervals: list[SourceInterval],
@@ -31,11 +43,7 @@ def rebuild_replies(
     word_refs = индексы в all_words. Слова вне интервалов выпадают. keep сохраняет
     text_override/hidden для реплик с НЕизменившимся набором word_refs.
     """
-    selected: list[tuple[int, Word]] = []
-    for iv in intervals:  # clip-порядок интервалов
-        for i, w in enumerate(all_words):  # внутри — по возрастанию (= source-порядок)
-            if iv.source_start <= w.start < iv.source_end:
-                selected.append((i, w))
+    selected = clip_words(all_words, intervals)
     if not selected:
         return []
     chunks = group_words_into_chunks(

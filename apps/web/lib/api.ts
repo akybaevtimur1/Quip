@@ -413,6 +413,23 @@ export async function setClipInterval(
   return res.json();
 }
 
+export async function regenerateHook(
+  jobId: string,
+  clipId: string,
+  version: number,
+): Promise<ClipEdit> {
+  // W4: перегенерировать текст хука под текущий интервал (узкий Gemini-вызов, не чат).
+  // Меняет только hook.text; стиль/позицию не трогает. Бампает версию → flush до вызова.
+  const res = await fetch(`${BASE}/jobs/${jobId}/clips/${clipId}/hook/regenerate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ version }),
+  });
+  if (res.status === 409) throw new Error("Edit conflict — reload and retry");
+  if (!res.ok) throw new Error(`regenerateHook failed: ${res.status}`);
+  return res.json();
+}
+
 export async function getClipAss(jobId: string, clipId: string): Promise<string> {
   // ASS субтитров текущего edit-state — для libass.wasm превью (тот же ASS, что жжёт ffmpeg).
   const res = await fetch(`${BASE}/jobs/${jobId}/clips/${clipId}/ass`, { cache: "no-store" });

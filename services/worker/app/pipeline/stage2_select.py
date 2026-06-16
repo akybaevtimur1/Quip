@@ -473,3 +473,77 @@ def select_to_file(transcript: Transcript, title: str, out_path: Any) -> list[Se
     payload = [s.model_dump() for s in segments]
     Path(out_path).write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return segments
+
+
+# ─────────────────────── W4: одноразовый ре-ген хука под новый интервал ───────────────────────
+# Хук — хранимый текст; при сдвиге клипа на таймлайне он устаревает. Это УЗКИЙ Gemini-вызов
+# (НЕ чат W3) по транскрипту ТОЛЬКО этого клипа, в стиле W2. Цена sub-cent → НЕ метрим (как и
+# прочие правки редактора пост-генерации). Триггер — явная кнопка (opt-in, не перетираем молча).
+
+_HOOK_REGEN_STAGE = "hook_regen"
+_HOOK_PROMPT_PATH = Path(__file__).resolve().parents[1] / "prompts" / "regenerate_hook.v1.txt"
+
+DEFAULT_HOOK_PROMPT = """\
+You are a viral short-form hook copywriter. You receive the transcript of ONE short video clip
+and must write a single scroll-stopping on-screen TOP hook for it. Work in THREE steps:
+1) `tone`: the emotion of the clip (funny / shocking / touching / controversial / insightful /
+   relatable …) — name the feeling first.
+2) `hook_style`: pick what best weaponizes it — pov | relatable | informative | shock | curiosity.
+3) `hook`: write the hook in that style. ≤6 words, SAME language as the transcript, NO ending
+   period, tied to what actually happens — a scroll-stopper, never empty clickbait or a lie.
+Return exactly one tone, one hook_style and one hook.
+"""
+
+
+class _LlmHook(BaseModel):
+    tone: str
+    hook_style: str
+    hook: str
+
+
+def load_hook_prompt() -> str:
+    """Системный промпт ре-гена хука из файла (версионируем без передеплоя). Fallback — дефолт."""
+    if _HOOK_PROMPT_PATH.exists():
+        return _HOOK_PROMPT_PATH.read_text(encoding="utf-8")
+    return DEFAULT_HOOK_PROMPT
+
+
+def build_hook_regen_prompt(clip_text: str, *, language: str, duration: float) -> str:
+    """PURE. User-промпт ре-гена: транскрипт клипа + его длина + язык."""
+    return (
+        f"Clip language: {language}  Clip length: {duration:.0f}s\n\n"
+        f"Clip transcript:\n{clip_text}\n\n"
+        f"Write ONE hook for THIS clip (fill tone, hook_style, hook)."
+    )
+
+
+def parse_hook_response(text: str) -> tuple[str, str | None]:
+    """PURE. JSON ответа Gemini → (hook_text, hook_style|None). JobError на битый/пустой."""
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as e:
+        raise JobError(_HOOK_REGEN_STAGE, f"Gemini вернул не-JSON: {e}") from e
+    hook = str(data.get("hook", "")).strip()
+    if not hook:
+        raise JobError(_HOOK_REGEN_STAGE, "Gemini не вернул текст хука")
+    style = str(data.get("hook_style", "")).strip().lower() or None
+    return hook, style
+
+
+def regenerate_hook(
+    clip_text: str,
+    *,
+    language: str,
+    duration: float,
+    usage_sink: dict[str, int] | None = None,
+) -> tuple[str, str | None]:
+    """Ре-генерировать ОДИН хук под клип (W4). Возвращает (hook_text, hook_style|None)."""
+    prompt = build_hook_regen_prompt(clip_text, language=language, duration=duration)
+    text = call_gemini_structured(
+        prompt,
+        system_prompt=load_hook_prompt(),
+        response_schema=_LlmHook,
+        stage=_HOOK_REGEN_STAGE,
+        usage_sink=usage_sink,
+    )
+    return parse_hook_response(text)

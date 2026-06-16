@@ -1,6 +1,6 @@
 "use client";
 
-import { Sparkles, Trash2 } from "lucide-react";
+import { Loader2, RefreshCw, Sparkles, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Checkbox } from "@/components/ui/Checkbox";
@@ -42,10 +42,15 @@ export function HookTab({
   edit,
   busy,
   onHookChange,
+  onRegenerate,
+  regenerating = false,
 }: {
   edit: ClipEdit;
   busy: boolean;
   onHookChange: (patch: Partial<HookOverlay> | null) => void;
+  // W4: перегенерировать текст хука под текущий интервал клипа (узкий Gemini-вызов).
+  onRegenerate?: () => void;
+  regenerating?: boolean;
 }) {
   const hook = edit.captions.hook ?? null;
   const enabled = hook?.enabled ?? false;
@@ -112,6 +117,31 @@ export function HookTab({
           <Sparkles className="size-3 shrink-0 text-accent" />
           A short headline (≤6 words) tied to the moment. Stops the scroll.
         </p>
+
+        {/* W4: хук НЕ обновляется сам при сдвиге клипа — явная регенерация под новый интервал */}
+        {onRegenerate && (
+          <div className="space-y-1.5 pt-1">
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              disabled={busy || regenerating}
+              onClick={onRegenerate}
+              className="w-full"
+            >
+              {regenerating ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
+                <RefreshCw className="size-3.5" />
+              )}
+              {regenerating ? "Writing a new hook…" : "Regenerate for current clip"}
+            </Button>
+            <p className="text-[11px] leading-snug text-muted">
+              The hook doesn’t auto-update when you move or trim the clip. Regenerate it for the
+              new moment, or just edit the text above.
+            </p>
+          </div>
+        )}
       </section>
 
       {/* ── пресеты хука (галерея look'ов) ── */}

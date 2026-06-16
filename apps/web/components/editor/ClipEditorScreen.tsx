@@ -14,6 +14,7 @@ import {
   getTimeline,
   patchClipEdit,
   patchClipEditKeepalive,
+  regenerateHook,
   setClipAspect,
   setClipInterval,
   setCropOverride,
@@ -556,6 +557,34 @@ export default function ClipEditorScreen({
     [jobId, clipId, refreshAss, failOr409, flushPending],
   );
 
+  // ── W4: перегенерация хука под текущий интервал (узкий Gemini-вызов, явный opt-in) ──
+  // В ТОЙ ЖЕ очереди мутаций (свежая версия). Меняет только hook.text; стиль не трогает.
+  const [regeneratingHook, setRegeneratingHook] = useState(false);
+  const handleHookRegenerate = useCallback(async () => {
+    await flushPending();
+    const p = patchChain.current.then(async () => {
+      const cur = editRef.current;
+      if (!cur) return;
+      setError(null);
+      setRegeneratingHook(true);
+      try {
+        const updated = await regenerateHook(jobId, clipId, cur.version ?? 1);
+        editRef.current = updated;
+        setEdit(updated);
+        setDirty(true);
+        setUnsaved(false);
+        // hook.text меняется в Dialogue-теге → пересобрать ASS (как пресет)
+        await refreshAss();
+      } catch (e) {
+        failOr409(e);
+      } finally {
+        setRegeneratingHook(false);
+      }
+    });
+    patchChain.current = p;
+    return p;
+  }, [jobId, clipId, refreshAss, failOr409, flushPending]);
+
   // ── кадр (таб «Кадр») ──
   const handleFrameApply = useCallback(
     async (
@@ -1038,7 +1067,13 @@ export default function ClipEditorScreen({
                 />
               )}
               {edit && tab === "hook" && (
-                <HookTab edit={edit} busy={busy} onHookChange={handleHookChange} />
+                <HookTab
+                  edit={edit}
+                  busy={busy}
+                  onHookChange={handleHookChange}
+                  onRegenerate={handleHookRegenerate}
+                  regenerating={regeneratingHook}
+                />
               )}
               {edit && tab === "style" && (
                 <StyleTab
