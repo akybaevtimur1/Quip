@@ -83,11 +83,12 @@ def build_fill_crop_expr(
     *,
     crop_w: int | None = None,
 ) -> str:
-    """Piecewise-constant if()-выражение для ffmpeg crop X-координаты (Engine A).
+    """Piecewise-ЛИНЕЙНОЕ if()-выражение для ffmpeg crop X-координаты (Engine A): рампим x
+    между кейфреймами → плавный пан (раньше был piecewise-const = ступеньки/резкие скачки).
 
     t в выражении — PTS-STARTPTS (0-based после trim), t_rel = point.t - t0_offset.
-    Запятые экранируются \\, для filtergraph. Последний x — else-ветка (дефолт от t0).
-    Пример: if(lt(t\\,0.200)\\,312\\,if(lt(t\\,0.400)\\,315\\,320))
+    Запятые экранируются \\, для filtergraph. После последнего кейфрейма x держится константой.
+    Пример: if(lt(t\\,0.200)\\,(312+(15.0000)*(t-0.000))\\,320)
     crop_w (T5): ширина кропа целевого аспекта; None → 9:16 (compute_crop_window, дефолт).
     """
     if not points:
@@ -103,15 +104,34 @@ def build_fill_crop_expr(
             x = max(0, min(round(cxc * src_w - crop_w / 2), src_w - crop_w))
         pairs.append((t_rel, x))
     pairs.sort()
+    # Дедуп по t_rel (одинаковое округлённое время → делёж на 0 в рампе; держим последний x).
+    dedup: list[tuple[float, int]] = []
+    for t_rel, x in pairs:
+        if dedup and abs(t_rel - dedup[-1][0]) < 1e-6:
+            dedup[-1] = (t_rel, x)
+        else:
+            dedup.append((t_rel, x))
+    pairs = dedup
     if len(pairs) == 1:
         return str(pairs[0][1])
-    # Nested if: if(lt(t,T1),V0,...,Vn). Строим с конца: else=Vn.
-    # Запятые в filtergraph нужно экранировать \, (двойной \ в Python = \, в строке).
+    # Если первый кейфрейм не в t=0 (трек начинается на пару кадров позже старта региона) —
+    # держим его x от t=0 (как старый step), чтобы рамп не экстраполировал НАЗАД до t0.
+    if pairs[0][0] > 1e-6:
+        pairs.insert(0, (0.0, pairs[0][1]))
+    # Piecewise-ЛИНЕЙНЫЙ пан: между кейфреймами рампим x = x0 + slope*(t-t0) → ПЛАВНОЕ движение
+    # в скачанном файле (раньше Engine A держал x ступенькой = резкие скачки ~3% ширины). После
+    # последнего кейфрейма x держится константой (else-ветка). Первый кейфрейм всегда t_rel=0
+    # (старт региона после setpts=PTS-STARTPTS) → экстраполяции до t0 нет; рамп идёт между уже
+    # клампнутыми в кадр значениями x. ⚠️ Меняем ТОЛЬКО cx ВНУТРИ fill-региона: границы регионов
+    # (trim-кадры round(t0*fps)) НЕ трогаются → кадровая сетка и переходы fill↔fit/split целы,
+    # флеши невозможны (см. docs/REFRAME_FPS_GRID_INVARIANT.md §«Что МОЖНО менять»).
     expr = str(pairs[-1][1])
     for i in range(len(pairs) - 2, -1, -1):
-        t_boundary = pairs[i + 1][0]
-        if t_boundary > 0:
-            expr = f"if(lt(t\\,{t_boundary:.3f})\\,{pairs[i][1]}\\,{expr})"
+        t0i, x0i = pairs[i]
+        t1i, x1i = pairs[i + 1]
+        slope = (x1i - x0i) / (t1i - t0i)  # t1i>t0i после дедупа → не делим на 0
+        ramp = f"({x0i}+({slope:.4f})*(t-{t0i:.3f}))"
+        expr = f"if(lt(t\\,{t1i:.3f})\\,{ramp}\\,{expr})"
     return expr
 
 

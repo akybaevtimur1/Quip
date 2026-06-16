@@ -130,6 +130,17 @@ class TestBuildFillCropExpr:
         expr = build_fill_crop_expr(pts, t0_offset=5.0, src_w=1920, src_h=1080)
         assert "0.200" in expr  # t_rel = 5.2 - 5.0 = 0.2
 
+    def test_pan_is_piecewise_linear_not_step(self) -> None:
+        # Пан между кейфреймами ОБЯЗАН быть линейным рампом (x0 + slope*(t-t0)),
+        # а не ступенькой (piecewise-const) — иначе резкие скачки в скачанном файле.
+        pts = (
+            TrackPoint(t=0.0, mode="fill", cx=0.3),
+            TrackPoint(t=1.0, mode="fill", cx=0.7),
+        )
+        expr = build_fill_crop_expr(pts, t0_offset=0.0, src_w=1920, src_h=1080)
+        assert "*(t-" in expr  # линейный рамп (а не голая константа на интервал)
+        assert "if(lt(t" in expr  # структура переключения по кейфреймам сохранена
+
     def test_empty_raises(self) -> None:
         with pytest.raises(JobError):
             build_fill_crop_expr((), t0_offset=0.0, src_w=1920, src_h=1080)
