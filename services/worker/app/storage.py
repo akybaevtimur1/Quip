@@ -12,6 +12,7 @@ Pure-билдеры покрыты unit-тестами; R2 upload/presign — I/
 
 from __future__ import annotations
 
+import math
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -82,6 +83,20 @@ def _r2_client() -> Any:
     )
 
 
+@lru_cache(maxsize=1)
+def _transfer_config() -> Any:
+    """boto3 TransferConfig для крупных source-трансферов (R2↔Modal). Дефолт 8 МБ/10 потоков узок
+    для 5 ГБ; 64 МБ-части + 20 потоков насыщают канал (Modal и R2 рядом, Cloudflare)."""
+    from boto3.s3.transfer import TransferConfig
+
+    return TransferConfig(
+        multipart_threshold=64 * 1024 * 1024,
+        multipart_chunksize=64 * 1024 * 1024,
+        max_concurrency=20,
+        use_threads=True,
+    )
+
+
 def _presigned_get(client: Any, bucket: str, key: str, ttl: int) -> str:
     """Подписанный GET-URL объекта (работает без публичного бакета). TTL в секундах."""
     url: str = client.generate_presigned_url(
@@ -113,6 +128,7 @@ def upload_source(local_path: Path, job_id: str) -> None:
             s.r2_bucket,
             source_object_key(job_id),
             ExtraArgs={"ContentType": "video/mp4"},
+            Config=_transfer_config(),
         )
     except Exception as e:  # noqa: BLE001
         raise JobError("storage", f"R2 upload source {job_id} failed: {e}") from e
@@ -151,6 +167,88 @@ def presigned_put_url(job_id: str) -> str:
         raise JobError("storage", f"R2 presign PUT {job_id} failed: {e}") from e
 
 
+# ─────────────────────────── multipart upload (файлы > single-PUT) ───────────────────────────
+# R2 single PUT макс 5 ГБ. Файлы крупнее (и ради скорости/resume — крупные вообще) браузер режет
+# на части по MULTIPART_PART_SIZE и грузит ПАРАЛЛЕЛЬНО прямо в R2; R2 собирает их в один объект.
+# 100 МБ/часть: R2 min part 5 МБ, max 10000 частей → до ~1 ТБ при 100 МБ (с запасом под 3h-видео).
+MULTIPART_PART_SIZE = 100 * 1024 * 1024
+
+
+def plan_part_count(size: int, part_size: int) -> int:
+    """Сколько частей для файла ``size`` байт при ``part_size``. PURE.
+
+    Минимум 1 (нулевой/битый size → одна часть, не ноль); кап 10000 (лимит S3/R2 на число частей).
+    """
+    if size <= 0:
+        return 1
+    return min(10000, math.ceil(size / part_size))
+
+
+def create_multipart_upload(job_id: str) -> str:
+    """Начать multipart-загрузку исходника в R2 → upload_id. JobError при сбое (правило №8)."""
+    s = get_settings()
+    try:
+        resp = _r2_client().create_multipart_upload(
+            Bucket=s.r2_bucket, Key=source_object_key(job_id), ContentType="video/mp4"
+        )
+        return str(resp["UploadId"])
+    except Exception as e:  # noqa: BLE001
+        raise JobError("storage", f"R2 create multipart {job_id} failed: {e}") from e
+
+
+def presigned_upload_part_url(job_id: str, upload_id: str, part_number: int) -> str:
+    """Presigned PUT для ОДНОЙ части (браузер PUT'ит кусок файла). JobError при сбое.
+
+    ETag части R2 вернёт в заголовке ответа — браузер читает его (нужен ExposeHeaders: ETag
+    в CORS бакета, уже задан) и отдаёт назад в upload-complete для сборки объекта.
+    """
+    s = get_settings()
+    try:
+        url: str = _r2_client().generate_presigned_url(
+            "upload_part",
+            Params={
+                "Bucket": s.r2_bucket,
+                "Key": source_object_key(job_id),
+                "UploadId": upload_id,
+                "PartNumber": part_number,
+            },
+            ExpiresIn=21600,  # 6h — как single-PUT: крупная загрузка на медленном аплинке
+        )
+        return url
+    except Exception as e:  # noqa: BLE001
+        raise JobError("storage", f"R2 presign part {job_id}#{part_number} failed: {e}") from e
+
+
+def complete_multipart_upload(job_id: str, upload_id: str, parts: list[dict[str, Any]]) -> None:
+    """Собрать объект из частей. ``parts`` = [{"PartNumber": n, "ETag": "..."}]. JobError при сбое.
+
+    Сортируем по PartNumber (R2 требует возрастающий порядок) — фронт может прислать вразнобой.
+    """
+    s = get_settings()
+    ordered = sorted(parts, key=lambda p: int(p["PartNumber"]))
+    try:
+        _r2_client().complete_multipart_upload(
+            Bucket=s.r2_bucket,
+            Key=source_object_key(job_id),
+            UploadId=upload_id,
+            MultipartUpload={"Parts": ordered},
+        )
+    except Exception as e:  # noqa: BLE001
+        raise JobError("storage", f"R2 complete multipart {job_id} failed: {e}") from e
+
+
+def abort_multipart_upload(job_id: str, upload_id: str) -> None:
+    """Отменить незавершённую multipart-загрузку → удалить залитые части (чтобы не копить мусор
+    в R2 при сбое/отмене). JobError при сбое — вызыватель (endpoint) гасит в best-effort."""
+    s = get_settings()
+    try:
+        _r2_client().abort_multipart_upload(
+            Bucket=s.r2_bucket, Key=source_object_key(job_id), UploadId=upload_id
+        )
+    except Exception as e:  # noqa: BLE001
+        raise JobError("storage", f"R2 abort multipart {job_id} failed: {e}") from e
+
+
 def set_upload_cors() -> dict[str, object]:
     """Прописать R2-бакету CORS для браузерных PUT (presigned direct upload) с наших origin'ов.
 
@@ -185,7 +283,9 @@ def download_source(job_id: str, dest: Path) -> None:
     """Скачать source.mp4 из R2 в dest (для редактор-рендера). JobError при сбое."""
     s = get_settings()
     try:
-        _r2_client().download_file(s.r2_bucket, source_object_key(job_id), str(dest))
+        _r2_client().download_file(
+            s.r2_bucket, source_object_key(job_id), str(dest), Config=_transfer_config()
+        )
     except Exception as e:  # noqa: BLE001
         raise JobError("storage", f"R2 download source {job_id} failed: {e}") from e
 

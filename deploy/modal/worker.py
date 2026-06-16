@@ -161,7 +161,16 @@ def web() -> object:
 # здесь — включая полный preview-транскод source→720p (~30-60 мин для 3h) + транскрипцию +
 # реframe/рендер. На 1h тяжёлый джоб умирал бы на полпути. 3h ≈ потолок контента (MAX_VIDEO_MINUTES)
 # → ограничивает и runaway-стоимость.
-@app.function(secrets=[_SECRET, _BILLING_SECRET], timeout=10800, min_containers=0, serialized=True)
+# cpu=4/memory=4096: пайплайн CPU-bound (ffmpeg -threads 0 + torch ASD). Дефолтный ~1/8 ядра
+# душил кодирование — больше ядер ≈ линейно быстрее, cost (ядро·сек) почти не меняется (быстрее).
+@app.function(
+    secrets=[_SECRET, _BILLING_SECRET],
+    timeout=10800,
+    cpu=4,
+    memory=4096,
+    min_containers=0,
+    serialized=True,
+)
 def run_job(
     job_id: str,
     source_type: str,
@@ -184,7 +193,15 @@ def run_job(
 
 # timeout=10800 (3h): качает залитый источник (до ~5 ГБ) на свой контейнер + гоняет тот же
 # полный пайплайн (incl. preview-транскод). Тяжёлой/длинной загрузке 1h мало — см. run_job.
-@app.function(secrets=[_SECRET, _BILLING_SECRET], timeout=10800, min_containers=0, serialized=True)
+# cpu=4/memory=4096: то же, что run_job (CPU-bound пайплайн + крупный source-download).
+@app.function(
+    secrets=[_SECRET, _BILLING_SECRET],
+    timeout=10800,
+    cpu=4,
+    memory=4096,
+    min_containers=0,
+    serialized=True,
+)
 def upload_job(
     job_id: str,
     filename: str,
@@ -211,7 +228,15 @@ def upload_job(
     run_upload_job(job_id, str(upload_path), filename, max_clips, user_id)
 
 
-@app.function(secrets=[_SECRET, _BILLING_SECRET], timeout=1200, min_containers=0, serialized=True)
+# cpu=4/memory=4096: пере-рендер клипа = ffmpeg (reframe+прожиг) → больше ядер = быстрее.
+@app.function(
+    secrets=[_SECRET, _BILLING_SECRET],
+    timeout=1200,
+    cpu=4,
+    memory=4096,
+    min_containers=0,
+    serialized=True,
+)
 def render_job(job_id: str, clip_id: str) -> None:
     """Пере-рендер клипа из текущего edit-state (редактор). source.mp4 скачивается из R2."""
     import sys

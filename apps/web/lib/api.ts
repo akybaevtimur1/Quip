@@ -105,6 +105,91 @@ function xhrRequest(
   });
 }
 
+/** PUT одной части в R2 по presigned URL; резолвит её ETag (нужен для сборки объекта).
+ *  ETag читается из заголовка ответа — требует CORS `ExposeHeaders: ["ETag"]` на бакете. */
+function putPart(
+  url: string,
+  blob: Blob,
+  onProgress: (loaded: number) => void,
+  signal?: AbortSignal,
+): Promise<{ status: number; etag: string | null }> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", url);
+    if (signal) {
+      if (signal.aborted) {
+        xhr.abort();
+        return reject(new DOMException("Upload aborted", "AbortError"));
+      }
+      signal.addEventListener(
+        "abort",
+        () => {
+          xhr.abort();
+          reject(new DOMException("Upload aborted", "AbortError"));
+        },
+        { once: true },
+      );
+    }
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) onProgress(e.loaded);
+    };
+    xhr.onload = () => resolve({ status: xhr.status, etag: xhr.getResponseHeader("ETag") });
+    xhr.onerror = () => reject(new Error("Upload failed — check your connection and try again"));
+    xhr.send(blob);
+  });
+}
+
+const UPLOAD_PART_CONCURRENCY = 3;
+
+/** Залить файл частями (параллельно, с ограничением concurrency) и вернуть [{part_number, etag}]
+ *  для сборки объекта. Прогресс — сумма загруженного по всем частям / общий размер. */
+async function uploadParts(
+  file: File,
+  parts: { part_number: number; url: string }[],
+  partSize: number,
+  onProgress?: (pct: number) => void,
+  signal?: AbortSignal,
+): Promise<{ part_number: number; etag: string }[]> {
+  const total = file.size;
+  const loaded = new Array<number>(parts.length).fill(0);
+  const result = new Array<{ part_number: number; etag: string }>(parts.length);
+  const report = () => {
+    if (onProgress) {
+      const sum = loaded.reduce((a, b) => a + b, 0);
+      onProgress(Math.min(100, Math.round((sum / total) * 100)));
+    }
+  };
+
+  let next = 0;
+  async function worker(): Promise<void> {
+    for (let i = next++; i < parts.length; i = next++) {
+      const p = parts[i];
+      const start = (p.part_number - 1) * partSize;
+      const chunk = file.slice(start, Math.min(start + partSize, total));
+      const { status, etag } = await putPart(
+        p.url,
+        chunk,
+        (l) => {
+          loaded[i] = l;
+          report();
+        },
+        signal,
+      );
+      if (status < 200 || status >= 300) throw new Error(`Upload part ${p.part_number} failed: ${status}`);
+      if (!etag) throw new Error("Upload part missing ETag (R2 CORS must expose the ETag header)");
+      loaded[i] = chunk.size;
+      report();
+      // ETag верстаем как вернул R2 (в кавычках) — complete_multipart_upload ждёт ровно его.
+      result[i] = { part_number: p.part_number, etag };
+    }
+  }
+
+  await Promise.all(
+    Array.from({ length: Math.min(UPLOAD_PART_CONCURRENCY, parts.length) }, worker),
+  );
+  return result;
+}
+
 export async function createUploadJob(
   file: File,
   maxClips?: number,
@@ -118,7 +203,8 @@ export async function createUploadJob(
   const initRes = await fetch(`${BASE}/jobs/upload-url`, {
     method: "POST",
     headers: { ...headers, "Content-Type": "application/json" },
-    body: JSON.stringify({ filename: file.name, max_clips: maxClips ?? null }),
+    // size → воркер решает: один PUT (мелкие) или multipart-план (крупные, >100 МБ).
+    body: JSON.stringify({ filename: file.name, max_clips: maxClips ?? null, size: file.size }),
     signal,
   });
   if (initRes.status === 401) throw new Error("Sign in to create clips.");
@@ -127,7 +213,45 @@ export async function createUploadJob(
     throw new Error(b?.detail ?? "Monthly limit reached. Upgrade your plan on the pricing page.");
   }
   if (!initRes.ok) throw new Error(`upload init failed: ${initRes.status}`);
-  const init = (await initRes.json()) as { id?: string; put_url?: string; local?: boolean };
+  const init = (await initRes.json()) as {
+    id?: string;
+    put_url?: string;
+    local?: boolean;
+    upload_id?: string;
+    part_size?: number;
+    parts?: { part_number: number; url: string }[];
+  };
+
+  // Multipart (большой файл): части грузятся ПАРАЛЛЕЛЬНО прямо в R2, затем upload-complete
+  // собирает объект из их ETag'ов. На сбое — best-effort abort, чтобы не копить части в R2.
+  if (init.id && init.upload_id && init.parts && init.part_size) {
+    const { id, upload_id, parts, part_size } = init;
+    try {
+      const completed = await uploadParts(file, parts, part_size, onProgress, signal);
+      const done = await fetch(`${BASE}/jobs/${id}/upload-complete`, {
+        method: "POST",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          filename: file.name,
+          max_clips: maxClips ?? null,
+          upload_id,
+          parts: completed,
+        }),
+        signal,
+      });
+      if (!done.ok) throw new Error(`Couldn’t finalize upload: ${done.status}`);
+      return { id };
+    } catch (e) {
+      // Отменили/уронили загрузку → попросить воркер вычистить залитые части (fire-and-forget).
+      void fetch(`${BASE}/jobs/${id}/upload-abort`, {
+        method: "POST",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ upload_id }),
+        keepalive: true,
+      }).catch(() => {});
+      throw e;
+    }
+  }
 
   if (init.put_url && init.id) {
     // 2. PUT файла ПРЯМО в R2 (XHR ради progress+abort). Content-Type в presigned URL не подписан

@@ -8,12 +8,12 @@ import { IconButton } from "@/components/ui/IconButton";
 const MIN_CLIPS = 1;
 const MAX_CLIPS = 10;
 const DEFAULT_CLIPS = 6;
-// Quip is for long-form (podcasts, talks), so the cap is the direct-to-R2 single-PUT
-// ceiling (~5 GiB), not an arbitrary small number. Length is bounded separately by the
-// worker's 3 h technical limit (billing.MAX_VIDEO_MINUTES). Files >5 GB would need a
-// multipart upload (future) — keep this at the single-PUT max.
-const MAX_UPLOAD_MB = 5000;
-const MAX_UPLOAD_LABEL = "5 GB";
+// Quip is for long-form (podcasts, talks). Uploads >100 MB go via R2 multipart (parallel,
+// resumable parts) so the old 5 GB single-PUT ceiling is gone — the REAL limit is length
+// (3 h, worker-side billing.MAX_VIDEO_MINUTES). This MB number is just a sane guard against
+// absurd uploads (a 3 h 1080p source is ~2–6 GB); bump it freely.
+const MAX_UPLOAD_MB = 10000;
+const MAX_UPLOAD_LABEL = "10 GB";
 
 export function SourceForm({
   onSubmitFile,

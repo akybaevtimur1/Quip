@@ -265,6 +265,9 @@ async def create_upload_job(
 class UploadUrlBody(BaseModel):
     filename: str = "upload.mp4"
     max_clips: int | None = Field(default=None, ge=1, le=10)
+    # Размер файла (байты) — известен браузеру. >5 ГБ нельзя одним PUT (лимит R2), а крупные и
+    # вообще выгоднее multipart (параллельные части + resume). None/малый → single-PUT (как раньше).
+    size: int | None = Field(default=None, ge=0)
 
 
 @app.post("/jobs/upload-url")
@@ -273,26 +276,50 @@ def create_upload_url(
     authorization: str | None = Header(default=None),
     x_user_id: str | None = Header(default=None),
 ) -> dict[str, Any]:
-    """Прямая загрузка браузер→R2: вернуть presigned PUT (cloud) ИЛИ сигнал local-fallback.
+    """Прямая загрузка браузер→R2: presigned PUT (мелкие) ИЛИ multipart-план (крупные) ИЛИ local.
 
-    Большие видео через ОДИН долгий POST на Modal web рвались (truncated multipart → 400). Тут
-    браузер PUT'ит файл ПРЯМО в R2 по presigned URL (Cloudflare edge, надёжно для больших файлов),
-    затем зовёт upload-complete. Локально (нет R2) → {"local": true} → фронт шлёт обычный multipart
-    POST /jobs/upload (dev ок). Квота гейтится ЗДЕСЬ (до загрузки).
+    Большие видео через ОДИН долгий POST на Modal web рвались. Тут браузер льёт файл ПРЯМО в R2:
+    - size ≤ part_size → один presigned PUT (как раньше);
+    - size > part_size → multipart: создаём upload, отдаём presigned-URL на КАЖДУЮ часть; браузер
+      грузит части параллельно и зовёт upload-complete с их ETag'ами → R2 собирает объект.
+    Локально (нет R2) → {"local": true} → фронт шлёт обычный multipart POST /jobs/upload (dev ок).
+    Квота гейтится ЗДЕСЬ (до загрузки). Джоб в БД создаётся в upload-complete (после PUT) —
+    отменённая загрузка не оставляет «queued»-сироту.
     """
     user_id = _resolve_user(authorization, x_user_id)
     _enforce_quota(user_id)
     if get_settings().storage_backend != "r2":
         return {"local": True}
-    # Джоб в БД создаём НЕ здесь, а в upload-complete (после успешного PUT) — иначе отменённая
-    # загрузка оставила бы «queued»-сироту. presigned PUT ключу в БД не требует.
     job_id = f"job_{uuid.uuid4().hex[:12]}"
+    size = body.size or 0
+    if size > storage.MULTIPART_PART_SIZE:
+        upload_id = storage.create_multipart_upload(job_id)
+        n_parts = storage.plan_part_count(size, storage.MULTIPART_PART_SIZE)
+        parts = [
+            {"part_number": i, "url": storage.presigned_upload_part_url(job_id, upload_id, i)}
+            for i in range(1, n_parts + 1)
+        ]
+        return {
+            "id": job_id,
+            "upload_id": upload_id,
+            "part_size": storage.MULTIPART_PART_SIZE,
+            "parts": parts,
+        }
     return {"id": job_id, "put_url": storage.presigned_put_url(job_id)}
+
+
+class CompletedPart(BaseModel):
+    part_number: int = Field(ge=1, le=10000)
+    etag: str
 
 
 class UploadCompleteBody(BaseModel):
     filename: str = "upload.mp4"
     max_clips: int | None = Field(default=None, ge=1, le=10)
+    # Multipart-сборка (если грузили частями): upload_id + ETag'и частей. None → single-PUT
+    # (объект уже в R2, собирать нечего).
+    upload_id: str | None = None
+    parts: list[CompletedPart] | None = None
 
 
 @app.post("/jobs/{job_id}/upload-complete")
@@ -316,12 +343,47 @@ def complete_upload(
     if not dispatch.modal_spawn_enabled():
         raise HTTPException(status_code=400, detail="direct upload only in cloud mode")
     db.insert_job(job_id, "upload", body.filename, user_id=user_id)
+    # Multipart: сначала собрать объект из частей (иначе upload_job скачает пусто/битое).
+    if body.upload_id and body.parts:
+        try:
+            storage.complete_multipart_upload(
+                job_id,
+                body.upload_id,
+                [{"PartNumber": p.part_number, "ETag": p.etag} for p in body.parts],
+            )
+        except Exception as e:  # noqa: BLE001 — сборка не удалась → видимый failed, не тихо
+            db.set_failed(job_id, f"multipart complete failed: {e}")
+            raise HTTPException(status_code=500, detail=f"multipart complete failed: {e}") from e
     try:
         dispatch.spawn("upload_job", job_id, body.filename, body.max_clips, user_id)
     except Exception as e:  # noqa: BLE001 — сбой диспатча = видимый failed, не вечная очередь
         db.set_failed(job_id, f"dispatch failed: {e}")
         raise HTTPException(status_code=500, detail=f"upload dispatch failed: {e}") from e
     return {"id": job_id, "status": "queued", "stage": "queued", "progress": 0}
+
+
+class UploadAbortBody(BaseModel):
+    upload_id: str
+
+
+@app.post("/jobs/{job_id}/upload-abort")
+def abort_upload(
+    job_id: str,
+    body: UploadAbortBody,
+    authorization: str | None = Header(default=None),
+    x_user_id: str | None = Header(default=None),
+) -> dict[str, Any]:
+    """Браузер отменил/уронил multipart-загрузку → удалить залитые части из R2 (не копить мусор).
+
+    Best-effort: чистка не должна ронять и без того ошибочный флоу — сбой самой abort возвращаем
+    как ``{"ok": false}`` (а не 500). Auth обязателен (чужой upload не отменить).
+    """
+    _resolve_user(authorization, x_user_id)
+    try:
+        storage.abort_multipart_upload(job_id, body.upload_id)
+    except Exception:  # noqa: BLE001 — cleanup best-effort; незавершённые части подберёт lifecycle R2
+        return {"ok": False}
+    return {"ok": True}
 
 
 @app.post("/webhooks/polar")
