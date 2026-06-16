@@ -248,6 +248,26 @@ def render_job(job_id: str, clip_id: str) -> None:
     render_clip_edit_job(job_id, clip_id)
 
 
+@app.function(
+    secrets=[_SECRET, _BILLING_SECRET],
+    timeout=600,
+    cpu=2,
+    memory=2048,
+    min_containers=0,
+    serialized=True,
+)
+def agent_edit_job(run_id: str) -> None:
+    """W3: агент-чат редактора (Gemini function-calling + правки edit-state). Отдельная функция —
+    отменяемый Stop'ом долгоживущий джоб (как run_job). Биллинг минут не трогает."""
+    import sys
+
+    if "/root" not in sys.path:
+        sys.path.insert(0, "/root")
+    from app.tasks import agent_edit_job as _job
+
+    _job(run_id)
+
+
 # Ретеншн R2: source.mp4/preview.mp4 — 70-90% хранилища, нужны лишь редактору; клипы (продукт)
 # вечны. Без чистки R2 растёт безлимитно (разовая оплата → вечное хранение). Раз в сутки удаляем
 # editor-only артефакты старше DEFAULT_SOURCE_RETENTION_DAYS. _SECRET даёт R2-креды.

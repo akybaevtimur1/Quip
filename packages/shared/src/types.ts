@@ -6,6 +6,10 @@
  */
 
 /**
+ * Состояние одного прогона агента (запрос юзера → серия действий).
+ */
+export type AgentRunStatus = "running" | "done" | "failed" | "cancelled";
+/**
  * Тип момента, выбранного LLM (объяснимость + цвет чипа в UI).
  */
 export type ClipType = "hook" | "emotional_peak" | "complete_thought" | "strong_quote";
@@ -27,6 +31,9 @@ export type JobStatus =
   | "cancelled";
 
 export interface ClipFlowContract {
+  AgentEvent?: AgentEvent;
+  AgentRun?: AgentRun;
+  AgentRunStatus?: AgentRunStatus;
   CaptionPreset?: CaptionPreset;
   CaptionReply?: CaptionReply;
   CaptionStyle?: CaptionStyle;
@@ -51,6 +58,32 @@ export interface ClipFlowContract {
   TimelineSegment?: TimelineSegment;
   Transcript?: Transcript;
   Word?: Word;
+}
+/**
+ * Одно событие ленты агент-чата (порядок = хронология).
+ *
+ * role: user (запрос) | thinking (короткая мысль) | action (применённый тул) |
+ * agent (финальный/уточняющий текст) | error (видимый сбой, правило №8).
+ * action_* заполняются ТОЛЬКО для role=action (что сделано: было→стало).
+ */
+export interface AgentEvent {
+  action_kind?: string | null;
+  after?: string | null;
+  before?: string | null;
+  role: "user" | "thinking" | "action" | "agent" | "error";
+  text: string;
+}
+/**
+ * Прогон агента над ОДНИМ клипом: лента событий + статус. Поллится фронтом.
+ */
+export interface AgentRun {
+  cancellable?: boolean;
+  clip_id: string;
+  error?: string | null;
+  events?: AgentEvent[];
+  job_id: string;
+  run_id: string;
+  status: AgentRunStatus;
 }
 /**
  * Именованный пресет стиля субтитров (мини brand kit, спека §9).

@@ -54,12 +54,13 @@ from app.editor.timeline import build_timeline_data
 from app.editor.timemap import ClipTimeMap
 from app.errors import JobError
 from app.models import (
+    AgentEvent,
+    AgentRun,
     CaptionPreset,
     CaptionStyle,
     CaptionTrack,
     CropOverride,
     HighlightStyle,
-    HookOverlay,
 )
 from app.pipeline.stage5_render import aspect_to_dims
 from app.run import DATA_ROOT
@@ -629,6 +630,10 @@ class RegenerateHookBody(BaseModel):
     version: int
 
 
+class AgentStartBody(BaseModel):
+    message: str
+
+
 def _save_or_409(job_id: str, clip_id: str, new_edit: Any, version: int) -> dict[str, Any]:
     try:
         return store.save_edit(job_id, clip_id, new_edit, expected_version=version).model_dump()
@@ -855,31 +860,127 @@ def op_regenerate_hook(job_id: str, clip_id: str, body: RegenerateHookBody) -> d
     стиль/позицию/плашку (W5) НЕ трогаем. Цена sub-cent → НЕ метрим (как прочие правки редактора).
     Optimistic-lock (409 при version mismatch).
     """
-    from app import artifacts
-    from app.editor.replies import clip_words
-    from app.pipeline.stage2_select import regenerate_hook
+    from app.editor.hook_ops import regenerate_hook_for_clip
 
     edit = _load_or_404(job_id, clip_id)
-    tr = artifacts.load_transcript(job_id)
-    cw = clip_words(tr.words, edit.source_intervals)
-    if not cw:
-        raise HTTPException(status_code=400, detail="clip has no words to base a hook on")
-    clip_text = " ".join(w.text for _i, w in cw)
-    duration = sum(iv.source_end - iv.source_start for iv in edit.source_intervals)
     try:
-        hook_text, _style = regenerate_hook(clip_text, language=tr.language, duration=duration)
+        new_edit, _hook_text = regenerate_hook_for_clip(job_id, edit)
     except JobError as e:
-        # Gemini недоступен/битый ответ → 502 (правило №8: явная причина, не тихий фолбэк).
-        raise HTTPException(status_code=502, detail=f"hook regeneration failed: {e}") from e
-    cur = edit.captions.hook
-    new_hook = (
-        cur.model_copy(update={"text": hook_text, "enabled": True})
-        if cur is not None
-        else HookOverlay(text=hook_text, enabled=True)
-    )
-    new_track = edit.captions.model_copy(update={"hook": new_hook})
-    new_edit = edit.model_copy(update={"captions": new_track})
+        # нет слов (400) / Gemini недоступен (502) — явная причина, не тихий фолбэк (правило №8).
+        code = 400 if "no words" in str(e) else 502
+        raise HTTPException(status_code=code, detail=f"hook regeneration failed: {e}") from e
     return _save_or_409(job_id, clip_id, new_edit, body.version)
+
+
+# ─────────────────────────── W3: агентный чат-редактор клипа ───────────────────────────
+
+_AGENT_TERMINAL = ("done", "failed", "cancelled")
+_AGENT_MSG_MAX = 2000
+
+
+def _agent_payload(run: dict[str, Any]) -> dict[str, Any]:
+    """Ряд agent_run → wire-AgentRun (без внутреннего function_call_id)."""
+    return AgentRun(
+        run_id=run["run_id"],
+        job_id=run["job_id"],
+        clip_id=run["clip_id"],
+        status=run["status"],
+        events=[AgentEvent(**e) for e in run["events"]],
+        error=run.get("error"),
+        cancellable=run["cancellable"],
+    ).model_dump()
+
+
+def _run_agent_bg(run_id: str) -> None:
+    from app.agent.clip_agent import run_clip_agent
+
+    run_clip_agent(run_id)
+
+
+@app.post("/jobs/{job_id}/clips/{clip_id}/agent/start")
+def agent_start(
+    job_id: str,
+    clip_id: str,
+    body: AgentStartBody,
+    bg: BackgroundTasks,
+    x_user_id: str | None = Header(default=None),
+) -> dict[str, Any]:
+    """W3: запустить агента на клипе. Один активный run на клип (идемпотентно). Спавн как у джоба;
+    отмена — `function_call_id`. Биллинг не трогаем. Сбой диспатча → failed."""
+    from app.agent import runs_store
+
+    try:
+        store.ensure_edit(job_id, clip_id)  # создаём дефолт из сегмента, если ещё нет
+    except (FileNotFoundError, KeyError, JobError) as e:
+        raise HTTPException(status_code=404, detail="clip/segment not found") from e
+    msg = (body.message or "").strip()
+    if not msg:
+        raise HTTPException(status_code=400, detail="empty message")
+    msg = msg[:_AGENT_MSG_MAX]
+    existing = runs_store.running_run(job_id, clip_id)
+    if existing is not None:
+        return _agent_payload(existing)  # уже работает → не плодим (дабл-клик/гонка)
+    run_id = runs_store.new_run_id()
+    runs_store.create_run(run_id, job_id, clip_id, x_user_id)
+    runs_store.append_event(run_id, AgentEvent(role="user", text=msg).model_dump())
+    if dispatch.modal_spawn_enabled():
+        try:
+            fc_id = dispatch.spawn("agent_edit_job", run_id)
+        except Exception as e:  # noqa: BLE001 — сбой диспатча видим (правило №8)
+            runs_store.set_status(run_id, "failed", f"dispatch failed: {e}")
+            raise HTTPException(status_code=500, detail=f"agent dispatch failed: {e}") from e
+        if fc_id:
+            runs_store.set_function_call_id(run_id, fc_id)
+    else:
+        bg.add_task(_run_agent_bg, run_id)
+    run = runs_store.get_run(run_id)
+    assert run is not None
+    return _agent_payload(run)
+
+
+@app.get("/jobs/{job_id}/clips/{clip_id}/agent/active")
+def agent_active(job_id: str, clip_id: str) -> dict[str, Any] | None:
+    """Активный (running) прогон для клипа — реконнект после перезагрузки вкладки."""
+    from app.agent import runs_store
+
+    run = runs_store.running_run(job_id, clip_id)
+    return _agent_payload(run) if run is not None else None
+
+
+@app.get("/jobs/{job_id}/clips/{clip_id}/agent/{run_id}")
+def agent_get(job_id: str, clip_id: str, run_id: str) -> dict[str, Any]:
+    """Статус+лента прогона (поллинг фронтом)."""
+    from app.agent import runs_store
+
+    run = runs_store.get_run(run_id)
+    if run is None or run["job_id"] != job_id or run["clip_id"] != clip_id:
+        raise HTTPException(status_code=404, detail="agent run not found")
+    return _agent_payload(run)
+
+
+@app.post("/jobs/{job_id}/clips/{clip_id}/agent/{run_id}/cancel")
+def agent_cancel(job_id: str, clip_id: str, run_id: str) -> dict[str, Any]:
+    """Stop: отменить прогон агента. Идемпотентно на терминале. $0 (агент минут не списывает)."""
+    from app.agent import runs_store
+
+    run = runs_store.get_run(run_id)
+    if run is None or run["job_id"] != job_id or run["clip_id"] != clip_id:
+        raise HTTPException(status_code=404, detail="agent run not found")
+    if run["status"] in _AGENT_TERMINAL:
+        return _agent_payload(run)
+    fc_id = run.get("function_call_id")
+    if fc_id:
+        try:
+            import modal
+
+            modal.FunctionCall.from_id(str(fc_id)).cancel(terminate_containers=False)
+        except Exception as e:  # noqa: BLE001 — отмена Modal не удалась → НЕ молча (правило №8)
+            runs_store.set_cancelled(run_id)
+            raise HTTPException(status_code=502, detail=f"cancel failed: {e}") from e
+    runs_store.set_cancelled(run_id)
+    updated = runs_store.get_run(run_id)
+    assert updated is not None
+    return _agent_payload(updated)
 
 
 @app.post("/jobs/{job_id}/clips/{clip_id}/render", status_code=202)

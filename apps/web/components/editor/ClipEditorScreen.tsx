@@ -1,6 +1,6 @@
 "use client";
 
-import { Captions, Crop, Loader2, Palette, Type } from "lucide-react";
+import { Captions, Crop, Loader2, Palette, Type, Wand2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   type Aspect,
@@ -34,6 +34,7 @@ import type {
 import { CaptionOverlay } from "../CaptionOverlay";
 import { resolveUrl } from "../ClipCard";
 import { LibassLayer } from "../LibassLayer";
+import { AgentTab } from "./AgentTab";
 import { CaptionsTab } from "./CaptionsTab";
 import { EditorHeader, type RenderState } from "./EditorHeader";
 import { FrameTab } from "./FrameTab";
@@ -52,7 +53,7 @@ import TimelineV2 from "./TimelineV2";
 // ────────────────────────────────────────────────────────────────────────────
 
 type Phase = "loading" | "ready" | "saving" | "error";
-type Tab = "captions" | "hook" | "style" | "frame";
+type Tab = "captions" | "hook" | "style" | "frame" | "agent";
 
 /** Регион reframe-плана пайплайна (reframe_<clip>.json), клип-время. */
 interface RawRegion {
@@ -85,6 +86,7 @@ function cxAt(points: { t: number; cx: number | null }[] | undefined, clipT: num
 }
 
 const TABS: { id: Tab; label: string; icon: typeof Captions }[] = [
+  { id: "agent", label: "Agent", icon: Wand2 },
   { id: "captions", label: "Captions", icon: Captions },
   { id: "hook", label: "Hook", icon: Type },
   { id: "style", label: "Style", icon: Palette },
@@ -181,6 +183,18 @@ export default function ClipEditorScreen({
         setError(`Couldn’t refresh caption preview: ${String(e)}`);
     }
   }, [jobId, clipId]);
+
+  // W3: агент изменил edit-state (интервал/хук) на бэке → перечитать edit + ASS-превью.
+  // editRef синхронизирует эффект [edit] (тут НЕ мутируем — это не путь мутации-очереди).
+  const handleAgentEdited = useCallback(async () => {
+    try {
+      const fresh = await getClipEdit(jobId, clipId);
+      setEdit(fresh);
+      await refreshAss();
+    } catch {
+      /* реконсиляция не критична — следующий poll/действие повторит */
+    }
+  }, [jobId, clipId, refreshAss]);
 
   // ── загрузка: edit + analysis + ASS (фатально), timeline/job (нефатально) ──
   useEffect(() => {
@@ -1053,6 +1067,15 @@ export default function ClipEditorScreen({
             </div>
 
             <div className="flex min-h-0 flex-1 flex-col rounded-xl border border-line bg-surface p-4">
+              {edit && tab === "agent" && (
+                <AgentTab
+                  key={clipId}
+                  jobId={jobId}
+                  clipId={clipId}
+                  busy={busy}
+                  onAgentEdited={handleAgentEdited}
+                />
+              )}
               {edit && tab === "captions" && (
                 <CaptionsTab
                   words={words}

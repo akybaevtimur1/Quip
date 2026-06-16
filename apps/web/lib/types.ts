@@ -2,6 +2,9 @@
 // (из app/models.py). Здесь только реэкспорт + UI-состояния.
 export type { Clip, ClipOut, ClipType, Job, JobStatus, Metrics, SourceKind, Word } from "@clipflow/shared";
 export type {
+  AgentEvent,
+  AgentRun,
+  AgentRunStatus,
   CaptionPreset,
   CaptionReply,
   CaptionStyle,

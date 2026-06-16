@@ -55,11 +55,11 @@ def test_trim_makes_hole_and_optimistic_lock(monkeypatch, tmp_path):
 
 
 def test_regenerate_hook_updates_text_and_bumps_version(monkeypatch, tmp_path):
-    # W4: ручка зовёт Gemini-реген (мокаем) и обновляет ТОЛЬКО hook.text + бампает версию.
-    from app.pipeline import stage2_select
+    # W4: ручка зовёт Gemini-реген (мокаем где он СВЯЗАН — hook_ops) и обновляет hook.text + версию.
+    from app.editor import hook_ops
 
     monkeypatch.setattr(
-        stage2_select, "regenerate_hook", lambda *a, **k: ("Новый цепляющий хук", "shock")
+        hook_ops, "regenerate_hook", lambda *a, **k: ("Новый цепляющий хук", "shock")
     )
     client, job = _client(monkeypatch, tmp_path)
     v = client.get(f"/jobs/{job}/clips/clip_01/edit").json()["version"]

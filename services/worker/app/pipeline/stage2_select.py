@@ -508,11 +508,21 @@ def load_hook_prompt() -> str:
     return DEFAULT_HOOK_PROMPT
 
 
-def build_hook_regen_prompt(clip_text: str, *, language: str, duration: float) -> str:
-    """PURE. User-промпт ре-гена: транскрипт клипа + его длина + язык."""
+def build_hook_regen_prompt(
+    clip_text: str, *, language: str, duration: float, style_hint: str | None = None
+) -> str:
+    """PURE. User-промпт ре-гена: транскрипт клипа + его длина + язык.
+
+    style_hint (опц., W3-агент): пожелание стиля от юзера («шок», «pov», «покороче») — мягкая
+    директива, модель всё равно сама финально решает (но учитывает просьбу)."""
+    hint = (
+        f"\nPreferred style/direction from the user: {style_hint.strip()}"
+        if style_hint and style_hint.strip()
+        else ""
+    )
     return (
         f"Clip language: {language}  Clip length: {duration:.0f}s\n\n"
-        f"Clip transcript:\n{clip_text}\n\n"
+        f"Clip transcript:\n{clip_text}\n{hint}\n"
         f"Write ONE hook for THIS clip (fill tone, hook_style, hook)."
     )
 
@@ -535,10 +545,15 @@ def regenerate_hook(
     *,
     language: str,
     duration: float,
+    style_hint: str | None = None,
     usage_sink: dict[str, int] | None = None,
 ) -> tuple[str, str | None]:
-    """Ре-генерировать ОДИН хук под клип (W4). Возвращает (hook_text, hook_style|None)."""
-    prompt = build_hook_regen_prompt(clip_text, language=language, duration=duration)
+    """Ре-генерировать ОДИН хук под клип (W4). Возвращает (hook_text, hook_style|None).
+
+    style_hint (опц., W3-агент) — пожелание стиля от юзера, мягко уходит в промпт."""
+    prompt = build_hook_regen_prompt(
+        clip_text, language=language, duration=duration, style_hint=style_hint
+    )
     text = call_gemini_structured(
         prompt,
         system_prompt=load_hook_prompt(),

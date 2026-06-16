@@ -18,6 +18,8 @@ from pydantic import BaseModel
 from pydantic.json_schema import models_json_schema
 
 from app.models import (
+    AgentEvent,
+    AgentRun,
     CaptionPreset,
     CaptionReply,
     CaptionStyle,
@@ -67,6 +69,9 @@ _MODELS: list[type[BaseModel]] = [
     # AI-карта видео (v3)
     Chapter,
     ChaptersData,
+    # W3: агентный чат-редактор клипа
+    AgentEvent,
+    AgentRun,
 ]
 
 # app/export_schema.py → parents: [0]=app [1]=worker [2]=services [3]=<repo root>

@@ -179,6 +179,14 @@ def render_clip_edit_job(job_id: str, clip_id: str) -> None:
         db.set_render_status(job_id, clip_id, "failed", None, f"unexpected: {e}")
 
 
+def agent_edit_job(run_id: str) -> None:
+    """W3: фон-точка агент-чата (Modal-spawn / local-bg). Статус и события пишет run_clip_agent
+    (правило №8). Биллинг НЕ трогаем — агент-путь минут не списывает."""
+    from app.agent.clip_agent import run_clip_agent
+
+    run_clip_agent(run_id)
+
+
 def generate_chapters_job(job_id: str) -> None:
     """Сгенерировать AI-карту видео (главы) в фоне → data/<job>/chapters.json.
 

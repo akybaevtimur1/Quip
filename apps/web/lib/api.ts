@@ -1,6 +1,7 @@
 import { createSupabaseBrowserClient } from "./supabase/client";
 import { isSupabaseConfigured } from "./supabase/config";
 import type {
+  AgentRun,
   CaptionPreset,
   CaptionTrack,
   ChaptersData,
@@ -427,6 +428,56 @@ export async function regenerateHook(
   });
   if (res.status === 409) throw new Error("Edit conflict — reload and retry");
   if (!res.ok) throw new Error(`regenerateHook failed: ${res.status}`);
+  return res.json();
+}
+
+// ── W3: агентный чат-редактор клипа ──
+export async function startAgentRun(
+  jobId: string,
+  clipId: string,
+  message: string,
+): Promise<AgentRun> {
+  const res = await fetch(`${BASE}/jobs/${jobId}/clips/${clipId}/agent/start`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message }),
+  });
+  if (!res.ok) throw new Error(`startAgentRun failed: ${res.status}`);
+  return res.json();
+}
+
+export async function getAgentRun(
+  jobId: string,
+  clipId: string,
+  runId: string,
+): Promise<AgentRun> {
+  const res = await fetch(`${BASE}/jobs/${jobId}/clips/${clipId}/agent/${runId}`, {
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`getAgentRun failed: ${res.status}`);
+  return res.json();
+}
+
+export async function getActiveAgentRun(
+  jobId: string,
+  clipId: string,
+): Promise<AgentRun | null> {
+  const res = await fetch(`${BASE}/jobs/${jobId}/clips/${clipId}/agent/active`, {
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`getActiveAgentRun failed: ${res.status}`);
+  return res.json();
+}
+
+export async function cancelAgentRun(
+  jobId: string,
+  clipId: string,
+  runId: string,
+): Promise<AgentRun> {
+  const res = await fetch(`${BASE}/jobs/${jobId}/clips/${clipId}/agent/${runId}/cancel`, {
+    method: "POST",
+  });
+  if (!res.ok) throw new Error(`cancelAgentRun failed: ${res.status}`);
   return res.json();
 }
 

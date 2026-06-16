@@ -1,5 +1,116 @@
 {
   "$defs": {
+    "AgentEvent": {
+      "description": "Одно событие ленты агент-чата (порядок = хронология).\n\nrole: user (запрос) | thinking (короткая мысль) | action (применённый тул) |\nagent (финальный/уточняющий текст) | error (видимый сбой, правило №8).\naction_* заполняются ТОЛЬКО для role=action (что сделано: было→стало).",
+      "properties": {
+        "action_kind": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "after": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "before": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "role": {
+          "enum": [
+            "user",
+            "thinking",
+            "action",
+            "agent",
+            "error"
+          ],
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "role",
+        "text"
+      ],
+      "type": "object"
+    },
+    "AgentRun": {
+      "description": "Прогон агента над ОДНИМ клипом: лента событий + статус. Поллится фронтом.",
+      "properties": {
+        "cancellable": {
+          "default": true,
+          "type": "boolean"
+        },
+        "clip_id": {
+          "type": "string"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "events": {
+          "items": {
+            "$ref": "#/$defs/AgentEvent"
+          },
+          "type": "array"
+        },
+        "job_id": {
+          "type": "string"
+        },
+        "run_id": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/AgentRunStatus"
+        }
+      },
+      "required": [
+        "run_id",
+        "job_id",
+        "clip_id",
+        "status"
+      ],
+      "type": "object"
+    },
+    "AgentRunStatus": {
+      "description": "Состояние одного прогона агента (запрос юзера → серия действий).",
+      "enum": [
+        "running",
+        "done",
+        "failed",
+        "cancelled"
+      ],
+      "type": "string"
+    },
     "CaptionPreset": {
       "description": "Именованный пресет стиля субтитров (мини brand kit, спека §9).",
       "properties": {
@@ -921,6 +1032,15 @@
   },
   "additionalProperties": false,
   "properties": {
+    "AgentEvent": {
+      "$ref": "#/$defs/AgentEvent"
+    },
+    "AgentRun": {
+      "$ref": "#/$defs/AgentRun"
+    },
+    "AgentRunStatus": {
+      "$ref": "#/$defs/AgentRunStatus"
+    },
     "CaptionPreset": {
       "$ref": "#/$defs/CaptionPreset"
     },

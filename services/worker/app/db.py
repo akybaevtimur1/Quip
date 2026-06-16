@@ -57,6 +57,17 @@ def init_db() -> None:
                 PRIMARY KEY (job_id, clip_id)
             )"""
         )
+        # W3: агент-чат редактора. Один ряд = один прогон агента над клипом (лента событий jsonb).
+        # Зеркало migrations/0007_agent_runs.sql (cloud). cancellable/function_call_id — Stop.
+        c.execute(
+            """CREATE TABLE IF NOT EXISTS agent_runs (
+                run_id TEXT PRIMARY KEY, job_id TEXT, clip_id TEXT, user_id TEXT,
+                status TEXT NOT NULL, events_json TEXT NOT NULL DEFAULT '[]',
+                error TEXT, function_call_id TEXT, cancellable INTEGER NOT NULL DEFAULT 1,
+                created_at REAL, updated_at REAL
+            )"""
+        )
+        c.execute("CREATE INDEX IF NOT EXISTS idx_agent_runs_clip ON agent_runs (job_id, clip_id)")
         # Кредит-модель: учёт расхода для лимитов (зеркало Postgres usage_events, см.
         # migrations/0001_init_billing.sql). 1 строка = 1 обработанное видео + его кредиты.
         c.execute(

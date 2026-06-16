@@ -287,6 +287,45 @@ class CaptionPreset(BaseModel):
     highlight: HighlightStyle | None = None
 
 
+# ─────────────────────────── АГЕНТ-модели (W3: чат-редактор клипа) ───────────────────────────
+
+
+class AgentRunStatus(StrEnum):
+    """Состояние одного прогона агента (запрос юзера → серия действий)."""
+
+    running = "running"
+    done = "done"
+    failed = "failed"
+    cancelled = "cancelled"  # юзер нажал Stop ($0 — агент-путь минут не списывает)
+
+
+class AgentEvent(BaseModel):
+    """Одно событие ленты агент-чата (порядок = хронология).
+
+    role: user (запрос) | thinking (короткая мысль) | action (применённый тул) |
+    agent (финальный/уточняющий текст) | error (видимый сбой, правило №8).
+    action_* заполняются ТОЛЬКО для role=action (что сделано: было→стало).
+    """
+
+    role: Literal["user", "thinking", "action", "agent", "error"]
+    text: str
+    action_kind: str | None = None  # set_interval | nudge | regenerate_hook | render | …
+    before: str | None = None
+    after: str | None = None
+
+
+class AgentRun(BaseModel):
+    """Прогон агента над ОДНИМ клипом: лента событий + статус. Поллится фронтом."""
+
+    run_id: str
+    job_id: str
+    clip_id: str
+    status: AgentRunStatus
+    events: list[AgentEvent] = Field(default_factory=list)
+    error: str | None = None
+    cancellable: bool = True
+
+
 # ─────────────────────────── TIMELINE-модели (редактор v2) ───────────────────────────
 
 
