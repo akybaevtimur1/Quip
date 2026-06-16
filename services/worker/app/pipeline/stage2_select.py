@@ -293,6 +293,10 @@ def call_gemini_structured(
         response_mime_type="application/json",
         response_schema=response_schema,
         max_output_tokens=s.llm_max_output_tokens,
+        # thinking_budget=0 ВЫКЛЮЧАЕТ «thinking» у Gemini 2.5 Flash. Иначе thinking-токены
+        # съедают max_output_tokens → на сам structured-JSON остаётся мало → ответ
+        # обрывается на полуслове («Unterminated string»). Для выбора индексов CoT не нужен.
+        thinking_config=types.ThinkingConfig(thinking_budget=0),
     )
 
     resp: Any = None
