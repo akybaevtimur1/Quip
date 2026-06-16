@@ -958,3 +958,17 @@ responsive-префиксами (база = мобайл, `sm:`/`lg:` восст
   Реальный прогон: клип→хук «Почему Бог оставляет нас в живых» (curiosity, ru). TDD: clip_words +
   parse_hook_response + build_hook_regen_prompt + API-тест (мок Gemini, версия+409).
 - **W3 (агентный чат-редактор) — НЕ начат** (явно отложен фаундером на эту сессию).
+
+### 2026-06-17 — Денежный инвариант: ошибка с нашей стороны → НЕ списываем минуты
+Ветка `fix/no-charge-on-error`. Запрос фаундера: «при любом раскладе наша ошибка не должна списывать
+минуты». Аудит метеринга (`tasks.py`): инвариант УЖЕ соблюдён структурно — `_meter` зовётся ТОЛЬКО
+после `db.set_done`, а порядок `try(run_pipeline→set_done→_meter)/except(set_failed)` делает `_meter`
+недостижимым при исключении ЛЮБОЙ стадии (download/transcribe/select/reframe/render) → ошибка =
+`set_failed`, ноль заряда. Падение одного клипа в render-цикле тоже пробрасывается → весь джоб failed.
+- **Добавлен 2-й слой (defense-in-depth):** гард `if not job.clips: return` в `_meter` — не заряжаем,
+  если НЕ отдали ни одного клипа (0 клипов = юзер получил пусто; и страховка от вырожденного «успеха»).
+- **Залочено тестами** (раньше денежный «error→no charge» на уровне джоба НЕ был покрыт):
+  `test_run_pipeline_job_failure_does_not_meter` (JobError → set_failed, _meter не вызван),
+  `test_meter_skips_charge_when_no_clips_delivered`. Хелпер `_job_with_minutes` теперь даёт клип.
+- Editor-рендеры (`render_edit_to_file`/`render_clip_edit_job`) и отмена (Stop) заряд НЕ трогают —
+  подтверждено (метеринг только в 2 pipeline-тасках). `just check` зелёный.

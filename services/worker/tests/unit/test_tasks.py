@@ -84,15 +84,31 @@ def test_transcript_cache_model_is_provider_aware():
 # списать PAYG-кредиты И записать в месячный счётчик ТОЛЬКО месячную часть (нет двойного учёта).
 
 
-def _job_with_minutes(minutes: float) -> tasks.Job:
-    from app.models import Job, JobStatus
+def _job_with_minutes(minutes: float, *, clips: int = 1) -> tasks.Job:
+    from app.models import ClipOut, ClipType, Job, JobStatus
 
+    clip_list = [
+        ClipOut(
+            id=f"clip_{i:02d}",
+            start=0.0,
+            end=10.0,
+            duration=10.0,
+            reason="r",
+            type=ClipType.hook,
+            score=0.8,
+            video_url="clips/clip.mp4",
+            transcript="t",
+            words=[],
+        )
+        for i in range(1, clips + 1)
+    ]
     return Job(
         id="j",
         status=JobStatus.done,
         stage=JobStatus.done,
         progress=100,
         source_kind="youtube",
+        clips=clip_list,
         metrics=Metrics(cost_usd=0.0, duration_sec=minutes * 60.0, elapsed_sec=0.0),
     )
 
@@ -169,6 +185,37 @@ def test_meter_no_user_is_noop(monkeypatch):
     recorded, deducted = _capture_meter(monkeypatch)
     tasks._meter(None, "job", _job_with_minutes(10.0), {"decision": None})
     assert recorded == [] and deducted == []
+
+
+def test_meter_skips_charge_when_no_clips_delivered(monkeypatch):
+    # Денежный инвариант: 0 клипов отдано (юзер получил пусто / наша ошибка) → НИЧЕГО не
+    # списываем — ни месячные минуты, ни PAYG.
+    recorded, deducted = _capture_meter(monkeypatch)
+    decision = QuotaDecision(True, None, minutes=30.0, from_monthly_min=0.0, from_payg_min=30.0)
+    tasks._meter("user_1", "job_empty", _job_with_minutes(30.0, clips=0), {"decision": decision})
+    assert recorded == [] and deducted == []
+
+
+def test_run_pipeline_job_failure_does_not_meter(monkeypatch):
+    # ГЛАВНЫЙ запрос фаундера: ошибка с нашей стороны → НЕ списываем минуты ни при каком раскладе.
+    # JobError из любой стадии → except → set_failed, _meter недостижим (заряда нет).
+    metered: list = []
+    failed: list = []
+
+    def _boom(*a, **k):
+        raise JobError("transcribe", "наш сбой Deepgram")
+
+    monkeypatch.setattr(tasks, "run_pipeline", _boom)
+    monkeypatch.setattr(tasks, "_meter", lambda *a, **k: metered.append(a))
+    monkeypatch.setattr(db, "set_done", lambda *a, **k: None)
+    monkeypatch.setattr(db, "set_failed", lambda *a, **k: failed.append((a, k)))
+    monkeypatch.setattr(db, "update_status", lambda *a, **k: None)
+    monkeypatch.setattr(db, "set_cancellable", lambda *a, **k: None)
+
+    tasks.run_pipeline_job("job_fail", "youtube", "url", None, "user_1")
+
+    assert metered == []  # списания нет
+    assert len(failed) == 1  # статус failed выставлен (правило №8 — не молча)
 
 
 # ─────────────────────────── Stop-кнопка: отмена НЕ заряжает ───────────────────────────

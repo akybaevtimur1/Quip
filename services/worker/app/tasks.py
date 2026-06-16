@@ -63,6 +63,14 @@ def _meter(user_id: str | None, job_id: str, job: Job, holder: dict[str, Any]) -
     """
     if not user_id:
         return
+    # Денежный инвариант (фаундер): за результат с НАШЕЙ ошибкой минуты не списываем НИ ПРИ КАКОМ
+    # раскладе. Структурно это уже даёт порядок try(run_pipeline→set_done→_meter)/except(set_failed)
+    # — на исключении любой стадии _meter недостижим. Этот гард — второй слой (defense-in-depth): не
+    # заряжаем, если НЕ отдали ни одного клипа (0 клипов = юзер получил пусто; и страховка от
+    # вырожденного «успеха» при будущем рефакторе). Успешный прогон всегда имеет ≥1 клип.
+    if not job.clips:
+        _log.info("meter skipped: 0 clips delivered (no charge): job=%s user=%s", job_id, user_id)
+        return
     full_minutes = (job.metrics.duration_sec / 60.0) if job.metrics else 0.0
     decision = holder.get("decision")
     if decision is not None:
