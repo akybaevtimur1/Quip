@@ -5,7 +5,7 @@
 > history, and what you must NOT break. If a doc contradicts this file, **this file wins** for
 > "current reality"; the older doc is kept only for the *why*/history.
 >
-> Last reality check: **2026-06-15.**
+> Last reality check: **2026-06-17.**
 
 ---
 
@@ -52,7 +52,7 @@
   button shows only while `Job.cancellable` (flag flips false at the paid boundary). Closing the tab does
   NOT cancel (job runs on in Modal; shows in recent). Migration `0006` applied (`cancellable`/`function_call_id`).
 
-### Shipped (this is "all of it" up to 2026-06-15)
+### Shipped (this is "all of it" up to 2026-06-17)
 Phase 0 pipeline → Editor v3 → production shell (landing/auth/dashboard/pricing) → Modal deploy →
 night-audit bug sweep → **billing live** (Polar signature fix, PAYG decrement, usage idempotency)
 → **subscription cancel** (`/account`) → **feedback widget** (floating, → Supabase `feedback`) →
@@ -63,7 +63,10 @@ flash fix → **hook styling parity** (preset gallery + controls + entrance anim
 **editor lag/UX** (instant client-side caption preview, durable edits, libass stale-frame fix, preset
 no longer resets position, "All clips" → grid directly) → **Vercel Analytics** → **editor video speedup**
 (preview-proxy + CDN) → **upload rewrite** (direct browser→R2, fixes large uploads) → no-audio clear
-error. Founder account = Pro + 1000 credits (for testing).
+error → **Stop/cancel джоба** (FREE-фаза, $0) → **selection-end quality** (W1: snap `.?!`/пауза +
+tail-pad, реальный max в промпт) → **emotion-driven styled hooks** (W2: tone→style→text + few-shot,
+`hook_style`) → **hook regeneration for re-cut clips** (W4: `/hook/regenerate`, узкий Gemini-вызов).
+Founder account = Pro + 1000 credits (for testing).
 
 > 2026-06-15 detail → `docs/JOURNAL.md` (last two entries). ⚠️ The upload architecture changed this
 > session — read the "Upload ПЕРЕПИСАН на direct→R2" journal entry before touching the upload path.
