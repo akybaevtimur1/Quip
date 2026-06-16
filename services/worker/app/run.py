@@ -71,6 +71,7 @@ def run_pipeline(
     *,
     max_clips: int | None = None,
     on_meta: Callable[[SourceMeta], None] | None = None,
+    on_cancellable: Callable[[bool], None] | None = None,
 ) -> Job:
     """Прогнать весь конвейер для job_id. Возвращает Job (также пишет job.json/runs.jsonl).
 
@@ -78,6 +79,9 @@ def run_pipeline(
     max_clips (опц.) — сколько клипов запросил юзер (UI-степпер); None → дефолт из настроек.
     on_meta(meta) (опц.) — вызывается СРАЗУ после импорта (известна реальная длина), ДО
     транскрипции. Поднимет JobError → джоб падает до оплаты Deepgram (гейт квоты по длине).
+    on_cancellable(value) (опц.) — Stop-кнопка: вызывается с ``False`` ПРЯМО перед началом
+    транскрипции (граница FREE→PAID: download/probe бесплатны, транскрипция — первый платный
+    шаг). Джоб стартует cancellable=True (insert_job), True эмитить не нужно.
     """
     s = get_settings()  # fail-fast на отсутствии ключей; также берём reframe_mode
     out = DATA_ROOT / job_id
@@ -111,6 +115,11 @@ def run_pipeline(
     #    БЕЗ списания (record_usage идёт только после set_done). ──
     if on_meta is not None:
         on_meta(meta)
+
+    # ── FREE→PAID граница: транскрипция — первый платный шаг. Гасим cancellable ДО неё, чтобы
+    #    Stop больше не предлагался (отмена платной стадии = частичный заряд, недопустимо). ──
+    if on_cancellable is not None:
+        on_cancellable(False)
 
     # ── Stage 1: Transcribe (уровень 1: job-local transcript.json; уровень 2: hash-кэш) ──
     emit(JobStatus.transcribing, 35)

@@ -46,6 +46,7 @@ def init_db() -> None:
                 status TEXT, stage TEXT, progress INTEGER,
                 source_type TEXT, source_ref TEXT, error TEXT,
                 clips_json TEXT, cost_usd REAL, duration_sec REAL, elapsed_sec REAL,
+                function_call_id TEXT, cancellable INTEGER NOT NULL DEFAULT 1,
                 created_at REAL, updated_at REAL
             )"""
         )
@@ -82,6 +83,9 @@ def init_db() -> None:
         # добавить новые поля, если их ещё нет. Идемпотентно.
         _ensure_column(c, "usage_events", "credits", "INTEGER NOT NULL DEFAULT 1")
         _ensure_column(c, "profiles", "payg_credits", "INTEGER NOT NULL DEFAULT 0")
+        # Stop-кнопка (зеркало migrations/0006_job_cancel.sql): id Modal-функции + флаг отмены.
+        _ensure_column(c, "jobs", "function_call_id", "TEXT")
+        _ensure_column(c, "jobs", "cancellable", "INTEGER NOT NULL DEFAULT 1")
 
 
 def insert_job(
@@ -94,9 +98,9 @@ def insert_job(
     with _conn() as c:
         c.execute(
             "INSERT INTO jobs"
-            " (id,status,stage,progress,source_type,source_ref,created_at,updated_at)"
-            " VALUES (?,?,?,?,?,?,?,?)",
-            (job_id, "queued", "queued", 0, source_type, source_ref, now, now),
+            " (id,status,stage,progress,source_type,source_ref,cancellable,created_at,updated_at)"
+            " VALUES (?,?,?,?,?,?,?,?,?)",
+            (job_id, "queued", "queued", 0, source_type, source_ref, 1, now, now),
         )
 
 
@@ -149,6 +153,66 @@ def set_failed(job_id: str, error: str) -> None:
         )
 
 
+# ─────────────────────────── Stop-кнопка: отмена джоба ───────────────────────────
+
+
+def set_function_call_id(job_id: str, fc_id: str | None) -> None:
+    """Сохранить id запущенного Modal-``FunctionCall`` (для последующей отмены джоба).
+
+    ``fc_id is None`` (local/dev, нет Modal) → no-op. Обновляет ТОЛЬКО эту колонку (+
+    updated_at), не трогая status/cancellable.
+    """
+    if fc_id is None:
+        return
+    if cs.cloud_enabled():
+        cs.set_function_call_id(job_id, fc_id)
+        return
+    with _conn() as c:
+        c.execute(
+            "UPDATE jobs SET function_call_id=?, updated_at=? WHERE id=?",
+            (fc_id, time.time(), job_id),
+        )
+
+
+def set_cancellable(job_id: str, value: bool) -> None:
+    """Переключить флаг отмены (воркер гасит в False при входе в платную стадию)."""
+    if cs.cloud_enabled():
+        cs.set_cancellable(job_id, value)
+        return
+    with _conn() as c:
+        c.execute(
+            "UPDATE jobs SET cancellable=?, updated_at=? WHERE id=?",
+            (1 if value else 0, time.time(), job_id),
+        )
+
+
+def set_cancelled(job_id: str) -> None:
+    """Пометить джоб отменённым (Stop-кнопка). Guard ``status NOT IN ('done','failed')`` —
+    не перетираем уже завершённый джоб (гонка отмены с финишем пайплайна)."""
+    if cs.cloud_enabled():
+        cs.set_cancelled(job_id)
+        return
+    with _conn() as c:
+        c.execute(
+            "UPDATE jobs SET status='cancelled', stage='cancelled', cancellable=0, updated_at=?"
+            " WHERE id=? AND status NOT IN ('done','failed')",
+            (time.time(), job_id),
+        )
+
+
+def get_job_row(job_id: str) -> dict[str, Any] | None:
+    """СЫРАЯ строка джоба (incl. user_id, cancellable, status, function_call_id).
+
+    Эндпоинт отмены нуждается в колонках, которые ``row_to_wire`` отбрасывает (owner-check,
+    флаг отмены, id Modal-функции). Cloud-путь переиспользует ``cs.get_job_row`` (select=*).
+    """
+    if cs.cloud_enabled():
+        return cs.get_job_row(job_id)
+    with _conn() as c:
+        row = c.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
+    return dict(row) if row is not None else None
+
+
 def row_to_wire(row: dict[str, Any]) -> dict[str, Any]:
     """Строка БД → wire-Job (dict).
 
@@ -185,6 +249,10 @@ def row_to_wire(row: dict[str, Any]) -> dict[str, Any]:
         "error": row.get("error"),
         "clips": clips,
         "metrics": metrics,
+        # Stop-кнопка: defense-in-depth — report cancellable ТОЛЬКО во FREE-фазе (queued/
+        # downloading), даже если строка ещё несёт cancellable=1 (status — финальная истина).
+        "cancellable": bool(row.get("cancellable"))
+        and row.get("status") in ("queued", "downloading"),
     }
 
 

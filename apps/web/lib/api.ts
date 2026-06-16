@@ -327,6 +327,19 @@ export async function getJob(id: string): Promise<Job> {
   return res.json();
 }
 
+/** Stop-кнопка: отменить джоб во FREE-фазе (до транскрипции). 409 = уже вошёл в платную
+ *  стадию → дружелюбная ошибка. Идемпотентно (done/failed/cancelled → cancelled:false). */
+export async function cancelJob(id: string): Promise<{ status: string; cancelled: boolean }> {
+  const res = await fetch(`${BASE}/jobs/${id}/cancel`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(await authHeaders()) },
+    body: "{}",
+  });
+  if (res.status === 409) throw new Error("This video is already processing and can’t be stopped.");
+  if (!res.ok) throw new Error(`cancelJob failed: ${res.status}`);
+  return res.json();
+}
+
 export async function getTimeline(jobId: string): Promise<TimelineData> {
   const res = await fetch(`${BASE}/jobs/${jobId}/timeline`, { cache: "no-store" });
   if (!res.ok) throw new Error(`getTimeline failed: ${res.status}`);

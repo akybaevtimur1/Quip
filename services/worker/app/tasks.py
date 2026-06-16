@@ -225,6 +225,9 @@ def run_pipeline_job(
     def on_status(status: JobStatus, progress: int) -> None:
         db.update_status(job_id, status.value, progress)
 
+    def on_cancellable(v: bool) -> None:
+        db.set_cancellable(job_id, v)
+
     # Холдер несёт авторизованный гейтом QuotaDecision (split) от on_meta до метеринга —
     # один источник истины списания (нет дрейфа гейт↔метеринг).
     quota: dict[str, Any] = {}
@@ -235,6 +238,7 @@ def run_pipeline_job(
             on_status=on_status,
             max_clips=max_clips,
             on_meta=_quota_gate(user_id, quota),
+            on_cancellable=on_cancellable,
         )
         db.set_done(job_id, job)
         _meter(user_id, job_id, job, quota)
@@ -264,6 +268,9 @@ def run_upload_job(
     def on_status(status: JobStatus, progress: int) -> None:
         db.update_status(job_id, status.value, progress)
 
+    def on_cancellable(v: bool) -> None:
+        db.set_cancellable(job_id, v)
+
     quota: dict[str, Any] = {}
     try:
         db.update_status(job_id, JobStatus.downloading.value, 8)
@@ -274,6 +281,7 @@ def run_upload_job(
             on_status=on_status,
             max_clips=max_clips,
             on_meta=_quota_gate(user_id, quota),
+            on_cancellable=on_cancellable,
         )
         db.set_done(job_id, job)
         _meter(user_id, job_id, job, quota)

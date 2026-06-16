@@ -16,7 +16,15 @@ export type SourceKind = "youtube" | "upload";
 /**
  * Состояние задачи. Им же размечаем `stage` (Phase 0: stage зеркалит status).
  */
-export type JobStatus = "queued" | "downloading" | "transcribing" | "selecting" | "rendering" | "done" | "failed";
+export type JobStatus =
+  | "queued"
+  | "downloading"
+  | "transcribing"
+  | "selecting"
+  | "rendering"
+  | "done"
+  | "failed"
+  | "cancelled";
 
 export interface ClipFlowContract {
   CaptionPreset?: CaptionPreset;
@@ -238,6 +246,7 @@ export interface Word {
  * Состояние задачи целиком — ответ `GET /jobs/{id}` (§4.3).
  */
 export interface Job {
+  cancellable?: boolean;
   clips?: ClipOut[];
   error?: string | null;
   id: string;

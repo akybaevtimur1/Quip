@@ -41,6 +41,7 @@ class JobStatus(StrEnum):
     rendering = "rendering"
     done = "done"
     failed = "failed"
+    cancelled = "cancelled"  # Stop-кнопка: юзер остановил джоб во FREE-фазе ($0 списания)
 
 
 class SourceKind(StrEnum):
@@ -151,6 +152,9 @@ class Job(BaseModel):
     error: str | None = None
     clips: list[ClipOut] = Field(default_factory=list)
     metrics: Metrics | None = None
+    # Stop-кнопка: можно ли ещё отменить джоб (True только во FREE-фазе: download/probe, до
+    # транскрипции). Default False = безопасно: старые/неизвестные строки Stop не предлагают.
+    cancellable: bool = False
 
 
 # ─────────────────────────── EDITOR-модели (слой композиции, спека §3) ───────────────────────────

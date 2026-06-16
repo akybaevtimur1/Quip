@@ -208,9 +208,10 @@ def create_job(
         # spawn упал ДО старта пайплайна → джоб застрял бы в "queued" навсегда. Помечаем
         # failed и поднимаем 500 (правило №8): юзер видит причину, а не вечную очередь.
         try:
-            dispatch.spawn(
+            fc_id = dispatch.spawn(
                 "run_job", job_id, body.source_type, body.source_ref, body.max_clips, user_id
             )
+            db.set_function_call_id(job_id, fc_id)  # для Stop-кнопки (отмена джоба)
         except Exception as e:  # noqa: BLE001 — любой сбой диспатча = видимый failed
             db.set_failed(job_id, f"dispatch failed: {e}")
             raise HTTPException(status_code=500, detail=f"job dispatch failed: {e}") from e
@@ -355,7 +356,8 @@ def complete_upload(
             db.set_failed(job_id, f"multipart complete failed: {e}")
             raise HTTPException(status_code=500, detail=f"multipart complete failed: {e}") from e
     try:
-        dispatch.spawn("upload_job", job_id, body.filename, body.max_clips, user_id)
+        fc_id = dispatch.spawn("upload_job", job_id, body.filename, body.max_clips, user_id)
+        db.set_function_call_id(job_id, fc_id)  # для Stop-кнопки (отмена джоба)
     except Exception as e:  # noqa: BLE001 — сбой диспатча = видимый failed, не вечная очередь
         db.set_failed(job_id, f"dispatch failed: {e}")
         raise HTTPException(status_code=500, detail=f"upload dispatch failed: {e}") from e
@@ -445,6 +447,51 @@ def get_job(job_id: str) -> dict[str, Any]:
     if job is None:
         raise HTTPException(status_code=404, detail="job not found")
     return job
+
+
+@app.post("/jobs/{job_id}/cancel")
+def cancel_job(
+    job_id: str,
+    authorization: str | None = Header(default=None),
+    x_user_id: str | None = Header(default=None),
+) -> dict[str, Any]:
+    """Stop-кнопка: отменить джоб во FREE-фазе (download/probe, до транскрипции) — $0 заряда.
+
+    Отмена возможна ТОЛЬКО пока ``cancellable`` (воркер гасит флаг перед платной транскрипцией).
+    Идемпотентна на done/failed/cancelled. На Modal отменяем ОТДЕЛЬНУЮ долгоживущую функцию по
+    её ``function_call_id`` (``terminate_containers=False`` → внутри неё рейзится
+    ``InputCancellation``, она выходит ДО set_done/_meter → ничего не списывается).
+    """
+    user_id = _resolve_user(authorization, x_user_id)
+    row = db.get_job_row(job_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="job not found")
+    # Ownership: при включённом auth джоб может отменить только его владелец. Старые джобы без
+    # user_id (None) не привязаны → не блокируем (dual-mode/legacy).
+    if auth.supabase_auth_enabled() and row.get("user_id") not in (None, user_id):
+        raise HTTPException(status_code=403, detail="not your job")
+    status = row.get("status")
+    if status in ("done", "failed", "cancelled"):
+        # Уже в терминале → отменять нечего (идемпотентно, не ошибка).
+        return {"id": job_id, "status": status, "cancelled": False}
+    if not row.get("cancellable"):
+        raise HTTPException(
+            status_code=409,
+            detail="job has entered a paid stage and can no longer be stopped",
+        )
+    fc_id = row.get("function_call_id")
+    if fc_id:
+        try:
+            import modal
+
+            modal.FunctionCall.from_id(str(fc_id)).cancel(terminate_containers=False)
+        except Exception as e:  # noqa: BLE001 — отмена Modal не удалась → НЕ молча (правило №8)
+            # Всё равно фиксируем cancelled в БД (поллинг остановится), но сигналим 502, чтобы
+            # фронт знал: фон-функция могла не остановиться (нет тихого фолбэка).
+            db.set_cancelled(job_id)
+            raise HTTPException(status_code=502, detail=f"cancel failed: {e}") from e
+    db.set_cancelled(job_id)
+    return {"id": job_id, "status": "cancelled", "cancelled": True}
 
 
 @app.get("/jobs/{job_id}/source.mp4")

@@ -1,4 +1,5 @@
-import { Check, Loader2 } from "lucide-react";
+import { Check, Loader2, X } from "lucide-react";
+import { useState } from "react";
 import { mmss } from "@/lib/format";
 import type { JobStatus } from "@/lib/types";
 
@@ -12,18 +13,48 @@ const STEPS: { key: JobStatus; label: string }[] = [
   { key: "rendering", label: "Rendering" },
 ];
 
-export function JobProgress({ status, elapsed }: { status: JobStatus; elapsed: number }) {
+export function JobProgress({
+  status,
+  elapsed,
+  cancellable = false,
+  onStop,
+}: {
+  status: JobStatus;
+  elapsed: number;
+  // Stop-кнопка: показываем ТОЛЬКО когда воркер сообщил cancellable (FREE-фаза до транскрипции).
+  cancellable?: boolean;
+  onStop?: () => void;
+}) {
   // While "queued" (cur=0) the first real step ("Downloading", index 1) reads as active,
   // so the stepper never looks dead between submit and the first status change.
   const cur = Math.max(ORDER.indexOf(status), 1);
+  // Local disable between click and the next poll (which flips cancellable→false) so a
+  // double-click can't fire two cancels.
+  const [stopping, setStopping] = useState(false);
 
   return (
     <div className="w-full max-w-3xl">
-      <div className="mb-6 flex items-baseline justify-between">
+      <div className="mb-6 flex items-baseline justify-between gap-4">
         <h2 className="font-display text-2xl font-bold">Cutting your video…</h2>
-        <span className="font-mono text-sm text-muted" aria-live="polite">
-          {mmss(elapsed)}
-        </span>
+        <div className="flex items-center gap-3">
+          <span className="font-mono text-sm text-muted" aria-live="polite">
+            {mmss(elapsed)}
+          </span>
+          {cancellable && onStop && (
+            <button
+              type="button"
+              disabled={stopping}
+              onClick={() => {
+                setStopping(true);
+                onStop();
+              }}
+              className="inline-flex items-center gap-1.5 rounded-md border border-line px-3 py-1.5 text-sm text-muted transition hover:border-line-strong hover:text-ink disabled:opacity-50"
+            >
+              <X className="size-4" />
+              {stopping ? "Stopping…" : "Stop"}
+            </button>
+          )}
+        </div>
       </div>
 
       <ol className="flex flex-col gap-3">

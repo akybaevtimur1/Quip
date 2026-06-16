@@ -171,6 +171,40 @@ def test_meter_no_user_is_noop(monkeypatch):
     assert recorded == [] and deducted == []
 
 
+# ─────────────────────────── Stop-кнопка: отмена НЕ заряжает ───────────────────────────
+# Денежный инвариант: Modal ``FunctionCall.cancel()`` рейзит ``InputCancellation`` —
+# подкласс BaseException → НЕ ловится except JobError/except Exception → функция выходит, не
+# дойдя до set_done/_meter → ноль заряда. Этот тест охраняет инвариант: BaseException-отмена
+# из run_pipeline НЕ должна вызвать _meter и НЕ должна попасть в set_done.
+
+
+def test_cancel_baseexception_skips_meter_and_set_done(monkeypatch):
+    class _Cancel(BaseException):  # имитирует modal.exception.InputCancellation
+        pass
+
+    metered: list = []
+    done: list = []
+
+    def _boom(*a, **k):
+        raise _Cancel()
+
+    monkeypatch.setattr(tasks, "run_pipeline", _boom)
+    monkeypatch.setattr(tasks, "_meter", lambda *a, **k: metered.append(a))
+    monkeypatch.setattr(db, "set_done", lambda *a, **k: done.append(a))
+    monkeypatch.setattr(db, "set_failed", lambda *a, **k: None)
+    monkeypatch.setattr(db, "update_status", lambda *a, **k: None)
+
+    # BaseException-подкласс должен ПРОЙТИ СКВОЗЬ except-блоки таска (они ловят Exception,
+    # не BaseException) → задача выходит до set_done/_meter (нулевой заряд).
+    try:
+        tasks.run_pipeline_job("job_cancel", "youtube", "url", None, "user_1")
+    except _Cancel:
+        pass  # ожидаемо: cancellation пробрасывается наружу
+
+    assert metered == []  # _meter НЕ вызван → ничего не списано
+    assert done == []  # set_done НЕ вызван → джоб не помечен done
+
+
 def test_chapters_job_joberror_is_failed_with_reason(monkeypatch, tmp_path):
     job = "job_err"
     out = _stub_artifacts(monkeypatch, tmp_path, job)

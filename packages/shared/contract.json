@@ -606,6 +606,10 @@
     "Job": {
       "description": "Состояние задачи целиком — ответ `GET /jobs/{id}` (§4.3).",
       "properties": {
+        "cancellable": {
+          "default": false,
+          "type": "boolean"
+        },
         "clips": {
           "items": {
             "$ref": "#/$defs/ClipOut"
@@ -670,7 +674,8 @@
         "selecting",
         "rendering",
         "done",
-        "failed"
+        "failed",
+        "cancelled"
       ],
       "type": "string"
     },

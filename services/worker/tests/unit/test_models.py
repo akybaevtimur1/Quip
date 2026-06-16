@@ -41,6 +41,7 @@ def test_job_status_enum_values() -> None:
         "rendering",
         "done",
         "failed",
+        "cancelled",
     }
 
 

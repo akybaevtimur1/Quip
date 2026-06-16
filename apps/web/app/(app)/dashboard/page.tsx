@@ -11,7 +11,7 @@ import { ClipGrid } from "@/components/ClipGrid";
 import { ErrorPanel } from "@/components/ErrorPanel";
 import { JobProgress } from "@/components/JobProgress";
 import { SourceForm } from "@/components/SourceForm";
-import { createJob, createUploadJob } from "@/lib/api";
+import { cancelJob, createJob, createUploadJob } from "@/lib/api";
 import { addRecentProject } from "@/lib/recent";
 import { useJob } from "@/lib/useJob";
 
@@ -117,6 +117,18 @@ function DashboardInner() {
     }
   }
 
+  async function handleStop() {
+    if (!jobId) return;
+    try {
+      await cancelJob(jobId);
+    } catch (e) {
+      // 409 (already in a paid stage) or network error → surface, don't reset (job keeps going).
+      setSubmitError(e instanceof Error ? e.message : "Couldn’t stop this video.");
+      return;
+    }
+    handleReset(); // back to idle; the recent-projects entry is kept (added at submit time)
+  }
+
   function handleReset() {
     uploadCtrl.current?.abort(); // отменить незавершённую загрузку — иначе она позже войдёт в tracking
     uploadCtrl.current = null;
@@ -140,9 +152,11 @@ function DashboardInner() {
     ? "error"
     : job?.status === "done"
       ? "done"
-      : submitting || jobId || jobParam
-        ? "tracking"
-        : "idle";
+      : job?.status === "cancelled"
+        ? "cancelled" // user stopped it (or deep-linked a stopped job) → neutral panel, not a loader
+        : submitting || jobId || jobParam
+          ? "tracking"
+          : "idle";
   // Opening an existing project via deep-link, before the first poll populates `job`: show a neutral
   // loader (not the JobProgress stepper, which implies "still processing" for an already-done clip).
   const openingProject = !!jobParam && !job && !submitting;
@@ -191,11 +205,24 @@ function DashboardInner() {
                 <p className="text-sm text-muted">Opening your project…</p>
               </div>
             ) : (
-              <JobProgress status={job?.status ?? "queued"} elapsed={elapsed} />
+              <JobProgress
+                status={job?.status ?? "queued"}
+                elapsed={elapsed}
+                cancellable={job?.cancellable ?? false}
+                onStop={handleStop}
+              />
             )}
           </div>
         ) : phase === "done" && job ? (
           <ClipGrid key={job.id} job={job} />
+        ) : phase === "cancelled" ? (
+          <div className="flex flex-col items-center gap-3 py-16 text-center">
+            <h2 className="font-display text-2xl font-bold text-ink">This project was stopped</h2>
+            <p className="max-w-sm text-sm text-muted">
+              You stopped processing this video before it finished. Nothing was charged — start a
+              new project whenever you’re ready.
+            </p>
+          </div>
         ) : phase === "error" && error ? (
           <ErrorPanel message={error} onRetry={handleReset} />
         ) : null}

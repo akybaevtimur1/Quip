@@ -8,6 +8,7 @@ const LABEL: Record<JobStatus, string> = {
   rendering: "Rendering",
   done: "Done",
   failed: "Error",
+  cancelled: "Stopped",
 };
 
 export function StatusBadge({ status }: { status: JobStatus }) {

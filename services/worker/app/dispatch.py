@@ -21,9 +21,14 @@ def modal_spawn_enabled() -> bool:
     return os.environ.get("MODAL_SPAWN", "").strip() == "1"
 
 
-def spawn(fn_name: str, *args: Any) -> None:
-    """Запустить именованную Modal-функцию приложения ``quip-worker`` (fire-and-forget)."""
+def spawn(fn_name: str, *args: Any) -> str | None:
+    """Запустить именованную Modal-функцию приложения ``quip-worker``.
+
+    Возвращает ``object_id`` запущенного ``FunctionCall`` (id для последующей отмены джоба
+    через ``modal.FunctionCall.from_id(id).cancel()``). На local/dev (нет Modal) — ``None``.
+    """
     import modal
 
     fn = modal.Function.from_name(_MODAL_APP, fn_name)
-    fn.spawn(*args)
+    fc = fn.spawn(*args)
+    return str(fc.object_id)

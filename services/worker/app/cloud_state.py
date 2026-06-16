@@ -78,6 +78,7 @@ def insert_job(
             "source_type": source_type,
             "source_ref": source_ref,
             "user_id": user_id,
+            "cancellable": True,  # Stop-кнопка: новый джоб стартует во FREE-фазе
         },
         timeout=_TIMEOUT,
     )
@@ -126,6 +127,45 @@ def set_failed(job_id: str, error: str) -> None:
         params={"id": f"eq.{job_id}"},
         headers=_headers({"Prefer": "return=minimal"}),
         json={"status": "failed", "stage": "failed", "error": error},
+        timeout=_TIMEOUT,
+    )
+    r.raise_for_status()
+
+
+def set_function_call_id(job_id: str, fc_id: str) -> None:
+    """Сохранить id Modal-``FunctionCall`` (для отмены джоба). Только эта колонка."""
+    r = httpx.patch(
+        f"{_base()}/jobs",
+        params={"id": f"eq.{job_id}"},
+        headers=_headers({"Prefer": "return=minimal"}),
+        json={"function_call_id": fc_id},
+        timeout=_TIMEOUT,
+    )
+    r.raise_for_status()
+
+
+def set_cancellable(job_id: str, value: bool) -> None:
+    """Переключить флаг отмены (воркер гасит в False при входе в платную стадию)."""
+    r = httpx.patch(
+        f"{_base()}/jobs",
+        params={"id": f"eq.{job_id}"},
+        headers=_headers({"Prefer": "return=minimal"}),
+        json={"cancellable": value},
+        timeout=_TIMEOUT,
+    )
+    r.raise_for_status()
+
+
+def set_cancelled(job_id: str) -> None:
+    """Пометить джоб отменённым (Stop). Guard ``status!=done & status!=failed`` — не
+    перетираем завершённый джоб (гонка отмены с финишем пайплайна)."""
+    # Дублирующийся ключ ``status`` (neq.done И neq.failed) — httpx сериализует список
+    # значений в повторённые query-параметры, что PostgREST трактует как AND по колонке.
+    r = httpx.patch(
+        f"{_base()}/jobs",
+        params={"id": f"eq.{job_id}", "status": ["neq.done", "neq.failed"]},
+        headers=_headers({"Prefer": "return=minimal"}),
+        json={"status": "cancelled", "stage": "cancelled", "cancellable": False},
         timeout=_TIMEOUT,
     )
     r.raise_for_status()

@@ -59,7 +59,8 @@ export function useJob() {
           clearInterval(tick);
           return;
         }
-        if (j.status === "done") {
+        if (j.status === "done" || j.status === "cancelled") {
+          // "cancelled" is a terminal user action (Stop) — stop polling, no error set.
           clearInterval(tick);
           return;
         }
