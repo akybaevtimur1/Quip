@@ -146,41 +146,38 @@ def _gemini_turn(system_prompt: str) -> Any:
         max_output_tokens=1024,
     )
 
-    def _to_contents(history: list[dict[str, Any]]) -> list[Any]:
-        out: list[Any] = []
-        for h in history:
-            role = h["role"]
-            if role == "user":
-                out.append(types.Content(role="user", parts=[types.Part(text=h["text"])]))
-            elif role == "model":
-                out.append(types.Content(role="model", parts=[types.Part(text=h["text"])]))
-            elif role == "tool":
-                out.append(
-                    types.Content(
-                        role="model",
-                        parts=[
-                            types.Part(
-                                function_call=types.FunctionCall(name=h["name"], args=h["args"])
-                            )
-                        ],
-                    )
-                )
-                out.append(
-                    types.Content(
-                        role="user",
-                        parts=[
-                            types.Part(
-                                function_response=types.FunctionResponse(
-                                    name=h["name"], response=h["result"]
-                                )
-                            )
-                        ],
-                    )
-                )
-        return out
+    # СОСТОЯНИЕ диалога — НАТИВНЫЕ Gemini Content между ходами. Критично: Content модели с
+    # function_call несёт thought_signature (Gemini 2.5+), и её НЕЛЬЗЯ терять при следующем ходе
+    # (иначе 400 INVALID_ARGUMENT). Поэтому echo'им РОВНО тот Content, что вернула модель, а не
+    # реконструируем из имени/аргументов. Абстрактную историю лупа используем лишь чтобы понять,
+    # сколько НОВЫХ tool-результатов добавить.
+    contents: list[Any] = []
+    pending_model_content: Any = None
+    consumed_tools = 0
 
     def turn(history: list[dict[str, Any]]) -> ModelTurn:
-        contents = _to_contents(history)
+        nonlocal contents, pending_model_content, consumed_tools
+        if not contents:
+            contents.append(types.Content(role="user", parts=[types.Part(text=history[0]["text"])]))
+        tool_entries = [h for h in history if h["role"] == "tool"]
+        while consumed_tools < len(tool_entries):
+            te = tool_entries[consumed_tools]
+            if pending_model_content is not None:
+                contents.append(pending_model_content)  # function_call С thought_signature
+            contents.append(
+                types.Content(
+                    role="user",
+                    parts=[
+                        types.Part(
+                            function_response=types.FunctionResponse(
+                                name=te["name"], response=te["result"]
+                            )
+                        )
+                    ],
+                )
+            )
+            consumed_tools += 1
+
         last: Exception | None = None
         for attempt in range(_MAX_ATTEMPTS):
             try:
@@ -189,6 +186,7 @@ def _gemini_turn(system_prompt: str) -> Any:
                 )
                 candidates = resp.candidates or []
                 cand = candidates[0] if candidates else None
+                pending_model_content = cand.content if cand else None  # сохранить для эха
                 parts = cand.content.parts if cand and cand.content else []
                 return parse_model_response(parts)
             except Exception as e:  # noqa: BLE001
