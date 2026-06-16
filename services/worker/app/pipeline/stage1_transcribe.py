@@ -101,8 +101,9 @@ def call_deepgram(
             params=params,
             headers=headers,
             content=wav.read_bytes(),
-            # write=None: без лимита на upload (WAV может быть >100MB при медленном аплоаде)
-            timeout=httpx.Timeout(connect=30.0, write=None, read=300.0, pool=5.0),
+            # write=None: без лимита на upload (3h WAV ≈ 350МБ). read=600: длинное аудио Deepgram
+            # обрабатывает дольше — 300s мог преждевременно оборвать обработку 3-часовика.
+            timeout=httpx.Timeout(connect=30.0, write=None, read=600.0, pool=5.0),
         )
     except httpx.HTTPError as e:
         raise JobError(_STAGE, f"сетевая ошибка Deepgram: {e}") from e

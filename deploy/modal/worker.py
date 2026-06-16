@@ -246,3 +246,19 @@ def render_job(job_id: str, clip_id: str) -> None:
     from app.tasks import render_clip_edit_job
 
     render_clip_edit_job(job_id, clip_id)
+
+
+# Ретеншн R2: source.mp4/preview.mp4 — 70-90% хранилища, нужны лишь редактору; клипы (продукт)
+# вечны. Без чистки R2 растёт безлимитно (разовая оплата → вечное хранение). Раз в сутки удаляем
+# editor-only артефакты старше DEFAULT_SOURCE_RETENTION_DAYS. _SECRET даёт R2-креды.
+@app.function(secrets=[_SECRET], timeout=900, schedule=modal.Cron("0 4 * * *"), serialized=True)
+def cleanup_stale_sources() -> None:
+    """Ежедневная (04:00 UTC) чистка R2: удалить source/preview старше окна. Клипы не трогаем."""
+    import sys
+
+    if "/root" not in sys.path:
+        sys.path.insert(0, "/root")
+    from app.storage import delete_stale_editor_artifacts
+
+    n = delete_stale_editor_artifacts()
+    print(f"[retention] deleted {n} stale source/preview objects")

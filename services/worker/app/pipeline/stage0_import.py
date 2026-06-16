@@ -320,24 +320,39 @@ def import_youtube(
     return meta
 
 
-def _ensure_mp4(src: Path, mp4: Path) -> None:
-    """Загруженный файл → source.mp4. Быстрый remux (-c copy); при несовместимости кодеков
-    с mp4-контейнером — честный ре-энкод (план §B2). JobError, если ffmpeg нет/оба сбоят.
-
-    Это НЕ тихий фолбэк (правило №8): первый шаг — оптимизация скорости; при ненулевом коде
-    мы явно логируем причину переходом на ре-энкод, а ошибки ре-энкода поднимаются JobError.
-    """
+def _try_ffmpeg(cmd: list[str], out: Path) -> bool:
+    """Прогнать одну ffmpeg-попытку. True ⇔ код 0 И файл создан. ffmpeg не найден → JobError."""
     try:
-        proc = subprocess.run(
-            ["ffmpeg", "-y", "-i", str(src), "-c", "copy", "-movflags", "+faststart", str(mp4)],
-            capture_output=True,
-            text=True,
-        )
+        proc = subprocess.run(cmd, capture_output=True, text=True)
     except FileNotFoundError as e:
         raise JobError(_STAGE, f"не найден ffmpeg: {e}") from e
-    if proc.returncode == 0 and mp4.exists():
+    return proc.returncode == 0 and out.exists()
+
+
+def _ensure_mp4(src: Path, mp4: Path) -> None:
+    """Загруженный файл → source.mp4 МИНИМАЛЬНОЙ работой (без скрытого full-транскода зря):
+
+      1) remux ``-c copy`` — мгновенно, если кодеки уже mp4-совместимы (обычный H.264 mp4/mov);
+      2) видео ``copy`` + только аудио в aac — частый случай .mkv (H.264-видео + Opus/AC3-аудио):
+         избегаем ПОЛНОГО видео-ре-энкода (для 3 ч это десятки минут CPU);
+      3) полный ре-энкод h264/aac (``-threads 0``) — последний резерв (реально несовместимое видео).
+
+    Выбранный путь печатаем (виден в логах Modal) — раньше fallback был «тихим» (docstring врал).
+    JobError (правило №8), если даже полный ре-энкод не создал файл.
+    """
+    if _try_ffmpeg(
+        ["ffmpeg", "-y", "-i", str(src), "-c", "copy", "-movflags", "+faststart", str(mp4)], mp4
+    ):
+        print("[import] source.mp4 via remux (-c copy)")
         return
-    # remux -c copy не прошёл (кодек несовместим с mp4) → ре-энкод в h264/aac
+    if _try_ffmpeg(
+        ["ffmpeg", "-y", "-i", str(src), "-c:v", "copy", "-c:a", "aac",
+         "-movflags", "+faststart", str(mp4)],
+        mp4,
+    ):  # fmt: skip
+        print("[import] source.mp4 via audio-only re-encode (video copied)")
+        return
+    print("[import] source.mp4 via FULL re-encode (incompatible video codec)")
     _run(
         [
             "ffmpeg",
@@ -350,6 +365,8 @@ def _ensure_mp4(src: Path, mp4: Path) -> None:
             "veryfast",
             "-crf",
             "20",
+            "-threads",
+            "0",
             "-c:a",
             "aac",
             "-movflags",

@@ -13,6 +13,7 @@ Pure-билдеры покрыты unit-тестами; R2 upload/presign — I/
 from __future__ import annotations
 
 import math
+from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -359,17 +360,69 @@ def upload_clip(local_path: Path, job_id: str, clip_id: str, *, variant: str = "
     key = storage_object_key(job_id, clip_id, variant=variant)
     client = _r2_client()
     try:
-        client.put_object(
-            Bucket=s.r2_bucket,
-            Key=key,
-            Body=local_path.read_bytes(),
-            ContentType="video/mp4",
+        # upload_file СТРИМИТ с диска (+ авто-multipart) — НЕ read_bytes() (тот держал весь клип
+        # в RAM). Как upload_source/upload_preview → консистентно и без RAM-спайка.
+        client.upload_file(
+            str(local_path),
+            s.r2_bucket,
+            key,
+            ExtraArgs={"ContentType": "video/mp4"},
+            Config=_transfer_config(),
         )
     except Exception as e:  # noqa: BLE001 — оборачиваем в JobError, не глотаем
         raise JobError("storage", f"R2 upload {clip_id} failed: {e}") from e
     if s.r2_public_url:
         return public_url(s.r2_public_url, key)
     return key_ref(key)
+
+
+# ─────────────────────── ретеншн (бюджет R2: source = 70-90% хранилища) ───────────────────────
+# source.mp4/preview.mp4 нужны лишь редактору; клипы (продукт) — крошечные и вечны. Чистим
+# editor-only артефакты старше окна → R2 не растёт безлимитно (разовая оплата → вечное хранение).
+_EDITOR_ARTIFACT_SUFFIXES = ("/source.mp4", "/preview.mp4")
+DEFAULT_SOURCE_RETENTION_DAYS = 60
+
+
+def is_stale_editor_artifact(
+    key: str, last_modified: datetime, *, now: datetime, max_age_days: int
+) -> bool:
+    """True ⇔ ``key`` — editor-only артефакт (source/preview) старше ``max_age_days``. PURE.
+
+    Любой другой ключ (клип = продукт) → False: клипы не удаляем НИКОГДА.
+    """
+    if not key.endswith(_EDITOR_ARTIFACT_SUFFIXES):
+        return False
+    return last_modified <= now - timedelta(days=max_age_days)
+
+
+def delete_stale_editor_artifacts(max_age_days: int = DEFAULT_SOURCE_RETENTION_DAYS) -> int:
+    """Удалить source.mp4/preview.mp4 старше ``max_age_days`` из R2. Клипы НЕ трогаем.
+
+    Возвращает число удалённых объектов. Только r2-режим (local → 0). Зовётся по расписанию
+    (Modal Cron). JobError при сбое (правило №8). Снижает безлимитный рост хранилища.
+    """
+    s = get_settings()
+    if s.storage_backend != "r2":
+        return 0
+    now = datetime.now(UTC)
+    client = _r2_client()
+    to_delete: list[dict[str, str]] = []
+    try:
+        for page in client.get_paginator("list_objects_v2").paginate(Bucket=s.r2_bucket):
+            for obj in page.get("Contents", []):
+                if is_stale_editor_artifact(
+                    obj["Key"], obj["LastModified"], now=now, max_age_days=max_age_days
+                ):
+                    to_delete.append({"Key": obj["Key"]})
+        deleted = 0
+        # delete_objects — батчами по 1000 (лимит S3/R2 на один запрос).
+        for i in range(0, len(to_delete), 1000):
+            batch = to_delete[i : i + 1000]
+            client.delete_objects(Bucket=s.r2_bucket, Delete={"Objects": batch, "Quiet": True})
+            deleted += len(batch)
+        return deleted
+    except Exception as e:  # noqa: BLE001
+        raise JobError("storage", f"R2 retention cleanup failed: {e}") from e
 
 
 def resolve_media_url(stored: str) -> str:
