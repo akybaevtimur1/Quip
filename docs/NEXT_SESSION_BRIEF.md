@@ -1,66 +1,166 @@
-# Next-session brief — Hook styling + editor lag/bugs
+# Next-Session Brief — Умный выбор/хуки, агентный редактор клипа (+ недочёты редактора)
 
-> Paste this as the session prompt. Follow the system: **read `docs/README.md` first**, then the
-> code it points to, and **use the sub-agent system** (`superpowers:dispatching-parallel-agents`)
-> for research/audit/parallel work. Keep docs in sync (CLAUDE.md §«Документация ⇄ код»).
-> Editor touches captions/render — mind `docs/REFRAME_FPS_GRID_INVARIANT.md` if you go near render.
+> Составлено в конце большой сессии 2026-06-16. Read-only находки по коду (file:line), правила,
+> риски и **готовый промпт** (внизу). Полная история — `docs/JOURNAL.md` (запись 2026-06-16).
+> Перед работой: `docs/README.md` + `CLAUDE.md`. Перед reframe/render —
+> `docs/REFRAME_FPS_GRID_INVARIANT.md`. W1–W4 — новое видение фаундера; W5–W6 — недочёты редактора
+> из прошлого брифа (тоже в очереди).
 
----
-
-## Task A — Make HOOKS stylable like subtitles
-
-Right now subtitles (captions) have full styling in the editor: a **Style tab** with 12 presets +
-customization (color, size, font, position, animation, uppercase, emphasis). The **hook** (the
-top-text plate) only has a **Hook tab** with text / on-off / window (whole clip vs first N sec) —
-**no style picker**. Bring the hook to **parity**: pick style/preset, color, font, size, position,
-animation — same UX as captions.
-
-**Where it lives:**
-- Hook model: `HookOverlay` inside `CaptionTrack` (services/worker/app/models.py); compiled into the
-  SAME ASS as captions via `build_hook_event` (`app/pipeline/stage4_captions.py`) so preview == export.
-- Front: `components/editor/HookTab.tsx` (current minimal hook UI), `StyleTab.tsx` (the rich caption
-  styling to mirror), `CaptionsTab.tsx`, preset system (`app/editor/preset_seeds.py`, `presets.py`).
-- Likely cleanest: reuse the `CaptionStyle` / preset machinery for the hook (a hook style ≈ a caption
-  style), so you don't build a second styling system.
-
-**Before coding: research ready-made / OSS (don't reinvent).** How do OpusClip / Captions / Submagic /
-Zubtitle expose hook/title styling? Is there an OSS caption-styling UI or an ASS style-builder we can
-lean on? Find prior art for "title/hook overlay style presets" before designing ours.
+## 0. Состояние на старте
+- Отгружено в эту сессию: CORS-фикс домена, multipart-аплоад (до 10 ГБ), скоростные правки (Modal
+  cpu=4, TransferConfig, _ensure_mp4, Deepgram), пайплайн-таймаут 3 ч, R2-ретеншн (cron 60 дн),
+  клипы до 30 + Auto, плавный reframe-пан (piecewise-linear), шрифт хук==субтитры (Bold=0 для
+  Unbounded), cross-origin download (Content-Disposition), Stop-кнопка (отмена джоба, $0, миграция 0006).
+- ⚠️ **Хвост:** последний `modal deploy` (Stop-кнопка) НЕ прошёл — **транзиентный сбой Modal**
+  (RROJNXDA/ZQZOEBA3/exit 4, «contact support»), НЕ наш код (`just check` зелёный, фронт запушен).
+  **Первым делом повторить `modal deploy deploy/modal/worker.py`** (`$env:PYTHONIOENCODING="utf-8"`),
+  проверить `/jobs/{id}/cancel`. Пока не передеплоен — Stop на фронте есть, но `/cancel` = 404.
+- ⚠️ async-export (латентность скачивания — sync-рендер на scale-to-zero web-контейнере) —
+  спроектирован, НЕ сделан (диагностика в JOURNAL).
 
 ---
 
-## Task B — Editor feels laggy + caption bugs (investigate root cause first)
+## W1 — Стабильность Gemini-выбора: качество обрезки + длина + токены
+**Боль:** клип обрывается посреди фразы; начало «не идеальное». Точно посчитать токены на часовой
+видос. Учесть, что вертикальный шортс **мгновенно зацикливается**, и **жёсткий лимит длины** (напр. 1
+мин) модель должна соблюдать, а не брать 1.5 мин.
 
-Use `superpowers:systematic-debugging` — these are intermittent, so instrument before guessing.
-Founder-reported symptoms (all in the clip editor `/edit/[jobId]/[clipId]`):
+### Находки — `services/worker/app/pipeline/stage2_select.py`
+- **Gemini получает ТОЛЬКО транскрипт, не видео** (`build_indexed_transcript` :245). LLM возвращает
+  **индексы слов** → секунды детерминированно из `words[idx]` (`indices_to_times` :97).
+- **Резкий конец — корень:** `snap_end_index` (:52) ищет `.?!` в окне **только +5 слов**; не нашёл →
+  **возвращает конец БЕЗ снапа** = режет посреди фразы. Конец = `words[ei].end` **без хвостового
+  паддинга/паузы** → для лупа звучит обрублено.
+- **Старт:** `snap_start_index` (:65) — 3 уровня снапа (ок, но плохой старт LLM снап не всегда спасает).
+- **Длина:** `postprocess` (:154) **ДРОПАЕТ** сегменты вне `[clip_min_sec=15, clip_max_sec=60]`. Момент
+  1.5 мин просто теряется. **Промпт не сообщает модели реальный max** (хардкод «15-60s» в
+  `DEFAULT_SYSTEM_PROMPT` :221). `clip_min/max_sec` — `config.py` :59-60.
+- **Токены (точно):** `call_gemini_structured` пишет `usage_sink[prompt/output/thoughts]` из
+  `resp.usage_metadata` (:336) → `runs.jsonl`. Оценка 1 ч: ~9000 слов → **~15-20k input** (видео НЕ шлём!),
+  output ≤ `llm_max_output_tokens=16000`. Gemini Flash ≈ **$0.005-0.01 за час**. ⚠️ 3 ч → ~45-60k input
+  (Flash тянет), но проверь, не мал ли `max_output_tokens` для 30 клипов. **Точные цифры — прогон 1ч/3ч +
+  `runs.jsonl`.**
 
-1. **Subtitles sometimes double/overlap** after editing captions and editing again. NOT always —
-   intermittent. (Hypothesis to test: a stale libass layer / second draw not cleared, or a race where
-   an old ASS render overlaps the new one. See `components/LibassLayer.tsx` + the ASS-refresh queue in
-   `ClipEditorScreen.tsx`.)
-2. **Changing caption type/preset makes subtitles jump position** (e.g. higher up the video), then
-   they're hard to move back. (Hypothesis: the preset's `margin_v` overrides the user's manual
-   position when a preset is applied — applying a style resets position. Decide: presets should keep
-   the user's current position unless they explicitly change it.)
-3. **Dragging subtitles in the preview is laggy / inconvenient.** (Hypothesis: drag updates only on
-   `timeupdate` (~4Hz) + a CSS transition + a backend round-trip per move. Make the drag local/optimistic
-   and smooth; persist on drop, not per pixel.)
-4. **Lag EVERYWHERE — even changing style or animation has a big delay.** This is the big one.
-   (Hypothesis: every tweak → PATCH to the worker → recompile ASS → re-fetch `/ass` → libass re-render
-   in WASM, plus the single mutation queue serializes changes. The round-trip + recompile + WASM
-   re-init per keystroke is the latency.) **Direction:** profile the change→repaint path; debounce
-   rapid changes; consider compiling the ASS **client-side** for instant preview (only persist to the
-   worker in the background) so style/animation/color changes are instant; avoid re-initializing the
-   libass instance on every change. Look at how the OSS clippers get instant style preview (almost
-   certainly client-side styling, no per-change server round-trip).
-
-**Deliverable:** root-cause each symptom (with evidence), then fix — smooth, instant-feeling editor.
-Keep preview == export (the WYSIWYG invariant: same ASS feeds libass preview and the ffmpeg burn).
+### Сделать: расширить снап-окно/требовать `.?!` (иначе двигать до паузы по word-таймингам) + хвостовой
+паддинг 0.2-0.4с (чистый луп); передать реальный `clip_max_sec` в промпт (дроп vs усечь — решить явно);
+прогнать 1ч/3ч, занести токены в `docs/BENCHMARKS.md`. TDD на snap/длине. ⛔ reframe-инвариант не трогаем.
 
 ---
 
-## Guardrails
-- WYSIWYG: whatever you change must keep **libass preview == ffmpeg export** (same compiled ASS).
-- Don't touch the reframe frame-grid (Task B is captions/preview, not render geometry — but if you
-  optimize the render path, read the invariant doc).
-- Update `HookTab`/docs and `docs/JOURNAL.md` as you ship; bump `just types` if you change `models.py`.
+## W2 — Живые хуки (POV / мем / инфо / шок)
+**Боль:** хук просто ОПИСЫВАЕТ момент. Надо под эмоцию: POV («тот самый темщик», «как я реагирую на
+цветы после прошлых отношений»), инфо (сразу ясно что интересно) или шок-фраза. Бить по эмоциям публики.
+
+### Находки
+- `DEFAULT_SYSTEM_PROMPT` (:204-228): хук = «punchy title ≤6 words, tied to what happens» — описательный,
+  без классификации эмоции и вариативности стиля. `_LlmSegment.hook` (:237) обязателен. Файла
+  `prompts/select_moments.v1.txt` НЕТ → используется дефолт в коде (`load_system_prompt` :197).
+
+### Сделать: двухступенчатый промпт — (а) классифицировать тон момента (смешно/шок/трогательно/спорно/
+инсайт/релейт), (б) выбрать стиль (POV/relatable-meme/informative/shock), (в) написать хук в стиле +
+few-shot примеры. Хранить `hook_style` в сегменте. Вынести промпт в `prompts/select_moments.v2.txt`
+(версионируем без передеплоя). Хук ≤6 слов, язык транскрипта, без точки.
+
+---
+
+## W3 — Агентный ре-эдит клипа по промпту (большое, новое)
+**Видение:** в редакторе ОТДЕЛЬНОГО клипа — поле-промпт агенту («возьми момент дальше», «обрезка не
+та», «хук неправильный»). Агент **видит клип**, получает интервал (сек) + транскрипт клипа + текущий
+хук + **жёсткое: субтитры менять НЕЛЬЗЯ**; работает **тулзами** (подвинуть/расширить интервал,
+перегенерить хук, перерендерить); показывает **thinking/какие тулзы**; продуман уход юзера/Stop; **не
+чат-бот** (только про клип).
+
+### Находки — переиспользовать готовое
+- **Тулзы редактора есть** (`editor/ops.py`: `set_interval` :132, `apply_trim` :43, `apply_extend`,
+  `set_crop_override`, `apply_preset`) + эндпоинты `main.py` (`/clips/{id}/edit/*`, `/render`).
+- **Edit-state** — `editor/store.py` (`ClipEdit`, версии, `EditConflict`); рендер —
+  `tasks.render_edit_to_file`/`render_clip_edit_job` (Modal `render_job`).
+- **Фон + отмена + «не сломается при потере фокуса» — НЕ изобретать:** переиспользовать
+  job+Stop/cancel-архитектуру этой сессии (`dispatch.spawn`→`function_call_id`, `useJob`-поллинг,
+  `cancellable`, `POST /cancel`). Агентный прогон = спавненный Modal-джоб со статусом/поллингом/отменой.
+- Перегенерить хук — через `call_gemini_structured` (узкий промпт по этому моменту, стиль из W2).
+- **«Агент видит видео»:** Gemini multimodal принимает видео-инпут, но **тарифицирует видео ДОРОГО**
+  (по секундам/кадрам). Клип ≤60с → ок; считать токены, решить осознанно (часто хватит транскрипт+интервал).
+
+### Сделать (порядок): сначала **спроектировать саб-агентом-архитектором** (tool-схемы, сборка промпта,
+стриминг thinking, фон/отмена reuse, persist edit-state) → бэкенд `agent_edit_job` (агент-луп Gemini +
+tool-calling над edit-state, прогресс/мысли в стейт) → фронт (чат + thinking UI + Stop reuse + корректный
+уход с таба) → анти-чатбот (tool-only + вежливый отказ на офф-топик). ⛔ Агент НЕ меняет субтитры;
+reframe не трогать; биллинг — отмена до платной работы = $0 (как Stop); соблюдать `EditConflict`/версии.
+
+---
+
+## W4 — Регенерация хука/субтитров при сдвиге клипа на таймлайне + UX
+**Боль:** при сдвиге клипа на линии проверить, что субтитры перегенерятся и хук перегенерится. Явно
+показать юзеру: чтобы переделать хук — заново запустить рендер.
+
+### Находки
+- **Субтитры — транскрипт-driven** (`editor/timeline`, `captions_v2`): сдвиг интервала → набор слов
+  меняется → субтитры следуют (проверить, что рендер берёт АКТУАЛЬНЫЙ `edit.source_intervals`).
+- **Хук НЕ авто-регенерится:** `HookOverlay` — сохранённый текст (из stage2 или ручной правки). Сдвиг
+  интервала текст хука не меняет → рассинхрон. Авто-регенерации нет.
+
+### Сделать: на ре-рендер (или кнопкой «обновить хук») перегенерить текст хука Gemini'ем под НОВЫЙ
+интервал (стиль W2); не перетирать ручные правки без подтверждения (флаг «hook кастомный»). Явный UX-
+хинт «хук обновится при ре-рендере» + кнопка. Проверить субтитры под новый интервал (тест на маппинг).
+
+---
+
+## W5 — Хук стилизуется как субтитры (недочёт из прошлого брифа)
+Субтитры в редакторе имеют богатый **Style tab** (12 пресетов + цвет/размер/шрифт/позиция/анимация/
+caps/emphasis); хук — только **Hook tab** (текст/вкл-выкл/окно), **без стилей**. Привести хук к паритету
+(пресеты/цвет/шрифт/размер/позиция/анимация), переиспользуя `CaptionStyle`/пресет-машинерию (хук-стиль ≈
+caption-стиль), не строя второй стайлинг. Хук компилится в ТОТ ЖЕ ASS (`build_hook_event`) → preview==export.
+Файлы: `editor/HookTab.tsx`, `StyleTab.tsx`, `CaptionsTab.tsx`, пресеты (`editor/preset_seeds.py`/`presets.py`),
+`HookOverlay` в `models.py`. Перед дизайном — ресёрч как делают OpusClip/Captions/Submagic (прайор-арт).
+
+## W6 — Лаги редактора + баги субтитров (недочёт из прошлого брифа)
+`superpowers:systematic-debugging` (интермиттент → инструментируй, не угадывай). Симптомы в
+`/edit/[jobId]/[clipId]`:
+1. **Субтитры иногда дублируются/накладываются** после повторного редактирования (гипотеза: stale libass-
+   слой / гонка старого ASS-рендера; `components/LibassLayer.tsx` + ASS-refresh-очередь в `ClipEditorScreen.tsx`).
+2. **Смена типа/пресета прыгает позицию субтитров** (гипотеза: `margin_v` пресета перетирает ручную позицию
+   → пресет должен СОХРАНЯТЬ позицию, если её явно не меняли).
+3. **Драг субтитров в превью лагает** (гипотеза: апдейт на `timeupdate` ~4Гц + CSS-transition + бэкенд-
+   раунд-трип на каждый сдвиг → сделать драг локальным/оптимистичным, persist на drop).
+4. **Лаги ВЕЗДЕ — даже смена стиля/анимации с задержкой** (главное). Гипотеза: каждый твик → PATCH воркеру
+   → recompile ASS → re-fetch `/ass` → libass re-render в WASM + сериализующая mutation-очередь. Направление:
+   профилировать change→repaint; дебаунс; **компилить ASS client-side** для мгновенного превью (на воркер —
+   в фоне); не реинициализировать libass на каждое изменение. Как OSS-клипперы дают мгновенный превью.
+⛔ Везде держать **preview == export** (один ASS в libass-превью и ffmpeg-прожиг).
+
+---
+
+## Cross-cutting
+- Саб-агенты (opus) по умолчанию: ресёрч/дизайн read-only широко; реализация большого (W3) — агент по
+  детальному плану, оркестратор ревьюит денежную логику + коммитит + деплоит. Параллельные ПРАВКИ —
+  строгие границы файлов; контракт→codegen→фронт последовательно.
+- TDD на чистой логике; `just check` зелёный перед коммитом; коммит из PowerShell; cyrillic → `git commit -F`.
+- Воркер: `modal deploy` (`PYTHONIOENCODING=utf-8`). Миграции — сам через Supabase MCP. Типы — только
+  `just types`, `packages/shared/*` руками не трогать. ⛔ reframe-инвариант. Без тихих фолбэков.
+- Экономика: токены/стоимость → `runs.jsonl` → `docs/BENCHMARKS.md`. Биллинг-инвариант: отмена/фон = $0.
+
+---
+
+## 📋 Промпт для следующей сессии (копипастить)
+> Прочитай `docs/README.md` + `CLAUDE.md`, затем `docs/NEXT_SESSION_BRIEF.md` (твой план) и последнюю
+> запись `docs/JOURNAL.md`. Перед reframe/render — `docs/REFRAME_FPS_GRID_INVARIANT.md`.
+>
+> **Сначала:** повтори `modal deploy deploy/modal/worker.py` (Stop-кнопка не задеплоилась — транзиентный
+> сбой Modal) и проверь `/jobs/{id}/cancel`.
+>
+> **Задача (НЕ всё сразу — по воркстримам брифа, спрашивай приоритет):**
+> W1 — стабильность Gemini-выбора: почини резкий конец (снап по `.?!` шире + хвостовой паддинг + луп по
+> word-таймингам), передай реальный `clip_max_sec` в промпт (дроп vs усечь), **точно посчитай токены** на
+> реальном 1ч/3ч (прогон → `runs.jsonl` → `BENCHMARKS.md`); видео в Gemini НЕ шлём.
+> W2 — живые хуки: двухступенчатый промпт (эмоция → стиль POV/мем/инфо/шок → текст) + few-shot, промпт в файл.
+> W3 (большое, сперва дизайн саб-агентом) — агентный ре-эдит клипа: чат в редакторе, агент с тулзами
+> `editor/ops.py`, видит интервал+транскрипт+хук, **НЕ меняет субтитры**, не чат-бот, показывает thinking,
+> фон+отмена **через переиспользование job+Stop/cancel-архитектуры**.
+> W4 — регенерация хука при ре-рендере после сдвига клипа + явный UX; проверь субтитры под новый интервал.
+> W5 — хук стилизуется как субтитры (паритет Style-tab, переиспользуй CaptionStyle/пресеты).
+> W6 — лаги редактора/баги субтитров (`systematic-debugging`; вероятно client-side ASS для мгновенного превью).
+>
+> **Правила:** саб-агенты (opus) для ресёрча/дизайна/реализации; TDD на чистой логике; `just check` зелёный;
+> деплой воркера + миграции делаешь сам (Modal/Supabase MCP); reframe-инвариант не ломать; без тихих
+> фолбэков; биллинг — отмена/фон = $0; preview==export. Документируй в конце (JOURNAL + reality).

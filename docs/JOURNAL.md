@@ -899,6 +899,15 @@ responsive-префиксами (база = мобайл, `sm:`/`lg:` восст
   **Моков в пути скачивания НЕТ** (`NEXT_PUBLIC_WORKER_URL` → реальный воркер).
 - **Опер:** ротация `GEMINI_API_KEY` в Modal-секрете `quip-worker` (квота кончилась; пересоздан с прод-
   значениями из `.env` + `STORAGE_BACKEND=r2`, billing-секрет не тронут).
-- **Спроектировано, НЕ реализовано:** **stop/cancel** (биллинг безопасен by-construction — заряд только
-  после `set_done`; Modal `FunctionCall.cancel`→`InputCancellation`=BaseException минует `except`; нужна
-  миграция `0006_job_cancel.sql`). **async-export** (латентность download — sync-рендер на web-контейнере).
+- **Спроектировано, НЕ реализовано:** ~~**stop/cancel**~~ (ОТГРУЖЕНО, см. ниже). **async-export**
+  (латентность download — sync-рендер на web-контейнере).
+- **Stop-кнопка (cancel джоба) ОТГРУЖЕНА:** `POST /jobs/{id}/cancel` отменяет джоб во FREE-фазе
+  (download/probe, до транскрипции) → `$0` заряда. Инвариант: заряд только в `_meter` ПОСЛЕ `set_done`;
+  Modal `FunctionCall.cancel(terminate_containers=False)`→`InputCancellation` (подкласс **BaseException**)
+  минует `except JobError`/`except Exception` → функция выходит ДО `set_done`/`_meter`. `dispatch.spawn`
+  теперь возвращает `function_call_id` (сохраняется в `jobs.function_call_id`); воргер гасит
+  `cancellable=False` ПЕРЕД транскрипцией (`run.on_cancellable`); `set_cancelled` с guard
+  `status NOT IN (done,failed)`. Новый `JobStatus.cancelled` + `Job.cancellable` (default False).
+  Фронт: Stop в `JobProgress` (только при `cancellable`), `cancelJob` (409→friendly), `useJob` стопит
+  поллинг на `cancelled`, нейтральная панель «This project was stopped». Миграция `0006_job_cancel.sql`
+  применена в проде. Закрытие вкладки НЕ отменяет (Modal spawn живёт отдельно).

@@ -46,6 +46,11 @@
 - **Vercel Analytics** is wired (`<Analytics/>`), invisible. ⚠️ Must be **enabled once** in the Vercel
   project dashboard (Analytics tab) for data to flow.
 - **Pipeline needs audio:** a video with no audio track fails early with a clear message (Quip cuts on speech).
+- **Stop/cancel:** a job can be cancelled during the FREE phase (download/probe, before transcription) via
+  `POST /jobs/{id}/cancel` → **charges nothing** (`_meter` runs only after `set_done`; Modal
+  `FunctionCall.cancel` raises `InputCancellation`/BaseException → never reaches `set_done`). The Stop
+  button shows only while `Job.cancellable` (flag flips false at the paid boundary). Closing the tab does
+  NOT cancel (job runs on in Modal; shows in recent). Migration `0006` applied (`cancellable`/`function_call_id`).
 
 ### Shipped (this is "all of it" up to 2026-06-15)
 Phase 0 pipeline → Editor v3 → production shell (landing/auth/dashboard/pricing) → Modal deploy →
