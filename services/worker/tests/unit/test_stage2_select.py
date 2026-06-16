@@ -7,11 +7,14 @@
 import pytest
 
 from app.errors import JobError
-from app.models import ClipType, Word
+from app.models import ClipType, Transcript, Word
 from app.pipeline.stage2_select import (
+    build_indexed_transcript,
+    build_user_prompt,
     clamp_score,
     indices_to_times,
     is_transient_gemini_error,
+    pad_clip_end,
     postprocess,
     resolve_max_clips,
     resolve_overlaps,
@@ -141,6 +144,112 @@ class TestSnapEnd:
         words = uniform(10, sentence_ends={9})
         # с idx2 до idx9 семь слов — за пределом окна 5 → без изменений
         assert snap_end_index(words, 2, max_extend=5) == 2
+
+
+class TestSnapEndPause:
+    """W1: при отсутствии .?! в окне — снап конца к ПАУЗЕ по word-таймингам (чистый вдох),
+    а не резать посреди фразы. .?! приоритетнее паузы."""
+
+    def test_snaps_to_pause_when_no_sentence_end(self) -> None:
+        # нет .?!; ясная пауза 1.0с после idx3 → конец снапается к idx3 (вдох)
+        words = mkwords(
+            [
+                ("a", 0.0, 0.5),
+                ("b", 0.5, 1.0),
+                ("c", 1.0, 1.5),
+                ("d", 1.5, 2.0),  # idx3 заканчивается на 2.0
+                ("e", 3.0, 3.5),  # пауза 1.0с после idx3
+                ("f", 3.5, 4.0),
+            ]
+        )
+        assert snap_end_index(words, 2, max_extend=5, min_pause=0.35) == 3
+
+    def test_prefers_sentence_end_over_pause(self) -> None:
+        words = mkwords(
+            [
+                ("a", 0.0, 0.5),
+                ("b.", 0.5, 1.0),  # idx1 конец предложения, паузы нет
+                ("c", 1.5, 2.0),  # пауза перед c
+            ]
+        )
+        assert snap_end_index(words, 0, max_extend=5, min_pause=0.35) == 1
+
+    def test_no_pause_no_sentence_keeps_index(self) -> None:
+        # сплошная речь, нет .?!, нет паузы ≥ порога → без изменений
+        words = mkwords([(f"w{k}", k * 0.5, k * 0.5 + 0.45) for k in range(8)])
+        assert snap_end_index(words, 2, max_extend=5, min_pause=0.35) == 2
+
+    def test_wider_default_window_finds_far_sentence_end(self) -> None:
+        # дефолтное окно расширено (было 5) → .?! на +7 слов теперь достижим
+        words = uniform(20, sentence_ends={9})
+        assert snap_end_index(words, 2) == 9
+
+
+class TestPadClipEnd:
+    """W1: хвостовой паддинг — добить конец клипа тишиной для чистого лупа,
+    но не залезть в следующее слово и не выйти за длительность."""
+
+    def test_pads_into_trailing_silence(self) -> None:
+        words = mkwords([("a", 0.0, 1.0), ("b", 1.0, 2.0), ("c", 5.0, 6.0)])
+        assert pad_clip_end(2.0, words, 1, duration=10.0, pad=0.3) == pytest.approx(2.3)
+
+    def test_caps_at_next_word_start(self) -> None:
+        words = mkwords([("a", 0.0, 1.0), ("b", 1.0, 2.0), ("c", 2.1, 3.0)])
+        # зазор лишь 0.1с → паддинг кламп к 2.1 (не 2.3) — не залезаем в следующее слово
+        assert pad_clip_end(2.0, words, 1, duration=10.0, pad=0.3) == pytest.approx(2.1)
+
+    def test_caps_at_duration_for_last_word(self) -> None:
+        words = mkwords([("a", 0.0, 1.0), ("b", 1.0, 2.0)])
+        assert pad_clip_end(2.0, words, 1, duration=2.15, pad=0.3) == pytest.approx(2.15)
+
+    def test_zero_pad_is_noop(self) -> None:
+        words = mkwords([("a", 0.0, 1.0), ("b", 1.0, 2.0), ("c", 5.0, 6.0)])
+        assert pad_clip_end(2.0, words, 1, duration=10.0, pad=0.0) == 2.0
+
+    def test_never_shortens_on_overlapping_timings(self) -> None:
+        # ASR иногда отдаёт ПЕРЕКРЫВАЮЩИЕСЯ тайминги: next.start < current.end (поймано на
+        # реальном 1ч-видео). Паддинг НЕ должен укорачивать клип (резать конечное слово) —
+        # кламп к next_start не может уйти раньше конца слова.
+        words = mkwords([("a", 0.0, 1.0), ("end.", 1.0, 3.0), ("next", 2.0, 2.5)])
+        assert pad_clip_end(3.0, words, 1, duration=100.0, pad=0.3) >= 3.0
+
+
+class TestSystemPromptV2:
+    """W2: системный промпт вынесен в файл v2 (версионируем без передеплоя) и описывает
+    двухступенчатую генерацию хука (тон → стиль → текст)."""
+
+    def test_prompt_path_is_v2(self) -> None:
+        from app.pipeline.stage2_select import _PROMPT_PATH
+
+        assert _PROMPT_PATH.name == "select_moments.v2.txt"
+
+    def test_v2_file_exists_and_describes_hook_styles(self) -> None:
+        from app.pipeline.stage2_select import _PROMPT_PATH
+
+        assert _PROMPT_PATH.exists(), "prompts/select_moments.v2.txt должен существовать"
+        text = _PROMPT_PATH.read_text(encoding="utf-8").lower()
+        assert "hook_style" in text
+        # перечислены стили из брифа
+        for style in ("pov", "shock", "informative", "relatable"):
+            assert style in text
+
+    def test_load_system_prompt_reads_v2_file(self) -> None:
+        from app.pipeline.stage2_select import load_system_prompt
+
+        assert "hook_style" in load_system_prompt().lower()
+
+
+class TestBuildUserPromptLength:
+    """W1: реальные clip_min/max_sec уходят в промпт как ЖЁСТКИЙ лимит (модель обязана соблюсти)."""
+
+    def test_includes_hard_length_limits(self) -> None:
+        words = uniform(20)
+        tr = Transcript(language="en", duration=20.0, words=words)
+        indexed = build_indexed_transcript(words)
+        prompt = build_user_prompt("title", tr, indexed, max_clips=5, min_sec=15, max_sec=45)
+        assert "45" in prompt
+        assert "15" in prompt
+        assert "second" in prompt.lower()
 
 
 class TestSnapStart:
@@ -315,6 +424,41 @@ class TestPostprocess:
         assert segs[0].hook == "Он потерял всё за день"
         assert segs[0].why_works == "Ставка и конфликт в первой фразе"
 
+    def test_carries_and_normalizes_hook_style(self) -> None:
+        # W2: hook_style пробрасывается в Segment и нормализуется (trim + lower).
+        words = uniform(40, sentence_ends={2, 25})
+        raw = [
+            {
+                "start_word_index": 3,
+                "end_word_index": 22,
+                "reason": "r",
+                "score": 0.8,
+                "type": "hook",
+                "hook": "POV: тот самый темщик",
+                "hook_style": "  POV  ",
+                "why_works": "w",
+            }
+        ]
+        segs = postprocess(raw, words, min_sec=15, max_sec=60)
+        assert segs[0].hook_style == "pov"
+
+    def test_missing_hook_style_is_none(self) -> None:
+        # старый raw без hook_style → None (обратная совместимость)
+        words = uniform(40, sentence_ends={2, 25})
+        raw = [
+            {
+                "start_word_index": 3,
+                "end_word_index": 22,
+                "reason": "r",
+                "score": 0.8,
+                "type": "hook",
+                "hook": "h",
+                "why_works": "w",
+            }
+        ]
+        segs = postprocess(raw, words, min_sec=15, max_sec=60)
+        assert segs[0].hook_style is None
+
     def test_missing_hook_fields_are_none(self) -> None:
         # старый raw без hook/why_works → поля None (не падаем, обратная совместимость)
         words = uniform(40, sentence_ends={2, 25})
@@ -330,6 +474,47 @@ class TestPostprocess:
         segs = postprocess(raw, words, min_sec=15, max_sec=60)
         assert len(segs) == 1
         assert segs[0].hook is None and segs[0].why_works is None
+
+    def test_applies_tail_padding(self) -> None:
+        # W1: tail_pad добивает конец тишиной (чистый луп). end snap к w25.→25.8; w26 старт 26.0;
+        # pad 0.3 → min(26.1, 26.0) = 26.0.
+        words = uniform(40, sentence_ends={2, 25})
+        raw = [
+            {
+                "start_word_index": 3,
+                "end_word_index": 22,
+                "reason": "r",
+                "score": 0.8,
+                "type": "hook",
+            }
+        ]
+        segs = postprocess(raw, words, min_sec=15, max_sec=60, duration=100.0, tail_pad=0.3)
+        assert len(segs) == 1
+        assert segs[0].end == pytest.approx(26.0)
+
+    def test_tail_padding_gate_uses_unpadded_length(self) -> None:
+        # Гейт длины считается по РЕЧИ (без паддинга): клип ровно на max_sec проходит,
+        # а паддинг (в реальную тишину) потом добавляет хвост сверх max — и НЕ дропает клип.
+        words = mkwords(
+            [
+                ("Start.", 0.0, 0.5),  # idx0 конец предложения → старт снапнется к idx1
+                ("a", 1.0, 1.5),  # idx1 — старт клипа = 1.0
+                ("end.", 60.5, 61.0),  # idx2 конец → речь = 61.0-1.0 = 60.0 == max
+                ("next", 65.0, 65.5),  # 4с тишины после idx2
+            ]
+        )
+        raw = [
+            {
+                "start_word_index": 1,
+                "end_word_index": 2,
+                "reason": "r",
+                "score": 0.9,
+                "type": "hook",
+            }
+        ]
+        segs = postprocess(raw, words, min_sec=15, max_sec=60, duration=200.0, tail_pad=0.3)
+        assert len(segs) == 1  # гейт по речи (60.0) → проходит
+        assert segs[0].end == pytest.approx(61.3)  # 61.0 + 0.3 паддинга в тишину
 
     def test_resolves_overlap_keeping_higher_score(self) -> None:
         words = uniform(60)

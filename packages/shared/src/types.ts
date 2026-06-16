@@ -179,6 +179,7 @@ export interface CropWindow {
 export interface Segment {
   end: number;
   hook?: string | null;
+  hook_style?: string | null;
   reason: string;
   score: number;
   start: number;
@@ -222,6 +223,7 @@ export interface ClipOut {
   duration: number;
   end: number;
   hook?: string | null;
+  hook_style?: string | null;
   id: string;
   reason: string;
   score: number;

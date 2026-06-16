@@ -343,6 +343,17 @@
           ],
           "default": null
         },
+        "hook_style": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "id": {
           "type": "string"
         },
@@ -706,6 +717,17 @@
           "type": "number"
         },
         "hook": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "hook_style": {
           "anyOf": [
             {
               "type": "string"

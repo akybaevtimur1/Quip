@@ -1,9 +1,15 @@
 import pytest
 
 from app.editor.defaults import default_clip_edit
-from app.editor.ops import add_section, apply_extend, apply_trim, set_crop_override
+from app.editor.ops import (
+    add_section,
+    apply_extend,
+    apply_trim,
+    set_crop_override,
+    set_interval,
+)
 from app.errors import JobError
-from app.models import CropOverride, Segment, Word
+from app.models import CropOverride, Segment, SourceInterval, Word
 
 
 def _w(t, s, e):
@@ -87,6 +93,18 @@ def test_add_section_overlapping_range_raises_joberror():
     # интервал [0,3] уже есть; новый [1,4] пересекается → дублировал бы слова. Запрещаем.
     with pytest.raises(JobError):
         add_section(_base(), 1.0, 4.0, 1, WORDS)
+
+
+def test_set_interval_shift_remaps_captions_to_new_window():
+    # W4: сдвиг клипа на таймлайне (set_interval) ОБЯЗАН пересобрать субтитры под новый набор
+    # слов — старые выпадают, новые появляются (founder: «проверь, что субтитры перегенерятся
+    # при сдвиге»). Единая точка синхронизации = rebuild_replies в _with_intervals.
+    edit = _base(end=3.0)  # [0,3] → все a..e
+    assert sorted({i for r in edit.captions.replies for i in r.word_refs}) == [0, 1, 2, 3, 4]
+    shifted = set_interval(edit, 2.0, 2.5, WORDS, duration=3.0, min_sec=0.0, max_sec=10.0)
+    refs = sorted({i for r in shifted.captions.replies for i in r.word_refs})
+    assert refs == [4]  # только 'e' (2.0-2.4) в новом окне; старые слова выпали
+    assert shifted.source_intervals == [SourceInterval(source_start=2.0, source_end=2.5)]
 
 
 def test_set_crop_override_replaces_overlapping():

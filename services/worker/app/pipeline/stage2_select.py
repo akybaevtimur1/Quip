@@ -49,8 +49,17 @@ def _is_sentence_end(text: str) -> bool:
     return text.strip().rstrip("\"'»").endswith(_SENT_END)
 
 
-def snap_end_index(words: list[Word], end_idx: int, max_extend: int = 5) -> int:
-    """Конец → ближайшее слово на .?! в окне +max_extend (иначе без изменений)."""
+def snap_end_index(
+    words: list[Word], end_idx: int, max_extend: int = 8, min_pause: float = 0.35
+) -> int:
+    """Конец клипа → чистая граница (W1: чинит «обрыв посреди фразы»). Приоритет:
+
+    1) слово уже завершает предложение (.?!) → не трогаем;
+    2) ближайшее .?! в окне +max_extend → тянем туда (окно расширено: было 5, стало 8);
+    3) нет .?! в окне → снап к НАИБОЛЬШЕЙ паузе ≥ min_pause по word-таймингам (чистый вдох,
+       а не резать середину слова/фразы);
+    4) ни .?!, ни паузы (сплошная речь) → без изменений (хвостовой паддинг сгладит луп).
+    """
     if _is_sentence_end(words[end_idx].text):
         return end_idx
     for k in range(1, max_extend + 1):
@@ -59,7 +68,17 @@ def snap_end_index(words: list[Word], end_idx: int, max_extend: int = 5) -> int:
             break
         if _is_sentence_end(words[j].text):
             return j
-    return end_idx
+    best_j = end_idx
+    best_gap = 0.0
+    for k in range(max_extend + 1):
+        j = end_idx + k
+        if j + 1 >= len(words):
+            break
+        gap = words[j + 1].start - words[j].end
+        if gap >= min_pause and gap > best_gap:
+            best_gap = gap
+            best_j = j
+    return best_j
 
 
 def snap_start_index(
@@ -104,6 +123,25 @@ def indices_to_times(words: list[Word], start_idx: int, end_idx: int) -> tuple[f
     return words[start_idx].start, words[end_idx].end
 
 
+def pad_clip_end(
+    end_sec: float, words: list[Word], end_idx: int, duration: float, pad: float = 0.3
+) -> float:
+    """W1: добить конец клипа тишиной для чистого лупа (вертикальный шортс зацикливается мгновенно —
+    резкий обрыв на последнем слове звучит обрублено).
+
+    Расширяем end на `pad` секунд, но НЕ дальше: (а) старта следующего слова (не залезть в чужую
+    речь), (б) длительности source. pad<=0 → no-op.
+    """
+    if pad <= 0:
+        return end_sec
+    upper = duration
+    if end_idx + 1 < len(words):
+        upper = min(upper, words[end_idx + 1].start)
+    # max(end_sec, …): ASR иногда отдаёт перекрытие (next.start < слово.end) → кламп по
+    # next_start не должен уйти РАНЬШЕ конца слова (иначе паддинг режет конечное слово).
+    return max(end_sec, min(end_sec + pad, upper))
+
+
 def resolve_overlaps(segments: list[Segment]) -> list[Segment]:
     """Жадно по убыванию score берём непересекающиеся сегменты; результат сортируем по start."""
     chosen: list[Segment] = []
@@ -121,10 +159,15 @@ def postprocess(
     min_sec: float = 15.0,
     max_sec: float = 60.0,
     max_clips: int = 8,
+    duration: float | None = None,
+    tail_pad: float = 0.0,
 ) -> list[Segment]:
     """Сырые сегменты LLM → валидные Segment: snap, маппинг в секунды, длительность-гейт,
     клиппинг score, валидация type, анти-overlap, обрезка до max_clips (топ по score).
     Битый/невалидный сегмент пропускаем, а не роняем весь прогон.
+
+    W1: длительность-гейт считается по РЕЧИ (до паддинга) — клип ровно на max_sec не дропается;
+    `tail_pad`>0 → конец добивается тишиной (`pad_clip_end`) для чистого лупа (нужен `duration`).
     """
     valid_types = {t.value for t in ClipType}
     candidates: list[Segment] = []
@@ -143,16 +186,23 @@ def postprocess(
         # (старый raw без них → None; не роняем сегмент).
         hook_raw = item.get("hook")
         why_raw = item.get("why_works")
+        style_raw = item.get("hook_style")
         hook = str(hook_raw).strip() or None if hook_raw else None
         why_works = str(why_raw).strip() or None if why_raw else None
+        # W2: нормализуем стиль (trim+lower); словарь стилей — в промпте, тут не валидируем
+        # жёстко (свободная строка), но пустое → None (обратная совместимость со старым raw).
+        hook_style = str(style_raw).strip().lower() or None if style_raw else None
         try:
             si = snap_start_index(words, si)
             ei = snap_end_index(words, ei)
             start, end = indices_to_times(words, si, ei)
         except (JobError, IndexError):
             continue
+        # Гейт по РЕЧИ (до паддинга): иначе клип у границы max_sec дропнется из-за тишины.
         if not (min_sec <= end - start <= max_sec):
             continue
+        if tail_pad > 0 and duration is not None:
+            end = pad_clip_end(end, words, ei, duration, tail_pad)
         candidates.append(
             Segment(
                 start=start,
@@ -162,6 +212,7 @@ def postprocess(
                 type=ClipType(typ),
                 hook=hook,
                 why_works=why_works,
+                hook_style=hook_style,
             )  # fmt: skip
         )
     chosen = resolve_overlaps(candidates)
@@ -191,11 +242,11 @@ def is_transient_gemini_error(exc: BaseException) -> bool:
 
 # ─────────────────────────── промпт + structured output (Gemini) ───────────────────────────
 
-_PROMPT_PATH = Path(__file__).resolve().parents[1] / "prompts" / "select_moments.v1.txt"
+_PROMPT_PATH = Path(__file__).resolve().parents[1] / "prompts" / "select_moments.v2.txt"
 
 
 def load_system_prompt() -> str:
-    """Системный промпт из prompts/select_moments.v1.txt (его и крутим). Fallback — дефолт ниже."""
+    """Системный промпт из prompts/select_moments.v2.txt (его и крутим). Fallback — дефолт ниже."""
     if _PROMPT_PATH.exists():
         return _PROMPT_PATH.read_text(encoding="utf-8")
     return DEFAULT_SYSTEM_PROMPT
@@ -211,17 +262,22 @@ Return moments as word index ranges. For each moment choose a `type`:
 - complete_thought: a self-contained idea that makes sense without surrounding context.
 - strong_quote: a quotable, punchy line.
 
-For each moment ALSO produce:
-- `hook`: a punchy on-screen TOP title (≤6 words, transcript language, no ending period),
-  tied to what actually happens in the moment — the scroll-stopper, never empty clickbait.
+For each moment ALSO produce (in this order — classify the feeling BEFORE writing the hook):
+- `tone`: the emotion of the moment (funny / shocking / touching / controversial / insightful /
+  relatable …) — name the feeling first, a generic title comes from skipping this.
+- `hook_style`: one of pov | relatable | informative | shock | curiosity — pick what best
+  weaponizes that emotion.
+- `hook`: a punchy on-screen TOP title (≤6 words, transcript language, no ending period) written
+  IN that style — must HIT the emotion, tied to what actually happens, never empty clickbait.
 - `why_works`: ONE short sentence (transcript language) on WHY it performs standalone.
 
 HARD RULES:
 - Each moment MUST be a complete thought: clean start (begin a sentence), clean ending.
-- Target 15-60 seconds (sweet spot 20-45s). Do NOT pick moments shorter than ~15s.
+- Respect the HARD length limit stated in the request (sweet spot ~20-45s). A clip over the
+  stated maximum is rejected — trim long moments to their strongest in-range window, never skip.
 - Moments MUST NOT overlap.
 - `reason` must be CONCRETE and specific to THIS moment (why it works), not generic.
-- `hook` and `why_works` are REQUIRED and specific to each moment.
+- `tone`, `hook_style`, `hook`, `why_works` are REQUIRED and specific to each moment.
 - High bar, but surface ALL genuinely strong standalone moments — never pad to hit a number.
 - `score` in [0,1] = your confidence this clip will perform standalone.
 - Use ONLY word indices that exist in the transcript.
@@ -234,7 +290,11 @@ class _LlmSegment(BaseModel):
     reason: str
     score: float
     type: ClipType
-    hook: str  # T1: цепляющий топ-заголовок (≤~6 слов), привязан к reason
+    # W2: двухступенчатая генерация хука — модель СНАЧАЛА читает тон момента, ПОТОМ под него
+    # выбирает стиль, и только затем пишет хук в этом стиле (structured CoT повышает качество).
+    tone: str  # эмоциональный «прочит» момента (смешно/шок/трогательно/инсайт/релейт…)
+    hook_style: str  # выбранный стиль: pov | relatable | informative | shock | …
+    hook: str  # T1: цепляющий топ-заголовок (≤~6 слов) В ВЫБРАННОМ СТИЛЕ, язык транскрипта
     why_works: str  # T2: 1 фраза — почему момент работает как шортс
 
 
@@ -251,13 +311,27 @@ def build_indexed_transcript(words: list[Word], per_line: int = 10) -> str:
     return "\n".join(lines)
 
 
-def build_user_prompt(title: str, transcript: Transcript, indexed: str, max_clips: int = 8) -> str:
+def build_user_prompt(
+    title: str,
+    transcript: Transcript,
+    indexed: str,
+    max_clips: int = 8,
+    *,
+    min_sec: float = 15.0,
+    max_sec: float = 60.0,
+) -> str:
+    """W1: реальные min/max длины уходят в промпт как ЖЁСТКИЙ лимит (раньше хардкод «15-60s» в
+    системном промпте — модель не знала фактического потолка и брала длиннее)."""
     return (
         f"Video title: {title}\n"
         f"Language: {transcript.language}  Duration: {transcript.duration:.0f}s  "
         f"Words: {len(transcript.words)}\n\n"
         f"Word-indexed transcript (each line starts with the index of its first word):\n"
         f"{indexed}\n\n"
+        f"HARD length limit: every clip MUST be between {min_sec:.0f} and {max_sec:.0f} seconds. "
+        f"Vertical shorts loop instantly, so a clip longer than {max_sec:.0f}s will be REJECTED. "
+        f"If a strong moment runs longer, pick the single strongest {min_sec:.0f}-{max_sec:.0f}s "
+        f"window inside it (clean sentence start AND clean sentence end) instead of skipping it.\n"
         f"Surface up to {max_clips} of the strongest non-overlapping moments as word index "
         f"ranges. Include every genuinely strong standalone moment (the user will choose among "
         f"them) — do NOT artificially limit to a few; but never pad with weak ones."
@@ -364,7 +438,9 @@ def select_segments(
     s = get_settings()
     n_clips = resolve_max_clips(max_clips, s.max_clips)
     indexed = build_indexed_transcript(transcript.words)
-    user_prompt = build_user_prompt(title, transcript, indexed, n_clips)
+    user_prompt = build_user_prompt(
+        title, transcript, indexed, n_clips, min_sec=s.clip_min_sec, max_sec=s.clip_max_sec
+    )
 
     text = call_gemini_structured(
         user_prompt,
@@ -379,7 +455,13 @@ def select_segments(
         raise JobError(_STAGE, f"Gemini вернул не-JSON: {e}") from e
 
     return postprocess(
-        raw, transcript.words, min_sec=s.clip_min_sec, max_sec=s.clip_max_sec, max_clips=n_clips
+        raw,
+        transcript.words,
+        min_sec=s.clip_min_sec,
+        max_sec=s.clip_max_sec,
+        max_clips=n_clips,
+        duration=transcript.duration,
+        tail_pad=s.clip_tail_pad_sec,
     )
 
 

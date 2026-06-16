@@ -236,6 +236,7 @@ def run_pipeline(
                 words=words_in_segment(transcript.words, seg.start, seg.end),
                 hook=seg.hook,
                 why_works=seg.why_works,
+                hook_style=seg.hook_style,
             )
         )
         n_fit = sum(1 for r in regions if r.mode == "fit")

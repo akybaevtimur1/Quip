@@ -58,6 +58,8 @@ class Settings(BaseSettings):
     # в заблуждение (реальный лимит = 180). Удалён, чтобы не было двух «источников правды».
     clip_min_sec: int = 15
     clip_max_sec: int = 60
+    # W1: хвостовой паддинг конца клипа (сек) — тишина для чистого лупа вертикального шортса.
+    clip_tail_pad_sec: float = 0.3
     caption_max_words_per_group: int = 5
     max_clips: int = 8  # сколько кандидатов отдавать (юзер выберет из них в UI)
 

@@ -85,6 +85,9 @@ class Segment(BaseModel):
     type: ClipType
     hook: str | None = None  # короткий топ-текст (≤~6 слов), привязан к reason
     why_works: str | None = None  # 1 фраза: почему момент работает как шортс
+    # W2: стиль хука (pov/relatable/informative/shock/…). Свободная строка, НЕ enum:
+    # словарь стилей живёт в prompts/select_moments.v2.txt → крутится без передеплоя/codegen.
+    hook_style: str | None = None
 
 
 class CropWindow(BaseModel):
@@ -131,6 +134,7 @@ class ClipOut(BaseModel):
     words: list[Word]
     hook: str | None = None  # T1: цепляющий топ-заголовок (объяснимость)
     why_works: str | None = None  # T2: разбор «почему сработает»
+    hook_style: str | None = None  # W2: стиль хука (pov/relatable/informative/shock/…)
 
 
 class Metrics(BaseModel):
