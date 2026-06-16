@@ -65,8 +65,10 @@ no longer resets position, "All clips" → grid directly) → **Vercel Analytics
 (preview-proxy + CDN) → **upload rewrite** (direct browser→R2, fixes large uploads) → no-audio clear
 error → **Stop/cancel джоба** (FREE-фаза, $0) → **selection-end quality** (W1: snap `.?!`/пауза +
 tail-pad, реальный max в промпт) → **emotion-driven styled hooks** (W2: tone→style→text + few-shot,
-`hook_style`) → **hook regeneration for re-cut clips** (W4: `/hook/regenerate`, узкий Gemini-вызов).
-Founder account = Pro + 1000 credits (for testing).
+`hook_style`) → **hook regeneration for re-cut clips** (W4: `/hook/regenerate`, узкий Gemini-вызов)
+→ **no charge on our errors** (биллинг: ошибка/0 клипов → минуты НЕ списываются) → **agent clip
+editor** (W3: чат-агент правит интервал/хук тулзами, Gemini function-calling, фон+Stop, $0;
+НЕ трогает субтитры/кадр). Founder account = Pro + 1000 credits (for testing).
 
 > 2026-06-15 detail → `docs/JOURNAL.md` (last two entries). ⚠️ The upload architecture changed this
 > session — read the "Upload ПЕРЕПИСАН на direct→R2" journal entry before touching the upload path.

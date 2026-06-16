@@ -957,7 +957,7 @@ responsive-префиксами (база = мобайл, `sm:`/`lg:` восст
   Цена ~$0.0003/реген (706/38 ток на реальном клипе) → НЕ метрим (как прочие правки редактора).
   Реальный прогон: клип→хук «Почему Бог оставляет нас в живых» (curiosity, ru). TDD: clip_words +
   parse_hook_response + build_hook_regen_prompt + API-тест (мок Gemini, версия+409).
-- **W3 (агентный чат-редактор) — НЕ начат** (явно отложен фаундером на эту сессию).
+- **W3 (агентный чат-редактор)** — спроектирован и СДЕЛАН в эту же ночь (см. отдельную запись ниже).
 
 ### 2026-06-17 — Денежный инвариант: ошибка с нашей стороны → НЕ списываем минуты
 Ветка `fix/no-charge-on-error`. Запрос фаундера: «при любом раскладе наша ошибка не должна списывать
@@ -972,3 +972,32 @@ responsive-префиксами (база = мобайл, `sm:`/`lg:` восст
   `test_meter_skips_charge_when_no_clips_delivered`. Хелпер `_job_with_minutes` теперь даёт клип.
 - Editor-рендеры (`render_edit_to_file`/`render_clip_edit_job`) и отмена (Stop) заряд НЕ трогают —
   подтверждено (метеринг только в 2 pipeline-тасках). `just check` зелёный.
+
+### 2026-06-17 (ночь) — W3: агентный чат-редактор клипа (ОТГРУЖЕН)
+Дизайн ДО кода → `docs/superpowers/specs/2026-06-17-w3-agent-clip-editor-design.md` (воркфлоу, UX,
+20 сценариев, инварианты, план). Реализация на ветке `feat/w3-agent-editor` (смержена в main).
+- **Что это:** в редакторе клипа вкладка **Agent** — чат, где агент правит ИНТЕРВАЛ и ХУК
+  естественным языком, тулзами, показывая мысли/действия. НЕ трогает субтитры и кадр (жёсткие
+  границы), не чат-бот (офф-топик → вежливый отказ). Фон + Stop (reuse spawn/cancel), **$0 минут**.
+- **Архитектура:** `app/agent/loop.py` (чистый control-flow, инъекция зависимостей → детерм. тесты;
+  hard-cap шагов; ошибка тула → модели, не падаем) · `tools.py` (set_interval/nudge/regenerate_hook/
+  set_hook_text/request_render/get_clip_state над edit-state, optimistic-lock+ретрай; pure
+  `compute_nudge`) · `clip_agent.py` (Gemini **function-calling**; `parse_model_response` pure) ·
+  `runs_store.py` (agent_runs dual-mode SQLite/Supabase, лента событий) · `tasks.agent_edit_job` +
+  Modal-функция `agent_edit_job` (отменяемый джоб) · `main.py` эндпоинты start/active/{id}/cancel
+  (start идемпотентен — один run на клип). Контракт: `AgentRunStatus/AgentEvent/AgentRun` (codegen).
+  Миграция `0007_agent_runs.sql` применена в проде.
+- **Грабли (поймано реальным прогоном):** Gemini 2.5+ требует ECHO'ить нативный Content модели с
+  `function_call` (несёт `thought_signature`) в следующем ходе — реконструкция из имени/аргументов →
+  400 INVALID_ARGUMENT на 2-м тул-вызове. Фикс: `model_turn` держит нативные Content между ходами.
+- **Фронт:** `AgentTab.tsx` (лента user/thinking/action/agent/error + ввод + Stop + поллинг +
+  реконнект `key={clipId}`); `api.ts` (start/get/active/cancel); таб Agent в `ClipEditorScreen`
+  (`handleAgentEdited` перечитывает edit+ASS после правок агента).
+- **DRY:** `editor/hook_ops.regenerate_hook_for_clip` — общий для W4-эндпоинта и агент-тула; W4
+  `regenerate_hook` получил `style_hint` (агент передаёт «шок»/«pov»/«покороче»).
+- **Тесты:** 33 unit (loop/tools/runs_store/clip_agent/api) + **реальный E2E на 1ч-видео**: «сдвинь
+  начало на 5с раньше + цепляющий хук» → интервал 25→20с, хук «Террористы никогда не чувствуют
+  раскаяния», рендер — всё применилось. `just check` зелёный. Воркер задеплоен (функция
+  `agent_edit_job` создана; эндпоинты живые).
+- **НЕ в v1 (кандидаты v2):** видео в Gemini (дорого — шлём только транскрипт), reframe/субтитры-тулзы,
+  undo-тул, full chat-history list (есть реконнект к активному прогону).
