@@ -142,7 +142,9 @@ def presigned_put_url(job_id: str) -> str:
         url: str = _r2_client().generate_presigned_url(
             "put_object",
             Params={"Bucket": s.r2_bucket, "Key": key},
-            ExpiresIn=3600,
+            # 6h window: a multi-GB long-form upload on a slow uplink can take well over an
+            # hour (5 GB @ ~10 Mbps ≈ 70 min) — a 1h TTL would expire mid-PUT → failed upload.
+            ExpiresIn=21600,
         )
         return url
     except Exception as e:  # noqa: BLE001

@@ -157,7 +157,11 @@ def web() -> object:
     return fastapi_app
 
 
-@app.function(secrets=[_SECRET, _BILLING_SECRET], timeout=3600, min_containers=0, serialized=True)
+# timeout=10800 (3h, НЕ 1h): длинные источники (до 3h-потолка контента) гоняют ВЕСЬ пайплайн
+# здесь — включая полный preview-транскод source→720p (~30-60 мин для 3h) + транскрипцию +
+# реframe/рендер. На 1h тяжёлый джоб умирал бы на полпути. 3h ≈ потолок контента (MAX_VIDEO_MINUTES)
+# → ограничивает и runaway-стоимость.
+@app.function(secrets=[_SECRET, _BILLING_SECRET], timeout=10800, min_containers=0, serialized=True)
 def run_job(
     job_id: str,
     source_type: str,
@@ -167,7 +171,7 @@ def run_job(
 ) -> None:
     """Весь пайплайн для одного источника: download→transcribe→select→reframe→render→R2+Postgres.
 
-    Долгоживущая CPU-функция (до 60 мин). Стейт/артефакты/клипы — в Supabase+R2 (app.tasks роутит).
+    Долгоживущая CPU-функция (до 3 ч). Стейт/артефакты/клипы — в Supabase+R2 (app.tasks роутит).
     """
     import sys
 
@@ -178,7 +182,9 @@ def run_job(
     run_pipeline_job(job_id, source_type, source_ref, max_clips, user_id)
 
 
-@app.function(secrets=[_SECRET, _BILLING_SECRET], timeout=3600, min_containers=0, serialized=True)
+# timeout=10800 (3h): качает залитый источник (до ~5 ГБ) на свой контейнер + гоняет тот же
+# полный пайплайн (incl. preview-транскод). Тяжёлой/длинной загрузке 1h мало — см. run_job.
+@app.function(secrets=[_SECRET, _BILLING_SECRET], timeout=10800, min_containers=0, serialized=True)
 def upload_job(
     job_id: str,
     filename: str,

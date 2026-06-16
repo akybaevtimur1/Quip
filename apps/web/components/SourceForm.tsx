@@ -8,7 +8,12 @@ import { IconButton } from "@/components/ui/IconButton";
 const MIN_CLIPS = 1;
 const MAX_CLIPS = 10;
 const DEFAULT_CLIPS = 6;
-const MAX_UPLOAD_MB = 500;
+// Quip is for long-form (podcasts, talks), so the cap is the direct-to-R2 single-PUT
+// ceiling (~5 GiB), not an arbitrary small number. Length is bounded separately by the
+// worker's 3 h technical limit (billing.MAX_VIDEO_MINUTES). Files >5 GB would need a
+// multipart upload (future) — keep this at the single-PUT max.
+const MAX_UPLOAD_MB = 5000;
+const MAX_UPLOAD_LABEL = "5 GB";
 
 export function SourceForm({
   onSubmitFile,
@@ -40,7 +45,7 @@ export function SourceForm({
       return;
     }
     if (f.size > MAX_UPLOAD_MB * 1024 * 1024) {
-      setFileError(`File is larger than ${MAX_UPLOAD_MB} MB`);
+      setFileError(`File is larger than ${MAX_UPLOAD_LABEL}. Trim it or split into parts.`);
       return;
     }
     setFile(f);
@@ -79,7 +84,7 @@ export function SourceForm({
           <span>
             Drag a video here or <span className="font-medium text-ink">choose a file</span>
           </span>
-          <span className="text-xs text-faint">MP4, MOV… up to {MAX_UPLOAD_MB} MB</span>
+          <span className="text-xs text-faint">MP4, MOV… up to {MAX_UPLOAD_LABEL} · 3 h</span>
         </div>
       ) : (
         <div className="flex items-center justify-between gap-2 rounded-md border border-line bg-surface px-4 py-3">
