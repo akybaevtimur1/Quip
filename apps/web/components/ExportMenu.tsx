@@ -72,7 +72,7 @@ export function ExportMenu({
       {open && (
         <div
           role="menu"
-          className={`absolute z-30 min-w-[238px] overflow-hidden rounded-md border border-line-strong bg-surface shadow-[0_16px_40px_-12px_rgba(0,0,0,.7)] ${
+          className={`absolute z-30 min-w-[238px] max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-md border border-line-strong bg-surface shadow-[0_16px_40px_-12px_rgba(0,0,0,.7)] ${
             align === "right" ? "right-0" : "left-0"
           } ${placement === "up" ? "bottom-full mb-1" : "mt-1"}`}
         >

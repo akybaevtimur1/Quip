@@ -27,8 +27,8 @@ export function Comparison() {
 
         <Reveal delay={80}>
           <div className="mt-12 overflow-hidden rounded-xl border border-line">
-            {/* header */}
-            <div className="grid grid-cols-[1fr_1.2fr_1.2fr] border-b border-line bg-bg sm:grid-cols-[1.2fr_1.4fr_1.4fr]">
+            {/* header — table head only from sm: up (on mobile each row is a labeled card) */}
+            <div className="hidden border-b border-line bg-bg sm:grid sm:grid-cols-[1.2fr_1.4fr_1.4fr]">
               <div className="p-4 sm:p-5" />
               <div className="flex items-center gap-2 border-l border-line p-4 sm:p-5">
                 <Logo href={null} size="sm" />
@@ -37,22 +37,32 @@ export function Comparison() {
                 Volume clippers
               </div>
             </div>
-            {/* rows */}
+            {/* rows — stacked card on mobile, 3-col table row from sm: */}
             {rows.map((r, i) => (
               <div
                 key={r.dim}
-                className={`grid grid-cols-[1fr_1.2fr_1.2fr] sm:grid-cols-[1.2fr_1.4fr_1.4fr] ${
+                className={`block border-t border-line first:border-t-0 sm:grid sm:grid-cols-[1.2fr_1.4fr_1.4fr] sm:border-t-0 ${
                   i % 2 ? "bg-bg/40" : "bg-bg"
                 }`}
               >
                 <div className="p-4 text-sm font-medium text-faint sm:p-5">{r.dim}</div>
-                <div className="flex items-start gap-2.5 border-l border-line p-4 text-sm text-ink sm:p-5">
+                <div className="flex items-start gap-2.5 p-4 pt-0 text-sm text-ink sm:border-l sm:border-line sm:p-5">
                   <Check className="mt-0.5 size-4 shrink-0 text-accent" aria-hidden />
-                  <span>{r.quip}</span>
+                  <span>
+                    <span className="mb-1 block font-mono text-eyebrow uppercase text-faint sm:hidden">
+                      Quip
+                    </span>
+                    {r.quip}
+                  </span>
                 </div>
-                <div className="flex items-start gap-2.5 border-l border-line p-4 text-sm text-muted sm:p-5">
+                <div className="flex items-start gap-2.5 p-4 pt-0 text-sm text-muted sm:border-l sm:border-line sm:p-5 sm:pt-5">
                   <Minus className="mt-0.5 size-4 shrink-0 text-faint" aria-hidden />
-                  <span>{r.them}</span>
+                  <span>
+                    <span className="mb-1 block font-mono text-eyebrow uppercase text-faint sm:hidden">
+                      Volume clippers
+                    </span>
+                    {r.them}
+                  </span>
                 </div>
               </div>
             ))}

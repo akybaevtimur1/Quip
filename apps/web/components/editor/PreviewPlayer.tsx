@@ -247,14 +247,16 @@ export function PreviewPlayer({
         {/* ── контрол-бар (виден на hover и на паузе) ── */}
         <div
           className={`absolute inset-x-0 bottom-0 z-30 flex items-center gap-2 bg-gradient-to-t from-black/85 to-transparent px-3 pb-2 pt-6 transition-opacity ${
-            playing ? "opacity-0 group-hover:opacity-100" : "opacity-100"
+            playing
+              ? "opacity-100 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100"
+              : "opacity-100"
           }`}
         >
           <button
             type="button"
             aria-label={playing ? "Pause" : "Play"}
             onClick={togglePlay}
-            className="text-white/90 transition hover:text-white"
+            className="inline-flex min-h-[40px] min-w-[40px] sm:min-h-0 sm:min-w-0 items-center justify-center text-white/90 transition hover:text-white"
           >
             {playing ? <Pause className="size-4 fill-current" /> : <Play className="size-4 fill-current" />}
           </button>
@@ -270,14 +272,14 @@ export function PreviewPlayer({
             value={Math.round((clipNow / clipDur) * 1000)}
             onChange={handleScrub}
             aria-label="Scrub clip"
-            className="h-1 min-w-0 flex-1 cursor-pointer appearance-none rounded-full bg-white/25 accent-accent"
+            className="range-touch h-1.5 sm:h-1 min-w-0 flex-1 cursor-pointer appearance-none rounded-full bg-white/25 accent-accent"
           />
 
           <button
             type="button"
             aria-label={muted ? "Unmute" : "Mute"}
             onClick={toggleMute}
-            className="text-white/80 transition hover:text-white"
+            className="inline-flex min-h-[40px] min-w-[40px] sm:min-h-0 sm:min-w-0 items-center justify-center text-white/80 transition hover:text-white"
           >
             {muted ? <VolumeX className="size-4" /> : <Volume2 className="size-4" />}
           </button>
@@ -285,7 +287,7 @@ export function PreviewPlayer({
             type="button"
             aria-label={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
             onClick={toggleFullscreen}
-            className="text-white/80 transition hover:text-white"
+            className="inline-flex min-h-[40px] min-w-[40px] sm:min-h-0 sm:min-w-0 items-center justify-center text-white/80 transition hover:text-white"
           >
             {isFullscreen ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
           </button>

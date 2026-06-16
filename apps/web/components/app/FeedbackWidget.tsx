@@ -88,7 +88,7 @@ export function FeedbackWidget() {
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-md rounded-xl border border-line bg-surface p-5 shadow-[0_24px_80px_-24px_rgba(0,0,0,.9)]"
+            className="w-full max-w-md max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-xl border border-line bg-surface p-5 shadow-[0_24px_80px_-24px_rgba(0,0,0,.9)]"
           >
             <div className="flex items-center justify-between">
               <h2 className="font-display text-lg font-semibold text-ink">Send feedback</h2>

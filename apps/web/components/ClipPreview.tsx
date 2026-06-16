@@ -181,7 +181,9 @@ export function ClipPreview({
         {/* slim control bar (own controls — consistent with the editor player) */}
         <div
           className={`absolute inset-x-0 bottom-0 z-30 flex items-center gap-2 bg-gradient-to-t from-black/85 to-transparent px-3 pb-2 pt-6 transition-opacity ${
-            playing ? "opacity-0 group-hover:opacity-100" : "opacity-100"
+            playing
+              ? "opacity-100 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100"
+              : "opacity-100"
           }`}
         >
           <button
@@ -202,7 +204,7 @@ export function ClipPreview({
             value={dur ? Math.round((now / dur) * 1000) : 0}
             onChange={scrub}
             aria-label="Scrub clip"
-            className="h-1 min-w-0 flex-1 cursor-pointer appearance-none rounded-full bg-white/25 accent-accent"
+            className="range-touch h-1 min-w-0 flex-1 cursor-pointer appearance-none rounded-full bg-white/25 accent-accent"
           />
           <button
             type="button"

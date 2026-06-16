@@ -77,6 +77,7 @@ export function PromoRedeem({ className }: { className?: string }) {
           onClick={redeem}
           loading={status === "sending"}
           disabled={!code.trim()}
+          className="h-11 w-full sm:h-9 sm:w-auto"
         >
           Redeem
         </Button>

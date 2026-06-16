@@ -155,7 +155,7 @@ export function CaptionsTab({
                 )}
 
                 {!isEditing && (
-                  <span className="flex shrink-0 items-center gap-1 opacity-0 transition focus-within:opacity-100 group-hover/reply:opacity-100">
+                  <span className="flex shrink-0 items-center gap-1 transition focus-within:opacity-100 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover/reply:opacity-100">
                     {reply.text_override != null && (
                       <IconButton
                         size="sm"

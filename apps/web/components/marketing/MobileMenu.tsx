@@ -43,14 +43,14 @@ export function MobileMenu({
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label={open ? "Close menu" : "Open menu"}
-        className="flex size-9 cursor-pointer items-center justify-center rounded-md border border-line text-muted transition-colors hover:text-ink"
+        className="flex size-11 cursor-pointer items-center justify-center rounded-md border border-line text-muted transition-colors hover:text-ink"
       >
         {open ? <X className="size-5" /> : <Menu className="size-5" />}
       </button>
       {open && (
         <div
           role="menu"
-          className="absolute right-0 top-11 w-56 rounded-lg border border-line bg-surface p-2 shadow-[0_24px_60px_-28px_rgba(0,0,0,.9)]"
+          className="absolute right-0 top-12 w-56 max-w-[calc(100vw-2rem)] rounded-lg border border-line bg-surface p-2 shadow-[0_24px_60px_-28px_rgba(0,0,0,.9)]"
         >
           {links.map((l) => (
             <a

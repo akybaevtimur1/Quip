@@ -117,14 +117,14 @@ export function HookTab({
       {/* ── пресеты хука (галерея look'ов) ── */}
       <section className="space-y-2">
         <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">Presets</p>
-        <div className="flex gap-2 overflow-x-auto py-1">
+        <div className="no-scrollbar flex snap-x snap-mandatory gap-2 overflow-x-auto py-1">
           {HOOK_PRESETS.map((preset) => (
             <button
               key={preset.id}
               type="button"
               disabled={busy}
               onClick={() => onHookChange({ ...preset.values, enabled: true })}
-              className="flex shrink-0 flex-col items-stretch gap-1 rounded-lg border border-line bg-surface-2 p-1.5 transition hover:border-line-strong focus:outline-none focus:ring-2 focus:ring-accent/50 disabled:opacity-50"
+              className="flex shrink-0 snap-start flex-col items-stretch gap-1 rounded-lg border border-line bg-surface-2 p-1.5 transition hover:border-line-strong focus:outline-none focus:ring-2 focus:ring-accent/50 disabled:opacity-50"
             >
               <HookPresetThumb preset={preset.values} />
               <span className="text-center text-[10px] font-semibold text-muted">{preset.name}</span>
@@ -179,7 +179,7 @@ export function HookTab({
               value={Math.round(hook?.duration_sec ?? 4)}
               disabled={busy}
               onChange={(e) => onHookChange({ duration_sec: Number(e.target.value) })}
-              className="h-1.5 cursor-pointer appearance-none rounded-full bg-surface-2 accent-accent"
+              className="range-touch h-1.5 cursor-pointer appearance-none rounded-full bg-surface-2 accent-accent"
             />
           </label>
         )}
@@ -189,7 +189,7 @@ export function HookTab({
       <section className="space-y-3">
         <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">Style</p>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <ColorField
             label="Text color"
             value={hook?.color ?? HOOK_DEFAULTS.color}
@@ -223,7 +223,7 @@ export function HookTab({
           className="text-xs"
         />
         {hasPlaque ? (
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <ColorField
               label="Plaque color"
               value={boxColor ?? "#FF5A3D"}
@@ -240,7 +240,7 @@ export function HookTab({
             />
           </div>
         ) : (
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <ColorField
               label="Outline"
               value={hook?.outline_color ?? HOOK_DEFAULTS.outline_color}

@@ -72,7 +72,7 @@ export function PresetStrip({ activePresetId, onApply, onError }: PresetStripPro
   }
 
   return (
-    <div className="flex gap-2 overflow-x-auto py-2">
+    <div className="no-scrollbar flex snap-x snap-mandatory gap-2 overflow-x-auto py-2">
       {presets.map((preset) => {
         const isActive = preset.id === active;
         const isApplying = applyingId === preset.id;
@@ -83,7 +83,7 @@ export function PresetStrip({ activePresetId, onApply, onError }: PresetStripPro
             disabled={!!applyingId}
             onClick={() => handleApply(preset.id)}
             aria-pressed={isActive}
-            className={`flex shrink-0 flex-col items-stretch gap-1 rounded-lg border p-1.5 transition focus:outline-none focus:ring-2 focus:ring-accent/50 ${
+            className={`flex shrink-0 snap-start flex-col items-stretch gap-1 rounded-lg border p-1.5 transition focus:outline-none focus:ring-2 focus:ring-accent/50 ${
               isActive
                 ? "border-accent bg-surface-3"
                 : "border-line bg-surface-2 hover:border-line-strong"

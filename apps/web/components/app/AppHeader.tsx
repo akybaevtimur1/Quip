@@ -59,14 +59,14 @@ export function AppHeader() {
               aria-haspopup="menu"
               aria-expanded={menuOpen}
               aria-label="Account menu"
-              className="flex size-9 cursor-pointer items-center justify-center rounded-full border border-line bg-surface-2 text-sm font-semibold text-ink transition-colors hover:border-line-strong"
+              className="flex size-10 cursor-pointer items-center justify-center rounded-full border border-line bg-surface-2 text-sm font-semibold text-ink transition-colors hover:border-line-strong sm:size-9"
             >
               {email ? email[0]?.toUpperCase() : <User className="size-4 text-muted" aria-hidden />}
             </button>
             {menuOpen && (
               <div
                 role="menu"
-                className="absolute right-0 top-11 w-60 rounded-lg border border-line bg-surface p-2 shadow-[0_24px_60px_-28px_rgba(0,0,0,.9)]"
+                className="absolute right-0 top-11 w-60 max-w-[calc(100vw-1rem)] rounded-lg border border-line bg-surface p-2 shadow-[0_24px_60px_-28px_rgba(0,0,0,.9)]"
               >
                 {email && (
                   <p className="truncate border-b border-line px-3 pb-2.5 pt-1.5 text-xs text-faint">
@@ -77,7 +77,7 @@ export function AppHeader() {
                   href="/account"
                   role="menuitem"
                   onClick={() => setMenuOpen(false)}
-                  className="mt-1 block rounded-md px-3 py-2 text-sm text-muted transition-colors hover:bg-surface-2 hover:text-ink"
+                  className="mt-1 block rounded-md px-3 py-2.5 text-sm text-muted transition-colors hover:bg-surface-2 hover:text-ink sm:py-2"
                 >
                   Account &amp; subscription
                 </Link>
@@ -85,7 +85,7 @@ export function AppHeader() {
                   href="/#pricing"
                   role="menuitem"
                   onClick={() => setMenuOpen(false)}
-                  className="block rounded-md px-3 py-2 text-sm text-muted transition-colors hover:bg-surface-2 hover:text-ink"
+                  className="block rounded-md px-3 py-2.5 text-sm text-muted transition-colors hover:bg-surface-2 hover:text-ink sm:py-2"
                 >
                   Pricing
                 </Link>
@@ -93,7 +93,7 @@ export function AppHeader() {
                   href={`mailto:${siteConfig.supportEmail}`}
                   role="menuitem"
                   onClick={() => setMenuOpen(false)}
-                  className="block rounded-md px-3 py-2 text-sm text-muted transition-colors hover:bg-surface-2 hover:text-ink"
+                  className="block rounded-md px-3 py-2.5 text-sm text-muted transition-colors hover:bg-surface-2 hover:text-ink sm:py-2"
                 >
                   Contact support
                 </a>

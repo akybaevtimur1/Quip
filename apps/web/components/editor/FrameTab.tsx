@@ -220,7 +220,7 @@ function CenterSlider({
         value={Math.round(value * 100)}
         disabled={disabled}
         onChange={(e) => onChange(Number(e.target.value) / 100)}
-        className="h-1.5 cursor-pointer appearance-none rounded-full bg-surface-2 accent-accent"
+        className="range-touch h-1.5 cursor-pointer appearance-none rounded-full bg-surface-2 accent-accent"
       />
     </label>
   );

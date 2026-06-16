@@ -35,7 +35,7 @@ export function RecentProjects() {
                 type="button"
                 onClick={() => removeRecentProject(p.id)}
                 aria-label="Remove from recent"
-                className="shrink-0 rounded-md p-1.5 text-faint opacity-0 transition hover:text-ink group-hover:opacity-100"
+                className="shrink-0 rounded-md p-2.5 text-faint transition hover:text-ink [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100"
               >
                 <X className="size-3.5" />
               </button>

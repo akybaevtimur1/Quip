@@ -84,15 +84,15 @@ export function AccountBilling() {
         </div>
       ) : (
         <div className="mt-4 space-y-4">
-          <div className="flex items-center justify-between rounded-lg border border-line bg-surface-2 px-4 py-3">
-            <div>
-              <p className="text-sm font-medium text-ink">{sub.productName}</p>
+          <div className="flex items-center justify-between gap-3 rounded-lg border border-line bg-surface-2 px-4 py-3">
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium text-ink">{sub.productName}</p>
               <p className="text-xs text-muted">
                 {sub.amount != null ? `$${(sub.amount / 100).toFixed(0)}` : ""}
                 {sub.recurringInterval ? ` / ${sub.recurringInterval}` : ""}
               </p>
             </div>
-            <span className="rounded-pill border border-line px-2.5 py-1 font-mono text-eyebrow uppercase text-muted">
+            <span className="shrink-0 rounded-pill border border-line px-2.5 py-1 font-mono text-eyebrow uppercase text-muted">
               {sub.cancelAtPeriodEnd ? "Cancelling" : sub.status}
             </span>
           </div>

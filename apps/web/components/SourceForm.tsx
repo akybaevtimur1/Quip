@@ -92,6 +92,7 @@ export function SourceForm({
             disabled={busy}
             aria-label="Remove file"
             size="sm"
+            className="size-10 sm:size-7"
           >
             <X className="size-4" />
           </IconButton>
@@ -106,7 +107,7 @@ export function SourceForm({
       />
       {fileError ? <p className="mt-1 pl-1 text-sm text-bad">{fileError}</p> : null}
 
-      <div className="mt-4 flex items-center gap-3 pl-1">
+      <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2 pl-1">
         <span className="text-sm text-muted">Clips:</span>
         <div className="inline-flex items-center gap-1 rounded-md border border-line bg-surface p-1">
           <IconButton
@@ -114,7 +115,7 @@ export function SourceForm({
             disabled={busy || count <= MIN_CLIPS}
             aria-label="Fewer clips"
             size="sm"
-            className="text-ink hover:text-ink"
+            className="size-9 text-ink hover:text-ink sm:size-7"
           >
             <Minus className="size-4" />
           </IconButton>
@@ -126,7 +127,7 @@ export function SourceForm({
             disabled={busy || count >= MAX_CLIPS}
             aria-label="More clips"
             size="sm"
-            className="text-ink hover:text-ink"
+            className="size-9 text-ink hover:text-ink sm:size-7"
           >
             <Plus className="size-4" />
           </IconButton>

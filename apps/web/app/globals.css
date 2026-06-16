@@ -147,6 +147,45 @@ body {
   border: 3px solid var(--color-bg);
 }
 
+/* horizontal touch galleries (preset strips, chip rows): keep swipe, hide the bar.
+   On mobile a visible scrollbar under a row of thumbnails reads as clutter; the row
+   still scrolls by touch/trackpad. Paired with overflow-x-auto + snap utilities. */
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* touch-friendly range slider thumb (opt-in: add class `range-touch` to an
+   <input type="range">). Native thumbs are ~12px — too small for a fingertip.
+   Enlarges the grab target to ~20px without changing the thin track the design
+   uses. Track height stays controlled by the element's own utilities. */
+input[type="range"].range-touch {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+}
+input[type="range"].range-touch::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  margin-top: -8px; /* center the 20px thumb on the thin track */
+  border-radius: 999px;
+  background: var(--color-accent);
+  border: 2px solid var(--color-bg);
+  cursor: pointer;
+}
+input[type="range"].range-touch::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  background: var(--color-accent);
+  border: 2px solid var(--color-bg);
+  cursor: pointer;
+}
+
 /* scroll-reveal primitive (paired with <Reveal/>).
    Hidden ONLY when JS is active (.js on <html>) and motion is allowed — so no-JS,
    crawlers, and reduced-motion users always see content. Enhancement, not a gate. */

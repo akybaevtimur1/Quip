@@ -337,7 +337,7 @@ export function TimelineV2({
             aria-label="Zoom out"
             disabled={zoom <= 1}
             onClick={() => setZoomAround(zoom / 1.5, viewStartClamped + viewLen / 2)}
-            className="inline-flex size-6 items-center justify-center rounded-md border border-line text-muted transition enabled:hover:text-ink disabled:opacity-30"
+            className="inline-flex size-9 sm:size-6 items-center justify-center rounded-md border border-line text-muted transition enabled:hover:text-ink disabled:opacity-30"
           >
             <ZoomOut className="size-3.5" />
           </button>
@@ -349,7 +349,7 @@ export function TimelineV2({
             aria-label="Zoom in"
             disabled={zoom >= maxZoom}
             onClick={() => setZoomAround(zoom * 1.5, segStart + (segEnd - segStart) / 2)}
-            className="inline-flex size-6 items-center justify-center rounded-md border border-line text-muted transition enabled:hover:text-ink disabled:opacity-30"
+            className="inline-flex size-9 sm:size-6 items-center justify-center rounded-md border border-line text-muted transition enabled:hover:text-ink disabled:opacity-30"
           >
             <ZoomIn className="size-3.5" />
           </button>
@@ -472,13 +472,13 @@ export function TimelineV2({
           >
             <div
               onPointerDown={onPointerDown("resize-l")}
-              className="absolute -left-1 top-0 bottom-0 flex w-3 cursor-ew-resize items-center justify-center"
+              className="absolute -left-2.5 sm:-left-1 top-0 bottom-0 flex w-5 sm:w-3 cursor-ew-resize items-center justify-center"
             >
               <span className="h-8 w-1 rounded-full bg-accent" />
             </div>
             <div
               onPointerDown={onPointerDown("resize-r")}
-              className="absolute -right-1 top-0 bottom-0 flex w-3 cursor-ew-resize items-center justify-center"
+              className="absolute -right-2.5 sm:-right-1 top-0 bottom-0 flex w-5 sm:w-3 cursor-ew-resize items-center justify-center"
             >
               <span className="h-8 w-1 rounded-full bg-accent" />
             </div>
@@ -545,7 +545,7 @@ export function TimelineV2({
             setViewStart((Number(e.target.value) / 1000) * (duration - viewLen))
           }
           aria-label="Scroll timeline"
-          className="mt-1 h-1 w-full cursor-pointer appearance-none rounded-full bg-surface-2 accent-accent"
+          className="range-touch mt-1 h-1 w-full cursor-pointer appearance-none rounded-full bg-surface-2 accent-accent"
         />
       )}
       <div className="relative mt-1.5 h-4">

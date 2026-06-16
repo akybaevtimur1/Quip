@@ -44,7 +44,7 @@ export function ColorField({
           onInput={(e) => setLocal((e.target as HTMLInputElement).value)}
           onChange={(e) => onChange(e.target.value.toUpperCase())}
           aria-label={label}
-          className="size-6 shrink-0 cursor-pointer rounded bg-transparent p-0 outline outline-1 -outline-offset-1 outline-line-strong disabled:cursor-not-allowed [&::-webkit-color-swatch-wrapper]:p-0.5 [&::-webkit-color-swatch]:rounded-[3px] [&::-webkit-color-swatch]:border-0"
+          className="size-9 shrink-0 cursor-pointer rounded bg-transparent p-0 outline outline-1 -outline-offset-1 outline-line-strong disabled:cursor-not-allowed sm:size-6 [&::-webkit-color-swatch-wrapper]:p-0.5 [&::-webkit-color-swatch]:rounded-[3px] [&::-webkit-color-swatch]:border-0"
         />
         <span className="font-mono text-xs uppercase tracking-wide text-ink">{local}</span>
       </span>
@@ -96,7 +96,7 @@ export function DebouncedSlider({
         value={local}
         disabled={disabled}
         onChange={(e) => handle(Number(e.target.value))}
-        className="h-1.5 cursor-pointer appearance-none rounded-full bg-surface-2 accent-accent"
+        className="range-touch h-1.5 cursor-pointer appearance-none rounded-full bg-surface-2 accent-accent"
       />
       {hint && <span className="text-[10px] text-muted/70">{hint}</span>}
     </label>

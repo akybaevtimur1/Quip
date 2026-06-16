@@ -872,12 +872,12 @@ export default function ClipEditorScreen({
           Loading editor…
         </div>
       ) : (
-        <main className="grid min-h-0 grid-cols-1 gap-4 p-4 lg:grid-cols-[minmax(280px,380px)_minmax(0,1fr)]">
+        <main className="grid min-h-0 grid-cols-1 gap-4 overflow-y-auto p-4 lg:grid-cols-[minmax(280px,380px)_minmax(0,1fr)] lg:overflow-visible">
           {/* ЛЕВО: превью. Доступная область = ширина колонки × ограниченная высота;
               PreviewPlayer сам contain'ится по aspectClass (w-full + max-h-full + aspect) →
               НЕ распирает страницу на 16:9/1:1/4:5 (баг T5 пофикшен). */}
-          <div className="flex min-h-0 items-center justify-center">
-            <div className="flex h-[58vh] max-h-full w-full items-center justify-center lg:h-full">
+          <div className="sticky top-0 z-10 flex min-h-0 items-center justify-center bg-bg pb-3 lg:static lg:z-auto lg:pb-0">
+            <div className="flex h-[44vh] max-h-full w-full items-center justify-center lg:h-full">
               <PreviewPlayer
                 src={sourceSrc}
                 outerStart={outerStart}
@@ -1011,7 +1011,7 @@ export default function ClipEditorScreen({
                   key={id}
                   type="button"
                   onClick={() => setTab(id)}
-                  className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-sm font-semibold transition ${
+                  className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2.5 text-sm font-semibold transition sm:py-2 ${
                     tab === id
                       ? "bg-surface-3 text-accent shadow-[0_1px_2px_rgba(0,0,0,.4)]"
                       : "text-muted hover:bg-surface-2 hover:text-ink"
@@ -1067,7 +1067,7 @@ export default function ClipEditorScreen({
       )}
 
       {/* ── НИЗ: таймлайн всего видео ── */}
-      <footer className="shrink-0 border-t border-line bg-surface px-4 py-3">
+      <footer className="shrink-0 border-t border-line bg-surface px-4 py-2.5 sm:py-3">
         {timeline && edit ? (
           <TimelineV2
             key={clipId}

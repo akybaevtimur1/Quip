@@ -67,9 +67,9 @@ export function UsageMeter({ className }: { className?: string }) {
       </div>
 
       <div className="mt-4">
-        <div className="flex items-baseline justify-between">
+        <div className="flex items-baseline justify-between gap-2">
           <span className="text-sm text-muted">Left this month</span>
-          <span className="font-mono tabular-nums text-ink">
+          <span className="text-right font-mono tabular-nums text-ink">
             <span className="text-lg font-semibold">{fmtVideos(videosLeft)}</span>
             <span className="text-sm text-muted"> videos · {minutesLeft} min</span>
           </span>

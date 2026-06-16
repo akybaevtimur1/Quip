@@ -154,7 +154,7 @@ export function AuthForm({ mode, next }: { mode: "login" | "signup"; next: strin
             value={code}
             onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 8))}
             placeholder="••••••"
-            className="h-14 text-center text-2xl font-semibold tracking-[0.4em]"
+            className="h-14 text-center text-xl font-semibold tracking-[0.3em] sm:text-2xl sm:tracking-[0.4em]"
           />
         </div>
         {error && (

@@ -542,7 +542,7 @@ function ToolbarBtn({
         e.stopPropagation();
         onClick();
       }}
-      className="inline-flex size-7 items-center justify-center rounded-md bg-black/70 text-sm text-white/90 backdrop-blur transition hover:bg-accent hover:text-white"
+      className="inline-flex size-9 sm:size-7 items-center justify-center rounded-md bg-black/70 text-sm text-white/90 backdrop-blur transition hover:bg-accent hover:text-white"
     >
       {children}
     </button>

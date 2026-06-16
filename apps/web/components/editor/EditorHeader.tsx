@@ -59,16 +59,17 @@ export function EditorHeader({
   };
 
   return (
-    <header className="flex h-14 shrink-0 items-center justify-between gap-4 border-b border-line bg-surface px-4">
+    <header className="flex h-14 shrink-0 items-center justify-between gap-2 border-b border-line bg-surface px-3 sm:gap-4 sm:px-4">
       {/* лево: назад + навигация по клипам */}
-      <div className="flex min-w-0 items-center gap-3">
+      <div className="flex min-w-0 items-center gap-1.5 sm:gap-3">
         <button
           type="button"
           onClick={() => leaveTo(`/dashboard?job=${jobId}`)}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-sm text-muted transition hover:border-accent/50 hover:text-ink focus:outline-none focus:ring-2 focus:ring-accent/40"
+          aria-label="All clips"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-2 text-sm text-muted transition hover:border-accent/50 hover:text-ink focus:outline-none focus:ring-2 focus:ring-accent/40 sm:px-3 sm:py-1.5"
         >
           <ArrowLeft className="size-4" />
-          All clips
+          <span className="hidden sm:inline">All clips</span>
         </button>
 
         <div className="flex items-center gap-1">
@@ -77,19 +78,28 @@ export function EditorHeader({
             disabled={!prevId || busy}
             onClick={() => prevId && leaveTo(`/edit/${jobId}/${prevId}`)}
             title="Previous clip"
-            className="inline-flex size-8 items-center justify-center rounded-lg border border-line text-muted transition enabled:hover:border-accent/50 enabled:hover:text-ink disabled:opacity-30"
+            aria-label="Previous clip"
+            className="inline-flex size-9 items-center justify-center rounded-lg border border-line text-muted transition enabled:hover:border-accent/50 enabled:hover:text-ink disabled:opacity-30 sm:size-8"
           >
             <ChevronLeft className="size-4" />
           </button>
-          <span className="min-w-[88px] text-center font-display text-sm font-semibold text-ink">
-            {idx >= 0 ? `Clip ${idx + 1} of ${clipIds.length}` : clipId}
+          <span className="min-w-[58px] text-center font-display text-sm font-semibold text-ink sm:min-w-[88px]">
+            {idx >= 0 ? (
+              <>
+                <span className="sm:hidden">{`${idx + 1}/${clipIds.length}`}</span>
+                <span className="hidden sm:inline">{`Clip ${idx + 1} of ${clipIds.length}`}</span>
+              </>
+            ) : (
+              clipId
+            )}
           </span>
           <button
             type="button"
             disabled={!nextId || busy}
             onClick={() => nextId && leaveTo(`/edit/${jobId}/${nextId}`)}
             title="Next clip"
-            className="inline-flex size-8 items-center justify-center rounded-lg border border-line text-muted transition enabled:hover:border-accent/50 enabled:hover:text-ink disabled:opacity-30"
+            aria-label="Next clip"
+            className="inline-flex size-9 items-center justify-center rounded-lg border border-line text-muted transition enabled:hover:border-accent/50 enabled:hover:text-ink disabled:opacity-30 sm:size-8"
           >
             <ChevronRight className="size-4" />
           </button>
