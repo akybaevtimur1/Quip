@@ -32,6 +32,8 @@ def setup() -> None:
         "CORSRules": [
             {
                 "AllowedOrigins": [
+                    "https://quip.ink",
+                    "https://www.quip.ink",
                     "https://app.quip.ink",
                     "http://localhost:3000",
                     "https://*.vercel.app",

@@ -36,7 +36,12 @@ move domains.** This is the checklist to put it on a real domain.
 - **Worker (Modal):** deploy separately (`modal deploy deploy/modal/worker.py`); point
   `NEXT_PUBLIC_WORKER_URL` at the web URL it prints. Worker needs its own secrets (Deepgram,
   Gemini, R2, Supabase service_role, Polar webhook, `BILLING_ENABLED`).
-- **CORS:** the worker must allow the production web origin (it currently allows localhost:3000).
+- **CORS:** the worker must allow the production web origin. It allows `quip.ink` / `www.quip.ink`
+  / `app.quip.ink` + `*.vercel.app` + `localhost:3000` (regex in `services/worker/app/main.py`). The
+  R2 bucket CORS (direct browser→R2 upload) lists the SAME origins (`storage.py set_upload_cors` /
+  `deploy/modal/r2_setup.py`) — applied in the Cloudflare R2 dashboard. **New prod domain → add it to
+  BOTH** or browser→worker and browser→R2 calls get blocked (symptom: usage meter silently shows Free,
+  uploads fail).
 - **Polar webhook:** point it at the worker's `POST /webhooks/polar` so plan/credit purchases
   attach to accounts.
 

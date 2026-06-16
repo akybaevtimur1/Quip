@@ -160,6 +160,8 @@ def set_upload_cors() -> dict[str, object]:
         "CORSRules": [
             {
                 "AllowedOrigins": [
+                    "https://quip.ink",
+                    "https://www.quip.ink",
                     "https://app.quip.ink",
                     "http://localhost:3000",
                     "https://*.vercel.app",

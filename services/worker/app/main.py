@@ -80,11 +80,12 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(title="clipflow-worker", version=__version__, lifespan=lifespan)
 
-# CORS: прод-домен app.quip.ink + любые vercel-превью + локальный dev. Регулярка (не список),
-# т.к. preview-домены Vercel динамические. Bearer-токен в заголовке (не cookie).
+# CORS: прод-домены quip.ink / www.quip.ink / app.quip.ink (апекс переехал на проект
+# quip-app, см. docs/SEO_STRATEGY.md §4) + любые vercel-превью + локальный dev. Регулярка
+# (не список), т.к. preview-домены Vercel динамические. Bearer-токен в заголовке (не cookie).
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=r"https://(app\.quip\.ink|([a-z0-9-]+\.)*vercel\.app)|http://localhost:3000",
+    allow_origin_regex=r"https://((app\.|www\.)?quip\.ink|([a-z0-9-]+\.)*vercel\.app)|http://localhost:3000",
     allow_methods=["*"],
     allow_headers=["*"],
 )
