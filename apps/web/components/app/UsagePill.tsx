@@ -1,42 +1,42 @@
 "use client";
 
-import { Clapperboard } from "lucide-react";
+import { Clapperboard, TriangleAlert } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import { getUsage, type UsageInfo } from "@/lib/api";
 import { cn } from "@/lib/cn";
+import { deriveUsage, fmtMinutes, fmtVideos, useUsage } from "@/lib/useUsage";
 
-// Always-visible (in the app header, every page) balance: how many VIDEOS and MINUTES are
-// left this month. 1 video = 60 min; the remainder is fractional (e.g. "1.8 videos · 108 min").
-// Includes the never-expiring PAYG balance. Tap → pricing. Dual-mode: no worker/auth → free.
-
-function fmtVideos(v: number): string {
-  return Number.isInteger(v) ? String(v) : v.toFixed(1);
-}
+// Always-visible (app header, every page) balance: VIDEOS and MINUTES left right now
+// (monthly remaining + never-expiring PAYG). Three states like the dashboard meter —
+// loading shows a dash, a failure shows a tappable amber "retry" chip (never a silent Free).
 
 export function UsagePill({ className }: { className?: string }) {
-  const [u, setU] = useState<UsageInfo | null>(null);
+  const { status, usage, reload } = useUsage();
 
-  useEffect(() => {
-    let cancelled = false;
-    getUsage()
-      .then((x) => !cancelled && setU(x))
-      .catch(() => {
-        /* no worker/auth → leave empty (dual-mode) */
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  // Surface the failure instead of hiding it — tapping retries the fetch.
+  if (status === "error") {
+    return (
+      <button
+        type="button"
+        onClick={reload}
+        title="Couldn’t load your limits — tap to retry"
+        className={cn(
+          "inline-flex items-center gap-1.5 rounded-pill border border-warn/50 px-3 py-1.5 font-mono text-eyebrow uppercase text-warn transition-colors hover:bg-warn/10",
+          className,
+        )}
+      >
+        <TriangleAlert className="size-3.5" aria-hidden />
+        limits N/A
+      </button>
+    );
+  }
 
-  const videosLeft = u ? u.remaining_videos + u.payg_videos : null;
-  const minutesLeft = u ? Math.round(u.remaining_minutes + u.payg_minutes) : null;
-  const low = videosLeft !== null && videosLeft < 1;
+  const v = usage ? deriveUsage(usage) : null;
+  const low = v?.out ?? false;
 
   return (
     <Link
       href="/pricing"
-      title="Videos left this month — 1 video = 60 min. Click to upgrade or top up."
+      title="Videos left right now — 1 video = 60 min. Click to upgrade or top up."
       className={cn(
         "inline-flex items-center gap-1.5 rounded-pill border px-3 py-1.5 font-mono text-eyebrow uppercase transition-colors",
         low ? "border-warn/50 text-warn" : "border-line text-muted hover:text-ink",
@@ -44,11 +44,11 @@ export function UsagePill({ className }: { className?: string }) {
       )}
     >
       <Clapperboard className="size-3.5" aria-hidden />
-      {videosLeft === null ? (
+      {!v ? (
         <span className="text-faint">—</span>
       ) : (
         <span className="tabular-nums">
-          {fmtVideos(videosLeft)} videos · {minutesLeft} min
+          {fmtVideos(v.videosLeft)} videos · {fmtMinutes(v.minutesLeft)} min
         </span>
       )}
     </Link>
