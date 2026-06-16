@@ -98,7 +98,7 @@ app.mount("/media", StaticFiles(directory=str(DATA_ROOT)), name="media")
 class CreateJobBody(BaseModel):
     source_type: str
     source_ref: str
-    max_clips: int | None = Field(default=None, ge=1, le=10)  # UI-степпер; None → дефолт воркера
+    max_clips: int | None = Field(default=None, ge=1, le=30)  # UI-степпер; None → дефолт воркера
 
 
 @app.get("/healthz")
@@ -225,7 +225,7 @@ def create_job(
 async def create_upload_job(
     bg: BackgroundTasks,
     file: UploadFile = File(...),
-    max_clips: int | None = Form(default=None, ge=1, le=10),
+    max_clips: int | None = Form(default=None, ge=1, le=30),
     authorization: str | None = Header(default=None),
     x_user_id: str | None = Header(default=None),
 ) -> dict[str, Any]:
@@ -264,7 +264,7 @@ async def create_upload_job(
 
 class UploadUrlBody(BaseModel):
     filename: str = "upload.mp4"
-    max_clips: int | None = Field(default=None, ge=1, le=10)
+    max_clips: int | None = Field(default=None, ge=1, le=30)
     # Размер файла (байты) — известен браузеру. >5 ГБ нельзя одним PUT (лимит R2), а крупные и
     # вообще выгоднее multipart (параллельные части + resume). None/малый → single-PUT (как раньше).
     size: int | None = Field(default=None, ge=0)
@@ -315,7 +315,7 @@ class CompletedPart(BaseModel):
 
 class UploadCompleteBody(BaseModel):
     filename: str = "upload.mp4"
-    max_clips: int | None = Field(default=None, ge=1, le=10)
+    max_clips: int | None = Field(default=None, ge=1, le=30)
     # Multipart-сборка (если грузили частями): upload_id + ETag'и частей. None → single-PUT
     # (объект уже в R2, собирать нечего).
     upload_id: str | None = None

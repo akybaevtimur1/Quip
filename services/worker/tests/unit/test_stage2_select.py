@@ -59,6 +59,11 @@ class TestResolveMaxClips:
     def test_clamps_above_hi(self) -> None:
         assert resolve_max_clips(99, 8, lo=1, hi=12) == 12
 
+    def test_default_cap_is_30(self) -> None:
+        # Прод-потолок «как найдётся, максимум 30» (UI Auto-режим шлёт 30).
+        assert resolve_max_clips(99, 8) == 30
+        assert resolve_max_clips(30, 8) == 30
+
 
 class TestIsTransientGeminiError:
     """Ретраить ТОЛЬКО транзиентные сбои Gemini (free-tier 429 / 5xx / сеть);

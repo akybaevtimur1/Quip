@@ -4,10 +4,11 @@ import { Minus, Plus, Scissors, Upload, X } from "lucide-react";
 import { useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { IconButton } from "@/components/ui/IconButton";
+import { cn } from "@/lib/cn";
 
 const MIN_CLIPS = 1;
-const MAX_CLIPS = 10;
-const DEFAULT_CLIPS = 6;
+const MAX_CLIPS = 30; // продуктовый потолок (Auto = «сколько найдётся, до 30»)
+const DEFAULT_CLIPS = 8;
 // Quip is for long-form (podcasts, talks). Uploads >100 MB go via R2 multipart (parallel,
 // resumable parts) so the old 5 GB single-PUT ceiling is gone — the REAL limit is length
 // (3 h, worker-side billing.MAX_VIDEO_MINUTES). This MB number is just a sane guard against
@@ -27,12 +28,16 @@ export function SourceForm({
 }) {
   const [file, setFile] = useState<File | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
+  // auto = «сколько найдётся, максимум 30» (без жёсткого выбора числа); custom = ровно N клипов.
+  const [auto, setAuto] = useState(true);
   const [count, setCount] = useState(DEFAULT_CLIPS);
   const [dragging, setDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const canSubmit = !busy && file != null;
   const clamp = (n: number) => Math.max(MIN_CLIPS, Math.min(MAX_CLIPS, n));
+  // Auto → шлём потолок (30): воркер вернёт ДО стольких сильных моментов, сколько найдёт.
+  const clipsRequested = auto ? MAX_CLIPS : count;
 
   function pickFile(f: File | null) {
     setFileError(null);
@@ -54,7 +59,7 @@ export function SourceForm({
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!canSubmit || !file) return;
-    onSubmitFile(file, count);
+    onSubmitFile(file, clipsRequested);
   }
 
   return (
@@ -112,32 +117,58 @@ export function SourceForm({
       />
       {fileError ? <p className="mt-1 pl-1 text-sm text-bad">{fileError}</p> : null}
 
-      <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2 pl-1">
-        <span className="text-sm text-muted">Clips:</span>
-        <div className="inline-flex items-center gap-1 rounded-md border border-line bg-surface p-1">
-          <IconButton
-            onClick={() => setCount((c) => clamp(c - 1))}
-            disabled={busy || count <= MIN_CLIPS}
-            aria-label="Fewer clips"
-            size="sm"
-            className="size-9 text-ink hover:text-ink sm:size-7"
-          >
-            <Minus className="size-4" />
-          </IconButton>
-          <span className="w-6 text-center font-mono text-base font-semibold tabular-nums text-ink">
-            {count}
-          </span>
-          <IconButton
-            onClick={() => setCount((c) => clamp(c + 1))}
-            disabled={busy || count >= MAX_CLIPS}
-            aria-label="More clips"
-            size="sm"
-            className="size-9 text-ink hover:text-ink sm:size-7"
-          >
-            <Plus className="size-4" />
-          </IconButton>
+      <div className="mt-4 pl-1">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <span className="text-sm text-muted">Clips:</span>
+          {/* Auto («сколько найдётся, до 30») vs Custom (ровно N). */}
+          <div className="inline-flex rounded-md border border-line bg-surface p-0.5">
+            {([true, false] as const).map((isAuto) => (
+              <button
+                key={String(isAuto)}
+                type="button"
+                onClick={() => setAuto(isAuto)}
+                disabled={busy}
+                aria-pressed={auto === isAuto}
+                className={cn(
+                  "rounded px-3 py-1 text-sm font-medium transition disabled:opacity-50",
+                  auto === isAuto ? "bg-surface-3 text-ink" : "text-muted hover:text-ink",
+                )}
+              >
+                {isAuto ? "Auto" : "Custom"}
+              </button>
+            ))}
+          </div>
+          {!auto && (
+            <div className="inline-flex items-center gap-1 rounded-md border border-line bg-surface p-1">
+              <IconButton
+                onClick={() => setCount((c) => clamp(c - 1))}
+                disabled={busy || count <= MIN_CLIPS}
+                aria-label="Fewer clips"
+                size="sm"
+                className="size-9 text-ink hover:text-ink sm:size-7"
+              >
+                <Minus className="size-4" />
+              </IconButton>
+              <span className="w-7 text-center font-mono text-base font-semibold tabular-nums text-ink">
+                {count}
+              </span>
+              <IconButton
+                onClick={() => setCount((c) => clamp(c + 1))}
+                disabled={busy || count >= MAX_CLIPS}
+                aria-label="More clips"
+                size="sm"
+                className="size-9 text-ink hover:text-ink sm:size-7"
+              >
+                <Plus className="size-4" />
+              </IconButton>
+            </div>
+          )}
         </div>
-        <span className="text-xs text-muted">AI suggests — uncheck any you don’t want</span>
+        <p className="mt-2 text-xs text-muted">
+          {auto
+            ? "Quip returns as many strong clips as it finds — up to 30."
+            : `Up to ${count} clip${count === 1 ? "" : "s"}. AI suggests — uncheck any you don’t want.`}
+        </p>
       </div>
 
       <Button

@@ -36,8 +36,11 @@ def clamp_score(x: float) -> float:
     return max(0.0, min(1.0, x))
 
 
-def resolve_max_clips(requested: int | None, default: int, *, lo: int = 1, hi: int = 12) -> int:
-    """Сколько кандидатов отдавать: запрос юзера (степпер) > дефолт; кламп в [lo,hi]."""
+def resolve_max_clips(requested: int | None, default: int, *, lo: int = 1, hi: int = 30) -> int:
+    """Сколько кандидатов отдавать: запрос юзера (степпер) > дефолт; кламп в [lo,hi].
+
+    hi=30 — продуктовый потолок «как найдётся, максимум 30» (UI Auto-режим шлёт 30).
+    """
     n = default if requested is None else requested
     return max(lo, min(hi, n))
 
