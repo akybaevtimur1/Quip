@@ -366,7 +366,13 @@ def upload_clip(local_path: Path, job_id: str, clip_id: str, *, variant: str = "
             str(local_path),
             s.r2_bucket,
             key,
-            ExtraArgs={"ContentType": "video/mp4"},
+            ExtraArgs={
+                "ContentType": "video/mp4",
+                # attachment → «Download» из редактора реально СОХРАНЯЕТ файл. HTML download-
+                # атрибут игнорируется для cross-origin (cdn.quip.ink ≠ quip.ink) → без этого
+                # заголовка браузер открывал mp4 в табе. <video> в гриде играет как раньше.
+                "ContentDisposition": f'attachment; filename="{_clip_name(clip_id, variant)}.mp4"',
+            },
             Config=_transfer_config(),
         )
     except Exception as e:  # noqa: BLE001 — оборачиваем в JobError, не глотаем

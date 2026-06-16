@@ -489,7 +489,9 @@ export async function getRenderStatus(
   jobId: string,
   clipId: string,
 ): Promise<{ status: string; video_url: string | null; error: string | null }> {
-  const res = await fetch(`${BASE}/jobs/${jobId}/clips/${clipId}/render`, {
+  // fetchWithTimeout (не голый fetch): зависший статус-ответ иначе держал бы редактор на
+  // «Rendering…» вечно (poll-цикл не получал бы ни ok, ни ошибки).
+  const res = await fetchWithTimeout(`${BASE}/jobs/${jobId}/clips/${clipId}/render`, {
     cache: "no-store",
   });
   if (!res.ok) throw new Error(`getRenderStatus failed: ${res.status}`);

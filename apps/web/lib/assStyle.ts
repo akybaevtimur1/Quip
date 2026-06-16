@@ -73,7 +73,8 @@ export function buildDefaultStyleLine(
   }
   return (
     `Style: Default,${style.font ?? S.font},${style.size ?? S.size},${primary},${secondary},` +
-    `${outline},${back},-1,0,0,0,100,100,0,0,${borderStyle},${style.outline_w ?? S.outline_w},` +
+    // Bold=0 для шрифтов без bold-начертания (Unbounded) — иначе прожиг подменит семейство (зеркало captions_v2).
+    `${outline},${back},${(style.font ?? S.font) === "Unbounded" ? 0 : -1},0,0,0,100,100,0,0,${borderStyle},${style.outline_w ?? S.outline_w},` +
     `${style.shadow ?? S.shadow},${style.alignment ?? S.alignment},40,40,${style.margin_v ?? S.margin_v},1`
   );
 }
@@ -100,7 +101,7 @@ export function buildHookStyleLine(hook: HookOverlay): string {
   }
   return (
     `Style: Hook,${hook.font ?? H.font},${hook.size ?? H.size},${primary},${primary},` +
-    `${outline},${back},-1,0,0,0,100,100,0,0,${borderStyle},${outlineW},${hook.shadow ?? H.shadow},` +
+    `${outline},${back},${(hook.font ?? H.font) === "Unbounded" ? 0 : -1},0,0,0,100,100,0,0,${borderStyle},${outlineW},${hook.shadow ?? H.shadow},` +
     `8,60,60,${hook.margin_v ?? H.margin_v},1`
   );
 }

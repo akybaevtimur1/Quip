@@ -100,9 +100,14 @@ def build_hook_event(hook: HookOverlay, clip_duration: float) -> tuple[str, str]
         back = "&H64000000"
         border_style = 1
         outline_w = hook.outline_w
+    # Bold=0 для шрифтов БЕЗ реального bold-начертания (Unbounded ttf = только Regular): иначе на
+    # воркере libass подменяет СЕМЕЙСТВО (берёт чужой реальный Bold, напр. Montserrat) → хук
+    # рендерится не тем шрифтом, что в превью. Bold=0 = точное family+weight совпадение, без
+    # подмены. Правило зеркалится во фронте (assStyle.ts) → WYSIWYG (превью == прожиг).
+    bold = 0 if hook.font == "Unbounded" else -1
     style = (
         f"Style: Hook,{hook.font},{hook.size},{primary},{primary},{outline},{back},"
-        f"-1,0,0,0,100,100,0,0,{border_style},{outline_w},{hook.shadow},"
+        f"{bold},0,0,0,100,100,0,0,{border_style},{outline_w},{hook.shadow},"
         f"8,60,60,{hook.margin_v},1"
     )
     window = clip_duration if hook.full_clip else min(hook.duration_sec, clip_duration)
@@ -317,8 +322,9 @@ def compile_ass(
         "BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, "
         "BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n"
         f"Style: Default,{st.font},{st.size},{primary},{secondary},{outline},{back},"
-        f"-1,0,0,0,100,100,0,0,{border_style},{st.outline_w},{st.shadow},"
-        f"{st.alignment},40,40,{st.margin_v},1\n"
+        # Bold=0 для шрифтов без bold-начертания (Unbounded) — без подмены (см. build_hook_event).
+        f"{0 if st.font == 'Unbounded' else -1},0,0,0,100,100,0,0,{border_style},{st.outline_w},"
+        f"{st.shadow},{st.alignment},40,40,{st.margin_v},1\n"
     )
     # Топ-текст (хук): отдельный ASS-стиль + событие с верхним якорем. Компилится в
     # ТОТ ЖЕ файл → libass-превью и ffmpeg-экспорт показывают хук пиксель-в-пиксель.
