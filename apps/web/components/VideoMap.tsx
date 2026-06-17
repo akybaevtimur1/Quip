@@ -398,6 +398,16 @@ export function VideoMap({
             </div>
           )}
 
+          {/* Empty state (done but no narrative/chapters) */}
+          {map?.status === "done" &&
+            !map.narrative &&
+            chapters.length === 0 &&
+            !error && (
+              <div className="px-5 py-4">
+                <p className="text-sm text-muted">Карта видео пока пуста.</p>
+              </div>
+            )}
+
           {/* Done state */}
           {hasContent && (
             <div className="px-5 py-4 space-y-5">

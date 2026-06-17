@@ -237,6 +237,7 @@ export function TopicStrip({
   const chapters = map?.chapters ?? [];
   const isPending = !map || map.status === "pending";
   const isDone = map?.status === "done" && chapters.length > 0;
+  const isEmpty = map?.status === "done" && chapters.length === 0;
 
   return (
     // Outer details: on mobile default-closed, on desktop default-open via open attr.
@@ -286,6 +287,11 @@ export function TopicStrip({
               Повторить
             </button>
           </div>
+        )}
+
+        {/* Empty (done but no chapters) */}
+        {isEmpty && !error && (
+          <p className="px-3 py-3 text-xs text-muted">Карта тем пока пуста.</p>
         )}
 
         {/* Done */}
