@@ -693,7 +693,10 @@ class TestDetectSceneCutsResourceRelease:
         monkeypatch.setattr(scenedetect, "ContentDetector", lambda **_k: object())
 
         cuts = detect_scene_cuts(__import__("pathlib").Path("x.mp4"), 0.0, 1.0, 25.0)
-        assert cuts == [50]  # frame-grid контракт цел: склейка = start-кадр сцены, кроме первой
+        # start-кадр сцены = 50, но возвращаем 49 (-1): PySceneDetect помечает склейку на 1 кадр
+        # позже реального контент-перехода относительно сетки рендера → без -1 первый кадр
+        # нового шота держит старый кроп = флеш. Целое число → frame-grid Δ=0 контракт цел.
+        assert cuts == [49]
         assert released["n"] == 1
 
 

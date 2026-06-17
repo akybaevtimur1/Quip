@@ -584,7 +584,12 @@ def detect_scene_cuts(
             if vid is not None and hasattr(vid, "capture") and hasattr(vid.capture, "release"):
                 vid.capture.release()
     # get_scene_list даёт [(start, end), …]; склейка = start КАДР каждой сцены, кроме первой (0).
-    return [s[0].get_frames() for s in scenes[1:]]
+    # ⚠️ -1: PySceneDetect помечает склейку на 1 кадр ПОЗЖЕ реального контент-перехода
+    # относительно сетки рендера (re-encode detect vs render-decode расходятся на кадр). Без
+    # этого граница региона = контент-склейка+1 → 1 кадр нового шота держит СТАРЫЙ кроп = флеш
+    # (пойман глазами: контент-cut на кадре 261, PySceneDetect вернул 262). Сетка цела: t0=
+    # (cut-1)/fps по-прежнему ТОЧНЫЙ кадр → round(t0*fps)=cut-1, Δ=0 (REFRAME_FPS_GRID_INVARIANT).
+    return [max(1, s[0].get_frames() - 1) for s in scenes[1:]]
 
 
 # ─────────────────────────── I/O: кадры (ffmpeg) + лица (MediaPipe) ───────────────────────────
