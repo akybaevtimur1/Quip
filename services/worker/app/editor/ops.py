@@ -126,6 +126,9 @@ def clamp_interval(
             s = max(0.0, e - min_sec)
     elif length > max_sec:
         e = s + max_sec
+        e = min(e, duration)  # never exceed source duration
+        if e - s < min_sec:
+            s = max(0.0, e - min_sec)  # slide start back to preserve min length
     return s, e
 
 
