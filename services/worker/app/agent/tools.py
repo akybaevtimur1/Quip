@@ -156,15 +156,31 @@ def _t_nudge(job_id: str, clip_id: str, args: dict[str, Any]) -> dict[str, Any]:
 
 def _t_regenerate_hook(job_id: str, clip_id: str, args: dict[str, Any]) -> dict[str, Any]:
     from app.editor.hook_ops import regenerate_hook_for_clip
+    from app.editor.video_map import load_video_map
 
     style = args.get("style_hint")
     style_s = str(style) if style else None
+
+    # Pass whole-video context to hook generation when available (optional, backwards-compatible).
+    video_summary: str | None = None
+    try:
+        vm = load_video_map(job_id)
+        if vm is not None and vm.status == "done":
+            compact = _compact_video_map_summary(vm)
+            narrative = compact.get("narrative", "")
+            if narrative:
+                video_summary = narrative
+    except Exception:  # noqa: BLE001 — video map is optional; never block hook regen
+        pass
+
     before: str | None = None
 
     def fn(edit: ClipEdit) -> ClipEdit:
         nonlocal before
         before = edit.captions.hook.text if edit.captions.hook else None
-        new_edit, _txt = regenerate_hook_for_clip(job_id, edit, style_hint=style_s)
+        new_edit, _txt = regenerate_hook_for_clip(
+            job_id, edit, style_hint=style_s, video_summary=video_summary
+        )
         return new_edit
 
     try:
@@ -244,9 +260,76 @@ def _t_get_surrounding_transcript(
     }
 
 
+# ── compact video-map helpers ──────────────────────────────────────────────────────────────────
+
+_NARRATIVE_TRUNCATE = 600  # chars; keep compact to avoid context bloat
+
+
+def _fmt_mmss(sec: float) -> str:
+    """Format seconds as mm:ss string."""
+    m, s = divmod(int(sec), 60)
+    return f"{m:02d}:{s:02d}"
+
+
+def _compact_video_map_summary(vm: Any) -> dict[str, Any]:
+    """Return a compact agent-readable dict from a VideoMap (status='done')."""
+
+    narrative = vm.narrative or ""
+    if len(narrative) > _NARRATIVE_TRUNCATE:
+        narrative = narrative[:_NARRATIVE_TRUNCATE] + "…"
+
+    chapters_out = []
+    for ch in vm.chapters:
+        moment_labels = [m.label for m in ch.moments if m.label]
+        chapters_out.append(
+            {
+                "range": f"{_fmt_mmss(ch.start)}–{_fmt_mmss(ch.end)}",
+                "title": ch.title,
+                "summary": ch.summary,
+                "moment_labels": moment_labels,
+                "clip_ids": ch.clip_ids,
+            }
+        )
+
+    return {
+        "ok": True,
+        "status": "done",
+        "narrative": narrative,
+        "chapters": chapters_out,
+    }
+
+
+def _t_get_video_map(job_id: str, clip_id: str, args: dict[str, Any]) -> dict[str, Any]:
+    """Возвращает компактный обзор всего видео (narrative + chapters). Без аргументов."""
+    from app.editor.video_map import load_video_map
+
+    vm = load_video_map(job_id)
+    if vm is None:
+        return {
+            "ok": False,
+            "status": "not_available",
+            "note": "Video map has not been generated yet for this job.",
+        }
+    if vm.status == "pending":
+        return {
+            "ok": False,
+            "status": "pending",
+            "note": "Video map is still being generated — try again shortly.",
+        }
+    if vm.status == "failed":
+        return {
+            "ok": False,
+            "status": "failed",
+            "error": vm.error or "video map generation failed",
+        }
+    # status == "done"
+    return _compact_video_map_summary(vm)
+
+
 _DISPATCH = {
     "get_clip_state": _t_get_clip_state,
     "get_surrounding_transcript": _t_get_surrounding_transcript,
+    "get_video_map": _t_get_video_map,
     "set_interval": _t_set_interval,
     "nudge_interval": _t_nudge,
     "regenerate_hook": _t_regenerate_hook,

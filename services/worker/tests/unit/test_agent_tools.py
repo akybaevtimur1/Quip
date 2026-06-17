@@ -196,3 +196,113 @@ def test_unknown_tool_returns_error(monkeypatch, tmp_path):
     job = _setup(monkeypatch, tmp_path)
     r = apply_tool("delete_everything", {}, job_id=job, clip_id="clip_01")
     assert "error" in r and "unknown" in r["error"]
+
+
+# ─────────────────────── get_video_map tests ───────────────────────
+
+
+def _write_video_map(tmp_path, job: str, data: dict) -> None:
+    """Write a video_map.json into the job data dir (mirrors save_video_map disk path)."""
+    d = tmp_path / "data" / job
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "video_map.json").write_text(json.dumps(data), encoding="utf-8")
+
+
+def test_get_video_map_done_returns_compact_summary(monkeypatch, tmp_path):
+    job = _setup(monkeypatch, tmp_path)
+    vm_data = {
+        "status": "done",
+        "error": None,
+        "narrative": "A long interview about AI covering many topics.",
+        "chapters": [
+            {
+                "start": 0.0,
+                "end": 60.0,
+                "title": "Introduction",
+                "summary": "Host introduces the guest.",
+                "clip_ids": ["clip_01"],
+                "moments": [
+                    {
+                        "start": 5.0,
+                        "end": 10.0,
+                        "label": "opening joke",
+                        "why": "funny",
+                        "kind": "funny",
+                    }
+                ],
+            },
+            {
+                "start": 60.0,
+                "end": 120.0,
+                "title": "Main topic",
+                "summary": "Deep dive into AI.",
+                "clip_ids": [],
+                "moments": [],
+            },
+        ],
+    }
+    _write_video_map(tmp_path, job, vm_data)
+
+    r = apply_tool("get_video_map", {}, job_id=job, clip_id="clip_01")
+    assert r["ok"] is True
+    assert r["status"] == "done"
+    assert "Introduction" in str(r["chapters"])
+    assert "Main topic" in str(r["chapters"])
+    # narrative present
+    assert "AI" in r["narrative"]
+    # chapters are a list of dicts with expected keys
+    ch0 = r["chapters"][0]
+    assert "range" in ch0
+    assert ch0["title"] == "Introduction"
+    assert "opening joke" in ch0["moment_labels"]
+    assert ch0["clip_ids"] == ["clip_01"]
+
+
+def test_get_video_map_missing_returns_not_available(monkeypatch, tmp_path):
+    job = _setup(monkeypatch, tmp_path)
+    # No video_map.json written — should report not_available
+    r = apply_tool("get_video_map", {}, job_id=job, clip_id="clip_01")
+    assert r["ok"] is False
+    assert r["status"] == "not_available"
+    assert "note" in r
+
+
+def test_get_video_map_pending_returns_pending(monkeypatch, tmp_path):
+    job = _setup(monkeypatch, tmp_path)
+    _write_video_map(
+        tmp_path, job, {"status": "pending", "error": None, "narrative": "", "chapters": []}
+    )
+    r = apply_tool("get_video_map", {}, job_id=job, clip_id="clip_01")
+    assert r["ok"] is False
+    assert r["status"] == "pending"
+
+
+def test_get_video_map_failed_returns_error(monkeypatch, tmp_path):
+    job = _setup(monkeypatch, tmp_path)
+    _write_video_map(
+        tmp_path,
+        job,
+        {"status": "failed", "error": "Gemini timeout", "narrative": "", "chapters": []},
+    )
+    r = apply_tool("get_video_map", {}, job_id=job, clip_id="clip_01")
+    assert r["ok"] is False
+    assert r["status"] == "failed"
+    assert "Gemini timeout" in r["error"]
+
+
+def test_get_video_map_narrative_truncated(monkeypatch, tmp_path):
+    job = _setup(monkeypatch, tmp_path)
+    long_narrative = "x" * 1000
+    _write_video_map(
+        tmp_path,
+        job,
+        {
+            "status": "done",
+            "error": None,
+            "narrative": long_narrative,
+            "chapters": [],
+        },
+    )
+    r = apply_tool("get_video_map", {}, job_id=job, clip_id="clip_01")
+    assert r["ok"] is True
+    assert len(r["narrative"]) <= 601  # 600 chars + ellipsis

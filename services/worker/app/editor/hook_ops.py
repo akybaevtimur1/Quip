@@ -14,15 +14,25 @@ from app.pipeline.stage2_select import regenerate_hook
 
 
 def regenerate_hook_for_clip(
-    job_id: str, edit: ClipEdit, *, style_hint: str | None = None
+    job_id: str,
+    edit: ClipEdit,
+    *,
+    style_hint: str | None = None,
+    video_summary: str | None = None,
 ) -> tuple[ClipEdit, str]:
     """Узкий Gemini-реген хука под интервал `edit`. → (новый ClipEdit, hook_text). JobError, если
-    в клипе нет слов (нечего хукать) или Gemini не смог."""
+    в клипе нет слов (нечего хукать) или Gemini не смог.
+
+    video_summary (опц.) — компактный нарратив всего видео; если передан, вставляется как
+    «VIDEO CONTEXT: …» перед текстом клипа, чтобы хук отражал контекст полного видео.
+    """
     tr = artifacts.load_transcript(job_id)
     cw = clip_words(tr.words, edit.source_intervals)
     if not cw:
         raise JobError("hook_regen", "clip has no words to base a hook on")
     clip_text = " ".join(w.text for _i, w in cw)
+    if video_summary:
+        clip_text = f"VIDEO CONTEXT: {video_summary}\n\nCLIP: {clip_text}"
     duration = sum(iv.source_end - iv.source_start for iv in edit.source_intervals)
     hook_text, _style = regenerate_hook(
         clip_text, language=tr.language, duration=duration, style_hint=style_hint

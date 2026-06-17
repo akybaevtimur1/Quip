@@ -49,6 +49,14 @@ _FN_DECLS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "get_video_map",
+        "description": "Read a compact overview of the WHOLE source video: a narrative summary and "
+        "chapter list (with time ranges, titles, summaries, and key moment labels). Use this "
+        "when the user asks to rewrite the hook considering the full video, or to understand "
+        "where this clip sits in the overall context. No parameters required.",
+        "parameters": {"type": "object", "properties": {}},
+    },
+    {
         "name": "set_interval",
         "description": "Set the clip window to [start_sec, end_sec] in SOURCE seconds. Clamped to "
         "source bounds and to the min/max clip length.",
