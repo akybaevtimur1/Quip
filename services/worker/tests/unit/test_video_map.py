@@ -296,10 +296,6 @@ def _make_words_simple(count: int, word_dur: float = 1.0) -> list[Word]:
     return [Word(text=f"w{i}", start=i * word_dur, end=(i + 1) * word_dur) for i in range(count)]
 
 
-def _seg(start: float, end: float) -> Segment:
-    return Segment(start=start, end=end, reason="r", score=0.5, type="hook")
-
-
 def _canned_llm_response(
     narrative: str,
     chapters: list[dict],
