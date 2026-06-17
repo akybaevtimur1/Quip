@@ -159,7 +159,7 @@ def postprocess(
     raw: list[dict[str, Any]],
     words: list[Word],
     *,
-    min_sec: float = 15.0,
+    min_sec: float = 20.0,
     max_sec: float = 60.0,
     max_clips: int = 8,
     duration: float | None = None,

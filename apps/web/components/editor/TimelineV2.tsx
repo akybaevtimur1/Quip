@@ -21,7 +21,7 @@ import type {
 // Ctrl+колесо), пан ползунком — для часовых видео.
 // ────────────────────────────────────────────────────────────────────────────
 
-const CLIP_MIN_SEC = 15;
+const CLIP_MIN_SEC = 20;
 const CLIP_MAX_SEC = 60;
 
 const TYPE_COLOR: Record<ClipType, string> = {
@@ -485,6 +485,11 @@ export function TimelineV2({
             <span className="pointer-events-none absolute inset-x-0 top-1 text-center font-mono text-[10px] font-semibold text-accent">
               {busy ? "saving…" : mmss(segEnd - segStart)}
             </span>
+            {!busy && segEnd - segStart <= CLIP_MIN_SEC + 0.5 && (
+              <span className="pointer-events-none absolute inset-x-0 bottom-1 text-center text-[9px] text-muted">
+                мин. 20с
+              </span>
+            )}
           </div>
 
           {/* плейхед-курсор */}

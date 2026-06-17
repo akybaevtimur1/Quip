@@ -69,3 +69,19 @@ def test_set_interval_clamps_out_of_range() -> None:
     new = set_interval(_edit(), -10, 5, _words(), duration=200, min_sec=15, max_sec=60)
     assert new.source_intervals[0].source_start == 0.0
     assert new.source_intervals[0].source_end == 15.0  # extended to min
+
+
+# ─── D0.1: clip_min_sec = 20 (TDD) ─────────────────────────────────────────
+
+
+def test_config_default_clip_min_sec_is_20() -> None:
+    """Config default must be 20s — this test goes RED at 15, GREEN after config change."""
+    from app.config import Settings
+
+    s = Settings()  # instantiate directly (bypass lru_cache to avoid env pollution)
+    assert s.clip_min_sec == 20
+
+
+def test_clamp_too_short_extends_to_min_20() -> None:
+    """A 10s window must expand to exactly 20s when min_sec=20."""
+    assert clamp_interval(5, 15, duration=200, min_sec=20, max_sec=60) == (5.0, 25.0)

@@ -48,6 +48,8 @@ For each moment ALSO produce:
 
 HARD RULES (selection):
 - Each moment MUST be a complete thought: clean start (begin a sentence), clean ending (.?!).
+- MINIMUM clip length is 20 seconds. Never select a fragment ("огрызок") shorter than 20s —
+  if a strong moment is shorter, expand to the nearest natural sentence boundary to reach ≥20s.
 - Respect the HARD length limit stated in the request (sweet spot ~20-45s). A clip over the
   stated maximum is rejected — trim long moments to their strongest in-range window, never skip.
 - Moments MUST NOT overlap.

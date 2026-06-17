@@ -58,7 +58,7 @@ class Settings(BaseSettings):
     # NB: потолок длины исходника НЕ здесь — он в billing.MAX_VIDEO_MINUTES (stage0._check_limits).
     # Раньше тут был мёртвый max_source_minutes=90, который никто не читал и который вводил
     # в заблуждение (реальный лимит = 180). Удалён, чтобы не было двух «источников правды».
-    clip_min_sec: int = 15
+    clip_min_sec: int = 20
     clip_max_sec: int = 60
     # W1: хвостовой паддинг конца клипа (сек) — тишина для чистого лупа вертикального шортса.
     clip_tail_pad_sec: float = 0.3
