@@ -10,6 +10,7 @@ import {
 } from "react";
 import { getVideoMap } from "@/lib/api";
 import { mmss } from "@/lib/format";
+import { KIND_COLOR, KIND_KEYS, kindColor } from "@/lib/momentKinds";
 import type { ClipOut, VideoChapter, VideoMap, VideoMoment } from "@/lib/types";
 
 // SSR-safe media-query hook (no setState-in-effect): server snapshot = false
@@ -28,42 +29,6 @@ function useMediaQuery(query: string): boolean {
     () => window.matchMedia(query).matches,
     () => false,
   );
-}
-
-// ─── kind → color design token ──────────────────────────────────────────────
-// Using CSS vars from globals.css; inline style fallbacks for readability.
-const KIND_COLOR: Record<string, { dot: string; chip: string; label: string }> =
-  {
-    tension: {
-      dot: "bg-accent",
-      chip: "bg-accent-tint border-accent-line",
-      label: "Tension",
-    },
-    emotional: {
-      dot: "bg-peak",
-      chip: "bg-[rgba(192,107,255,0.12)] border-[rgba(192,107,255,0.3)]",
-      label: "Emotional",
-    },
-    quote: {
-      dot: "bg-quote",
-      chip: "bg-[rgba(77,141,255,0.12)] border-[rgba(77,141,255,0.3)]",
-      label: "Quote",
-    },
-    insight: {
-      dot: "bg-thought",
-      chip: "bg-[rgba(25,189,139,0.12)] border-[rgba(25,189,139,0.3)]",
-      label: "Insight",
-    },
-    funny: {
-      dot: "bg-warn",
-      chip: "bg-[rgba(245,179,46,0.12)] border-[rgba(245,179,46,0.3)]",
-      label: "Funny",
-    },
-  };
-const KIND_KEYS = Object.keys(KIND_COLOR) as Array<keyof typeof KIND_COLOR>;
-
-function kindColor(kind: string) {
-  return KIND_COLOR[kind] ?? KIND_COLOR["insight"];
 }
 
 // ─── helpers ────────────────────────────────────────────────────────────────
