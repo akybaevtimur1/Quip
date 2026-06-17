@@ -164,7 +164,10 @@ body {
 input[type="range"].range-touch {
   -webkit-appearance: none;
   appearance: none;
-  background: transparent;
+  /* NB: no `background: transparent` — that hid the track. The thin track is the
+     element's OWN background utility (bg-white/25 on scrub bars, bg-surface-2 on
+     value sliders); with appearance:none it paints as the track. Without it the
+     seek bar was just a floating thumb dot (looked misplaced). */
 }
 input[type="range"].range-touch::-webkit-slider-thumb {
   -webkit-appearance: none;
