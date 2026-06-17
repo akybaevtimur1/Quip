@@ -1108,3 +1108,33 @@ responsive-префиксами (база = мобайл, `sm:`/`lg:` восст
   rationale, НИКОГДА в ответ. Пустой TextReply → нейтральное «Готово.», не пузырь-мысль. +тесты.
 - `just check` зелёный (**657 unit**, +12). `models.py` не трогали → без codegen. Только worker
   (нужен `modal deploy`). Кадровая сетка/инвариант целы.
+
+### 2026-06-18 — Объяснимость + Карта видео + умная нарезка (ветка feat/explainability-video-map)
+Дифференциатор «Quip понимает всё видео и объясняет, почему момент стоит клипа». 5 доменов,
+14 коммитов, овернайт через саб-агентов (исполнитель+ревью на задачу, финальный whole-branch ревью —
+READY). Все коммиты с зелёным `just check` (692 unit-теста).
+- **D0 — мин. длина клипа 20с** (было 15): `config.clip_min_sec`, select-промпт, `clamp_interval`,
+  слайдер TimelineV2 (+подсказка), агент, клик-обрезка. Единый источник.
+- **D1 — бэкенд VideoMap**: модель `VideoMap/VideoChapter/VideoMoment` (контракт → codegen);
+  pure `parse_video_map` (клампинг, привязка clip_ids по пересечению глав с клипами, kind, битый
+  вход → failed) + `moment_to_interval` (снап к словам из stage2_select + расширение до 20с) — TDD;
+  `generate_video_map` (Gemini structured по индексам слов → секунды, переиспуёт `call_gemini_structured`)
+  + промпт `video_map.v1.txt`; фон-джоб `generate_video_map_job` + `GET /jobs/{id}/video-map` (?retry,
+  spawn на Modal / bg локально) + триггер в run.py после select. **Хранение кросс-контейнерно**: новая
+  jsonb-колонка `job_artifacts.video_map` (миграция **0008**, single-key merge-upsert — НЕ затирает
+  meta/segments/transcript), disk-fallback для dev.
+- **D2 — умный агент**: фикс клампа границ у конца видео (`clamp_interval` max-арм + слайд start),
+  тул `get_video_map` (компактная сводка), хук с учётом всего видео (`video_summary`), промпт —
+  честно сообщать о клампе/упоре в конец.
+- **D3 — карта на странице результатов** (`VideoMap.tsx`): нарратив с кликабельными `[mm:ss]`/
+  `[[clip:NN]]`, аккордеон глав, цветные моменты (5 видов + легенда), pending/failed/empty; на мобиле
+  свёрнута по умолчанию (useSyncExternalStore). Проверено визуально (десктоп+мобила, скриншоты).
+- **D4 — обогащённая строка тем в редакторе** (`TopicStrip.tsx`): главы/моменты, «Подвинуть клип
+  сюда» (→ handleSetInterval, расширение до 20с), маркер «текущий», отличие от FitTimeline (иконка
+  BookOpen). Цвета вынесены в `lib/momentKinds.ts` (DRY). Проверено визуально (изолированный харнесс).
+  **«Новый клип» отложен** — нет endpoint create-clip (согласовано с фаундером: только «подвинуть»).
+
+**Перед деплоем (фаундер):** применить миграцию 0008 (`ALTER TABLE job_artifacts ADD COLUMN
+video_map jsonb`) ДО `modal deploy`, иначе cloud `save_video_map` упадёт ЯВНО (правило №8). Боевые
+тесты (реальное видео RU/EN на задеплоенном воркере) + финальный визуальный прогон в редакторе на
+реальном джобе — за фаундером. НЕ смержено, push не делался.
