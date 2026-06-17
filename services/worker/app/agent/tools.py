@@ -14,7 +14,12 @@ from app import artifacts
 from app.editor import store
 from app.editor.store import EditConflict
 from app.errors import JobError
-from app.models import ClipEdit, HookOverlay
+from app.models import ClipEdit, HookOverlay, Word
+
+# Ограничители для get_surrounding_transcript (защита контекста модели).
+_SURROUND_DEFAULT_SEC = 30.0
+_SURROUND_MAX_SEC = 90.0
+_SURROUND_MAX_WORDS = 400
 
 # ─────────────────────────── pure helpers ───────────────────────────
 
@@ -26,6 +31,24 @@ def compute_nudge(start: float, end: float, edge: str, delta: float) -> tuple[fl
     if edge == "end":
         return (start, end + delta)
     raise ValueError(f"edge must be 'start'|'end', got {edge!r}")
+
+
+def words_in_window(
+    words: list[Word], start: float, end: float, max_words: int
+) -> list[dict[str, Any]]:
+    """PURE. Слова транскрипта, пересекающие окно [start, end] (source-секунды).
+
+    Слово включается, если его [w.start, w.end] пересекает окно (w.end >= start AND
+    w.start <= end). Возвращает <= max_words ПЕРВЫХ слов (по порядку транскрипта) как
+    {"text", "start", "end"} с округлением до 0.01с — компактный контекст для модели.
+    """
+    out: list[dict[str, Any]] = []
+    for w in words:
+        if w.end >= start and w.start <= end:
+            out.append({"text": w.text, "start": round(w.start, 2), "end": round(w.end, 2)})
+            if len(out) >= max_words:
+                break
+    return out
 
 
 def _outer(edit: ClipEdit) -> tuple[float, float]:
@@ -192,8 +215,38 @@ def _t_get_clip_state(job_id: str, clip_id: str, args: dict[str, Any]) -> dict[s
     return {"ok": True, **clip_state(job_id, clip_id)}
 
 
+def _t_get_surrounding_transcript(
+    job_id: str, clip_id: str, args: dict[str, Any]
+) -> dict[str, Any]:
+    """Транскрипт ВОКРУГ клипа (с source-таймстемпами) — чтобы агент выбрал чистые точки реза."""
+    try:
+        sec = float(args.get("seconds_around", _SURROUND_DEFAULT_SEC))
+    except (TypeError, ValueError):
+        return {"error": "get_surrounding_transcript: seconds_around must be a number"}
+    sec = max(0.0, min(sec, _SURROUND_MAX_SEC))
+
+    edit = store.ensure_edit(job_id, clip_id)
+    tr = artifacts.load_transcript(job_id)
+    start, end = _outer(edit)
+    win_start = max(0.0, start - sec)
+    win_end = min(tr.duration, end + sec)
+    words = words_in_window(tr.words, win_start, win_end, _SURROUND_MAX_WORDS)
+    return {
+        "ok": True,
+        "interval": [round(start, 2), round(end, 2)],
+        "window": [round(win_start, 2), round(win_end, 2)],
+        "language": tr.language,
+        "words": words,
+        "note": (
+            "These are SOURCE-second timestamps around the clip. Pick clean start/end on sentence "
+            "boundaries (after a full stop / pause), then call set_interval with those seconds."
+        ),
+    }
+
+
 _DISPATCH = {
     "get_clip_state": _t_get_clip_state,
+    "get_surrounding_transcript": _t_get_surrounding_transcript,
     "set_interval": _t_set_interval,
     "nudge_interval": _t_nudge,
     "regenerate_hook": _t_regenerate_hook,

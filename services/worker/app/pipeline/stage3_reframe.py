@@ -26,6 +26,10 @@ from app.models import CropWindow
 
 _STAGE = "reframe"
 _ASPECT_W, _ASPECT_H = 9, 16
+# Минимальная ширина лица (доля кадра), при которой кроп в 9:16 оправдан без явной речи.
+# Лицо уже этого И молчащее = неуверенный субъект → не кропим, держим горизонталь (fit).
+# Кноба нет намеренно (blast radius = один файл); тюним правкой константы.
+_MIN_FACE_FRAC = 0.08
 
 
 # ─────────────────────────── Dataclasses ───────────────────────────
@@ -367,6 +371,19 @@ def plan_regions(
                 prev_fill_end_cx = None
                 continue
         target = _pick_target(active, speak_threshold)
+        # «Ambiguous → horizontal»: кропим (fill) ТОЛЬКО на уверенном субъекте — явный говорящий
+        # (speak ≥ speak_threshold) ИЛИ достаточно крупное лицо (width ≥ _MIN_FACE_FRAC). Мелкое
+        # молчащее лицо = неуверенно → fit (как «нет лица»), prev_fill_end_cx сброшен.
+        # mode_setting=="fill" — явный глобальный оверрайд, его не трогаем.
+        if (
+            mode_setting != "fill"
+            and target is not None
+            and target.speak < speak_threshold
+            and target.width < _MIN_FACE_FRAC
+        ):
+            regions.append(TrackRegion(t0=t0, t1=t1, mode="fit", points=()))
+            prev_fill_end_cx = None
+            continue
         # Непрерывность центра поперёк подряд идущих fill-шотов (ebfc3dc, анти-телепорт): новый
         # fill EMA-едет от прошлого центра (валидный кроп спикера, НЕ «пустая середина») к новому.
         # На fit/split prev сброшен в None → fill после них СНАПАЕТ на спикера сразу.

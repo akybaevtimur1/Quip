@@ -8,7 +8,7 @@ import pytest
 
 from app import db
 from app.agent import tools
-from app.agent.tools import apply_tool, compute_nudge
+from app.agent.tools import apply_tool, compute_nudge, words_in_window
 from app.editor import store
 from app.models import Segment, SourceKind, Transcript, Word
 from app.pipeline.stage0_import import SourceMeta
@@ -24,6 +24,41 @@ class TestComputeNudge:
     def test_bad_edge_raises(self) -> None:
         with pytest.raises(ValueError):
             compute_nudge(10.0, 40.0, "middle", 1.0)
+
+
+class TestWordsInWindow:
+    def _words(self, n: int) -> list[Word]:
+        # слово i живёт в [i, i+0.8]
+        return [Word(text=f"w{i}", start=float(i), end=float(i) + 0.8) for i in range(n)]
+
+    def test_includes_words_overlapping_window_only(self) -> None:
+        words = self._words(60)
+        # окно [10, 20]: w10..w20 пересекаются (w20 начинается на 20.0 == end → включаем)
+        got = words_in_window(words, 10.0, 20.0, max_words=400)
+        texts = [w["text"] for w in got]
+        assert "w9" not in texts  # w9 = [9, 9.8] — целиком вне (end < 10)
+        assert "w10" in texts
+        assert "w20" in texts
+        assert "w21" not in texts  # w21 = [21, 21.8] — целиком вне (start > 20)
+
+    def test_word_shape_text_start_end_rounded(self) -> None:
+        words = [Word(text="hi", start=1.23456, end=2.98765)]
+        got = words_in_window(words, 0.0, 5.0, max_words=400)
+        assert got == [{"text": "hi", "start": 1.23, "end": 2.99}]
+
+    def test_max_words_cap_respected(self) -> None:
+        words = self._words(100)
+        got = words_in_window(words, 0.0, 100.0, max_words=10)
+        assert len(got) == 10
+        # cap берёт ПЕРВЫЕ max_words в окне (по порядку транскрипта)
+        assert [w["text"] for w in got] == [f"w{i}" for i in range(10)]
+
+    def test_empty_words(self) -> None:
+        assert words_in_window([], 0.0, 50.0, max_words=400) == []
+
+    def test_window_with_no_overlap(self) -> None:
+        words = self._words(10)
+        assert words_in_window(words, 500.0, 600.0, max_words=400) == []
 
 
 def _setup(monkeypatch, tmp_path):
@@ -128,6 +163,33 @@ def test_request_render_triggers_render(monkeypatch, tmp_path):
     monkeypatch.setattr(db, "set_render_status", lambda *a, **k: None)
     r = apply_tool("request_render", {}, job_id=job, clip_id="clip_01")
     assert r["ok"] is True and called == [(job, "clip_01")]
+
+
+def test_get_surrounding_transcript_returns_window_with_source_ts(monkeypatch, tmp_path):
+    job = _setup(monkeypatch, tmp_path)  # клип 0..50с, источник 120с, слова w0..w59
+    r = apply_tool(
+        "get_surrounding_transcript", {"seconds_around": 5.0}, job_id=job, clip_id="clip_01"
+    )
+    assert r["ok"] is True
+    assert r["interval"] == [0.0, 50.0]
+    assert "note" in r
+    assert r["window"] == [0.0, 55.0]  # [0-5, 50+5] клампнуто к источнику снизу
+    texts = [w["text"] for w in r["words"]]
+    # окно [0, 55] → слова w0..w55 (start<=55)
+    assert "w0" in texts
+    assert "w55" in texts
+    assert "w56" not in texts
+    # каждое слово имеет source-таймстемпы
+    assert all({"text", "start", "end"} <= set(w) for w in r["words"])
+
+
+def test_get_surrounding_transcript_default_and_caps(monkeypatch, tmp_path):
+    job = _setup(monkeypatch, tmp_path)
+    r = apply_tool("get_surrounding_transcript", {}, job_id=job, clip_id="clip_01")
+    assert r["ok"] is True
+    # дефолт seconds_around=30 → окно [0, 80] клампнуто к [0, 120]
+    assert r["window"][0] == 0.0
+    assert r["window"][1] == 80.0
 
 
 def test_unknown_tool_returns_error(monkeypatch, tmp_path):

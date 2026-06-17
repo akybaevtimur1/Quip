@@ -433,6 +433,38 @@ class TestPlanRegions:
         regions = plan_regions([(0, 30)], [], fps=30.0, crop_w_frac=0.32)
         assert regions[0].mode == "fit"
 
+    def test_tiny_silent_face_is_fit(self) -> None:
+        # «ambiguous → horizontal»: одно МЕЛКОЕ лицо (width < _MIN_FACE_FRAC=0.08) и молчит
+        # (speak < threshold) → нет уверенного субъекта → fit (не кропим в никуда).
+        from app.pipeline.stage3_reframe import plan_regions
+
+        tracks = [self._track(0, 30, 0.5, 0.05, 0.0)]
+        regions = plan_regions([(0, 30)], tracks, fps=30.0, crop_w_frac=0.32, speak_threshold=0.3)
+        assert regions[0].mode == "fit"
+        assert regions[0].points == ()
+
+    def test_large_silent_face_is_fill(self) -> None:
+        # Лицо крупное (width ≥ _MIN_FACE_FRAC=0.08), пусть и молчит → уверенный субъект → fill.
+        from app.pipeline.stage3_reframe import plan_regions
+
+        tracks = [self._track(0, 30, 0.6, 0.12, 0.0)]
+        regions = plan_regions(
+            [(0, 30)], tracks, fps=30.0, crop_w_frac=0.32, smoothing=1.0, speak_threshold=0.3
+        )
+        assert regions[0].mode == "fill"
+        assert abs(regions[0].points[0].cx - 0.6) < 1e-9
+
+    def test_tiny_clear_speaker_is_fill(self) -> None:
+        # Лицо мелкое (width < 0.08), НО явно говорит (speak ≥ threshold) → уверенный → fill.
+        from app.pipeline.stage3_reframe import plan_regions
+
+        tracks = [self._track(0, 30, 0.4, 0.05, 0.9)]
+        regions = plan_regions(
+            [(0, 30)], tracks, fps=30.0, crop_w_frac=0.32, smoothing=1.0, speak_threshold=0.3
+        )
+        assert regions[0].mode == "fill"
+        assert abs(regions[0].points[0].cx - 0.4) < 1e-9
+
     def test_fill_continuity_across_cuts_no_teleport(self) -> None:
         """Непрерывность центра поперёк склейки между двумя fill-шотами (анти-телепорт).
 

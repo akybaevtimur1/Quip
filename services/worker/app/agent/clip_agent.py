@@ -38,6 +38,17 @@ _FN_DECLS: list[dict[str, Any]] = [
         "parameters": {"type": "object", "properties": {}},
     },
     {
+        "name": "get_surrounding_transcript",
+        "description": "Read the transcript AROUND the current clip (before and after it) with "
+        "SOURCE-second timestamps, so you can analyze context and choose clean cut points on "
+        "sentence boundaries before calling set_interval. Optional seconds_around (default 30, "
+        "capped) widens the window on each side.",
+        "parameters": {
+            "type": "object",
+            "properties": {"seconds_around": {"type": "number"}},
+        },
+    },
+    {
         "name": "set_interval",
         "description": "Set the clip window to [start_sec, end_sec] in SOURCE seconds. Clamped to "
         "source bounds and to the min/max clip length.",

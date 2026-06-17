@@ -184,17 +184,24 @@ export function PreviewPlayer({
     >
       <div className={isFullscreen ? `relative h-full ${aspectClass}` : "absolute inset-0"}>
         {/* fit: блюр-фон позади (весь кадр + рамки, как в рендере).
-            D3: src ставим ТОЛЬКО в режиме fit — иначе 4-й декодер тянет источник (на облаке
-            это 4× presigned-R2 → NotSupportedError ×N + лаги). Лениво монтируем по нужде. */}
-        {mode === "fit" && (
+            ПРОГРЕВ (#4 анти-флеш): монтируем во ВСЕХ режимах КРОМЕ split — не только в fit.
+            Раньше {mode==="fit"} монтировал <video> заново НА переходе fill→fit: свежий элемент
+            ещё не декодирован → чёрные полосы кадр-другой = флеш в превью (в готовом клипе его
+            нет — там чистый cut). Держим фон тёплым: в fill он скрыт (opacity-0) и всё равно
+            перекрыт object-cover мастером, в fit — виден в рамках. В split НЕ монтируем (там
+            master-скрыт + 2 половины; 4-й декодер не нужен, D3). На лёгком preview-прокси
+            (≤720p, пара МБ, тот же CDN) один тёплый декодер дёшев. */}
+        {mode !== "split" && (
           <video
             ref={auxARef}
             key={`bg-${src}`}
             src={src}
             muted
             playsInline
-            preload="metadata"
-            className="absolute inset-0 size-full scale-110 object-cover blur-xl brightness-50"
+            preload="auto"
+            className={`absolute inset-0 size-full scale-110 object-cover blur-xl brightness-50 ${
+              mode === "fit" ? "" : "opacity-0"
+            }`}
           />
         )}
 

@@ -37,6 +37,7 @@ import { LibassLayer } from "../LibassLayer";
 import { AgentTab } from "./AgentTab";
 import { CaptionsTab } from "./CaptionsTab";
 import { EditorHeader, type RenderState } from "./EditorHeader";
+import { FitTimeline } from "./FitTimeline";
 import { FrameTab } from "./FrameTab";
 import { HookTab } from "./HookTab";
 import { type FrameState, PreviewPlayer } from "./PreviewPlayer";
@@ -632,6 +633,35 @@ export default function ClipEditorScreen({
     [edit, jobId, clipId, outerStart, outerEnd, failOr409, flushPending],
   );
 
+  // ── FitTimeline (#1): форсировать кадр на source-диапазон ШОТОВ ──
+  // Зеркалит handleFrameApply, но диапазон приходит от мини-таймлайна (выделенные
+  // регионы → source-время), а не весь клип. mode:"auto" → бэкенд чистит override в
+  // диапазоне. После применения перечитываем reframe-план → полоса + превью обновятся.
+  const handleApplyRange = useCallback(
+    async (sourceStart: number, sourceEnd: number, mode: "fit" | "fill" | "auto") => {
+      if (!edit) return;
+      setError(null);
+      try {
+        await flushPending();
+        const v = editRef.current?.version ?? edit.version ?? 1;
+        const newEdit = await setCropOverride(jobId, clipId, v, {
+          source_start: sourceStart,
+          source_end: sourceEnd,
+          mode,
+          center: null,
+          center_b: null,
+        });
+        editRef.current = newEdit; // см. editRef-комментарий: очередь читает свежую версию
+        setEdit(newEdit);
+        setDirty(true);
+        void loadReframe(); // полоса + превью отражают новый план
+      } catch (e) {
+        failOr409(e);
+      }
+    },
+    [edit, jobId, clipId, failOr409, flushPending, loadReframe],
+  );
+
   // ── соотношение сторон (T5): меняет выход + PlayRes ASS → рефетчим ASS ──
   const handleAspectChange = useCallback(
     async (aspect: Aspect) => {
@@ -923,7 +953,7 @@ export default function ClipEditorScreen({
           {/* ЛЕВО: превью. Доступная область = ширина колонки × ограниченная высота;
               PreviewPlayer сам contain'ится по aspectClass (w-full + max-h-full + aspect) →
               НЕ распирает страницу на 16:9/1:1/4:5 (баг T5 пофикшен). */}
-          <div className="sticky top-0 z-10 flex min-h-0 items-center justify-center bg-bg pb-3 lg:static lg:z-auto lg:pb-0">
+          <div className="sticky top-0 z-10 flex min-h-0 flex-col bg-bg pb-3 lg:static lg:z-auto lg:pb-0">
             <div className="flex h-[44vh] max-h-full w-full items-center justify-center lg:h-full">
               <PreviewPlayer
                 src={sourceSrc}
@@ -1042,6 +1072,18 @@ export default function ClipEditorScreen({
                   )}
                 </PreviewPlayer>
             </div>
+
+            {/* #1: мини-таймлайн «форсировать кадр» под превью */}
+            {edit && (
+              <FitTimeline
+                regions={rawRegions}
+                intervals={edit.source_intervals}
+                overrides={edit.reframe_overrides}
+                nowSec={nowSec}
+                busy={busy}
+                onApplyRange={handleApplyRange}
+              />
+            )}
           </div>
 
           {/* ПРАВО: табы */}
