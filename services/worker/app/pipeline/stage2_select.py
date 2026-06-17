@@ -22,9 +22,12 @@ from app.errors import JobError
 from app.models import ClipType, Segment, Transcript, Word
 
 _STAGE = "select"
-_MAX_ATTEMPTS = 7  # попытки на primary модели; backoff min(2^n, 30)с ≈ 1 мин ожидания
-# При устойчивых 503 primary пробуем другие эндпоинты Gemini (разная нагрузка)
-_FALLBACK_MODELS = ("gemini-2.5-flash", "gemini-2.0-flash")
+# Потолок попыток на primary (cost-cap: на сбойном контенте 7×вызовов кусались). На платном
+# ключе транзиентные 503 редки → 4 хватает; backoff min(2^n, 30)с.
+_MAX_ATTEMPTS = 4
+# При устойчивых сбоях primary пробуем lite (дешевле/другая нагрузка). gemini-2.0-flash УБРАНА
+# (мертва с 2026-06-01). primary тут НЕ дублируем (он = s.llm_model = 2.5-flash).
+_FALLBACK_MODELS = ("gemini-2.5-flash-lite",)
 
 # ─────────────────────────── pure-постобработка (unit-тесты) ───────────────────────────
 

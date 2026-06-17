@@ -15,7 +15,9 @@ PAYG-баланс. Списываем сначала месячный пул, з
 Лимиты держим в КОДЕ (не в БД) → один источник правды. Фронт (apps/web/lib/plans.ts +
 UsageMeter) ОБЯЗАН зеркалить эти числа.
 
-⚠️ Эконом-обоснование: себест ~$0.40/видео (60 мин) → маржа Starter ~60%, Pro ~52%.
+⚠️ Эконом-обоснование (2026-06: цены подняты к рынку, всё ещё 3-4× дешевле OpusClip):
+себест ~$0.40/видео (60 мин) → $/кредит: Starter $1.50 (маржа ~73%), Pro $1.17 (~66%),
+PAYG $3.00. Инвариант: $/кредит растёт при падении приверженности (Pro<Starter<PAYG).
 """
 
 from __future__ import annotations
@@ -61,7 +63,7 @@ PLANS: dict[str, PlanLimits] = {
     "starter": PlanLimits(
         id="starter",
         name="Starter",
-        price_usd=10.0,
+        price_usd=15.0,
         monthly_videos=10,  # 10 видео = 600 мин/мес
         max_video_minutes=None,  # длина одного видео — только тех. потолок
         watermark=False,
@@ -70,7 +72,7 @@ PLANS: dict[str, PlanLimits] = {
     "pro": PlanLimits(
         id="pro",
         name="Pro",
-        price_usd=25.0,
+        price_usd=35.0,
         monthly_videos=30,  # 30 видео = 1800 мин/мес
         max_video_minutes=None,
         watermark=False,
@@ -81,8 +83,11 @@ PLANS: dict[str, PlanLimits] = {
 
 _DEFAULT_PLAN = "free"
 
-# Pay-as-you-go: разовая покупка «видео» без подписки. Не сгорают. 1 заказ ($2) = 1 видео.
-PAYG_PRICE_USD = 2.0
+# Pay-as-you-go: разовая покупка «видео» без подписки. Не сгорают. 1 заказ ($3) = 1 видео.
+# ⚠️ Прайсинг-инвариант: $/кредит ДОЛЖЕН расти при падении приверженности — Pro ($1.17) <
+# Starter ($1.50) < PAYG ($3.00). PAYG НИКОГДА ≤ Starter/кредит, иначе подписка теряет смысл.
+# $3 (а не $2) также чинит фикс Polar (5%+$0.50: на $2 = 30%, на $3 = 22%).
+PAYG_PRICE_USD = 3.0
 PAYG_CREDITS_PER_ORDER = 1
 
 

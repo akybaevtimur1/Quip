@@ -43,7 +43,7 @@ export const PLANS: PlanDisplay[] = [
   {
     id: "starter",
     name: "Starter",
-    price: 10,
+    price: 15,
     tagline: "For creators shipping weekly.",
     limit: "10 videos / month",
     limitNote: "600 min total. Longer videos use minutes proportionally.",
@@ -58,7 +58,7 @@ export const PLANS: PlanDisplay[] = [
   {
     id: "pro",
     name: "Pro",
-    price: 25,
+    price: 35,
     tagline: "For heavy repurposing.",
     limit: "30 videos / month",
     limitNote: "1800 min total. Longer videos use minutes proportionally.",
@@ -75,7 +75,7 @@ export const PLANS: PlanDisplay[] = [
 
 /** Pay-as-you-go: one-off videos, no subscription. Mirrors billing.PAYG_PRICE_USD. */
 export const PAYG = {
-  pricePerVideo: 2, // USD per video (source up to 60 min)
+  pricePerVideo: 3, // USD per video (source up to 60 min)
   title: "No subscription? Pay as you go.",
   body: "Buy videos one at a time. They never expire — one video covers up to 60 minutes of source.",
   cta: "Buy a video",

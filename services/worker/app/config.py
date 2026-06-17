@@ -42,7 +42,9 @@ class Settings(BaseSettings):
     llm_provider: str = "gemini"
     gemini_api_key: str | None = None
     anthropic_api_key: str | None = None
-    llm_model: str = "gemini-flash-latest"
+    # ПИН конкретной версии (НЕ -latest): -latest может уехать на Gemini 3.x Flash с выходом
+    # ~$9/1M = ×10 к стоимости LLM молча. 2.5-flash стабильна на платном ключе, дёшева.
+    llm_model: str = "gemini-2.5-flash"
     llm_max_output_tokens: int = 16000
 
     # download: куки для обхода YouTube bot-защиты.
