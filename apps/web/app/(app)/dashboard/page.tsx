@@ -8,6 +8,7 @@ import { PromoRedeem } from "@/components/app/PromoRedeem";
 import { RecentProjects } from "@/components/app/RecentProjects";
 import { UsageMeter } from "@/components/app/UsageMeter";
 import { ClipGrid } from "@/components/ClipGrid";
+import { VideoMap } from "@/components/VideoMap";
 import { ErrorPanel } from "@/components/ErrorPanel";
 import { JobProgress } from "@/components/JobProgress";
 import { SourceForm } from "@/components/SourceForm";
@@ -214,7 +215,10 @@ function DashboardInner() {
             )}
           </div>
         ) : phase === "done" && job ? (
-          <ClipGrid key={job.id} job={job} />
+          <>
+            <VideoMap jobId={job.id} clips={job.clips ?? []} />
+            <ClipGrid key={job.id} job={job} />
+          </>
         ) : phase === "cancelled" ? (
           <div className="flex flex-col items-center gap-3 py-16 text-center">
             <h2 className="font-display text-2xl font-bold text-ink">This project was stopped</h2>

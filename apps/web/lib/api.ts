@@ -8,6 +8,7 @@ import type {
   ClipEdit,
   Job,
   TimelineData,
+  VideoMap,
   Word,
 } from "./types";
 
@@ -353,6 +354,15 @@ export async function getChapters(jobId: string, retry = false): Promise<Chapter
   const url = `${BASE}/jobs/${jobId}/chapters${retry ? "?retry=true" : ""}`;
   const res = await fetch(url, { cache: "no-store" });
   if (!res.ok) throw new Error(`getChapters failed: ${res.status}`);
+  return res.json();
+}
+
+export async function getVideoMap(jobId: string, retry = false): Promise<VideoMap> {
+  // Карта видео (нарратив + главы + цветные моменты). Первый вызов стартует генерацию
+  // (status=pending) → поллить. retry=true перезапускает упавшую генерацию.
+  const url = `${BASE}/jobs/${jobId}/video-map${retry ? "?retry=true" : ""}`;
+  const res = await fetch(url, { cache: "no-store" });
+  if (!res.ok) throw new Error(`getVideoMap failed: ${res.status}`);
   return res.json();
 }
 
