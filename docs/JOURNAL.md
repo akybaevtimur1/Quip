@@ -1039,6 +1039,8 @@ responsive-префиксами (база = мобайл, `sm:`/`lg:` восст
   `asd_reframe.score_tracks_in_segment` пропускает crop+ASD при одной дорожке (speak=`_SILENT`,
   аудио не читаем зря). На talking-head подкастах (доминирующий кейс) режет ~половину времени
   reframe. ВЫХОД для таких сегментов идентичен (не меняет регионы/границы — инвариант цел).
+  **Kill-switch:** `REFRAME_SKIP_ASD_SINGLE_TRACK=false` в секрете `quip-worker` → всегда считать
+  ASD (мгновенный откат без передеплоя кода; Modal подхватит env на следующем контейнере).
 - **Инвариант цел:** НЕ трогали `stage3_reframe.py`/`stage5_render.py`/`reframe_cache.py`. #2
   правит `asd_reframe.py` (I/O-обёртка ASD) + `stage3_speaker.py` (pure-предикат) — НЕ геометрию
   склеек/шотов/границ. Кадровая сетка (REFRAME_FPS_GRID_INVARIANT, фикс 9e57981) не затронута.

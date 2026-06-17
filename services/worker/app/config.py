@@ -90,6 +90,11 @@ class Settings(BaseSettings):
     # split-screen (v3): ровно 2 устойчивых разнесённых лица → верх/низ (вместо fit);
     # 3+ лиц / нестабильные треки → fit как раньше. false = всегда fit (старое поведение).
     reframe_split_enabled: bool = True
+    # perf (#2): при ОДНОЙ дорожке лиц пропускать дорогой ASD (crop+torch) — говорящий
+    # однозначен, скор не влияет на регионы (см. stage3_speaker.should_score_asd). Kill-switch:
+    # REFRAME_SKIP_ASD_SINGLE_TRACK=false → всегда считать ASD (прежнее поведение, мгновенный
+    # откат без передеплоя кода — Modal подхватит env при следующем контейнере).
+    reframe_skip_asd_single_track: bool = True
 
     # billing / payments (P1). Все опциональны — гейт квоты и вебхук Lemon активны
     # ТОЛЬКО при заполнении (нужны Supabase + Lemon у фаундера). По умолчанию инертны →

@@ -18,6 +18,7 @@ from typing import Any
 
 import numpy as np
 
+from app.config import get_settings
 from app.errors import JobError
 from app.pipeline.stage3_reframe import SpeakerTrack
 from app.pipeline.stage3_speaker import build_tracks, should_score_asd
@@ -168,7 +169,10 @@ def score_tracks_in_segment(
         # дорожке говорящий однозначен → crop+torch-форвард не влияет на регионы (см.
         # should_score_asd). Пропускаем его → speak=_SILENT (как «нет валидного скора»; downstream
         # _pick_target всё равно вернёт эту единственную дорожку). Аудио не читаем зря.
-        score_asd = should_score_asd(len(tracks))
+        # Kill-switch reframe_skip_asd_single_track=false → всегда считаем ASD (быстрый откат).
+        score_asd = (not get_settings().reframe_skip_asd_single_track) or should_score_asd(
+            len(tracks)
+        )
         sr, audio = wavfile.read(wav) if score_asd else (0, None)
         out: list[SpeakerTrack] = []
         for tr in tracks:
