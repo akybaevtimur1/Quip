@@ -998,6 +998,106 @@
       ],
       "type": "object"
     },
+    "VideoChapter": {
+      "description": "Глава видео с вложенными моментами и ссылками на клипы.",
+      "properties": {
+        "clip_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "end": {
+          "type": "number"
+        },
+        "moments": {
+          "items": {
+            "$ref": "#/$defs/VideoMoment"
+          },
+          "type": "array"
+        },
+        "start": {
+          "type": "number"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "start",
+        "end",
+        "title",
+        "summary"
+      ],
+      "type": "object"
+    },
+    "VideoMap": {
+      "description": "Статус+результат нарративного анализа видео (кэш data/<job>/video_map.json).",
+      "properties": {
+        "chapters": {
+          "items": {
+            "$ref": "#/$defs/VideoChapter"
+          },
+          "type": "array"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "narrative": {
+          "default": "",
+          "type": "string"
+        },
+        "status": {
+          "default": "pending",
+          "enum": [
+            "pending",
+            "done",
+            "failed"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "VideoMoment": {
+      "description": "Интересный момент внутри главы (детальная разметка для фронта).",
+      "properties": {
+        "end": {
+          "type": "number"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "start": {
+          "type": "number"
+        },
+        "why": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "start",
+        "end",
+        "label",
+        "why",
+        "kind"
+      ],
+      "type": "object"
+    },
     "Word": {
       "description": "Слово с word-level таймингами (фундамент всего: субтитры, trim, маппинг).",
       "properties": {
@@ -1109,6 +1209,15 @@
     },
     "Transcript": {
       "$ref": "#/$defs/Transcript"
+    },
+    "VideoChapter": {
+      "$ref": "#/$defs/VideoChapter"
+    },
+    "VideoMap": {
+      "$ref": "#/$defs/VideoMap"
+    },
+    "VideoMoment": {
+      "$ref": "#/$defs/VideoMoment"
     },
     "Word": {
       "$ref": "#/$defs/Word"

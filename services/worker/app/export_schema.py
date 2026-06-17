@@ -39,6 +39,9 @@ from app.models import (
     TimelineData,
     TimelineSegment,
     Transcript,
+    VideoChapter,
+    VideoMap,
+    VideoMoment,
     Word,
 )
 
@@ -69,6 +72,10 @@ _MODELS: list[type[BaseModel]] = [
     # AI-карта видео (v3)
     Chapter,
     ChaptersData,
+    # VideoMap (нарратив + главы + моменты)
+    VideoMoment,
+    VideoChapter,
+    VideoMap,
     # W3: агентный чат-редактор клипа
     AgentEvent,
     AgentRun,

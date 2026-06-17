@@ -370,3 +370,36 @@ class ChaptersData(BaseModel):
     status: Literal["pending", "done", "failed"]
     chapters: list[Chapter] = Field(default_factory=list)
     error: str | None = None  # причина при status="failed" (правило №8 — не глотаем)
+
+
+# ─────────────────────────── VideoMap (нарратив + главы + моменты) ───────────────────────────
+
+
+class VideoMoment(BaseModel):
+    """Интересный момент внутри главы (детальная разметка для фронта)."""
+
+    start: float  # секунды в source-видео
+    end: float
+    label: str  # живой текст: «они начали спорить»
+    why: str  # почему потенциально интересно
+    kind: str  # tension|quote|emotional|insight|funny (→ цвет на фронте)
+
+
+class VideoChapter(BaseModel):
+    """Глава видео с вложенными моментами и ссылками на клипы."""
+
+    start: float  # секунды в source-видео
+    end: float
+    title: str
+    summary: str  # что происходит в главе (кратко)
+    clip_ids: list[str] = Field(default_factory=list)  # какие наши клипы из этой главы
+    moments: list[VideoMoment] = Field(default_factory=list)
+
+
+class VideoMap(BaseModel):
+    """Статус+результат нарративного анализа видео (кэш data/<job>/video_map.json)."""
+
+    status: Literal["pending", "done", "failed"] = "pending"
+    error: str | None = None  # причина при status="failed" (правило №8 — не глотаем)
+    narrative: str = ""  # связный разбор (может содержать [mm:ss] и [[clip:clip_03]])
+    chapters: list[VideoChapter] = Field(default_factory=list)

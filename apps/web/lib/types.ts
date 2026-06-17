@@ -18,6 +18,9 @@ export type {
   SourceInterval,
   TimelineData,
   TimelineSegment,
+  VideoChapter,
+  VideoMap,
+  VideoMoment,
 } from "@clipflow/shared";
 
 // UI state-машина страницы.

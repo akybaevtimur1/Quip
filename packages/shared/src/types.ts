@@ -57,6 +57,9 @@ export interface ClipFlowContract {
   TimelineData?: TimelineData;
   TimelineSegment?: TimelineSegment;
   Transcript?: Transcript;
+  VideoChapter?: VideoChapter;
+  VideoMap?: VideoMap;
+  VideoMoment?: VideoMoment;
   Word?: Word;
 }
 /**
@@ -328,4 +331,34 @@ export interface Transcript {
   duration: number;
   language: string;
   words: Word[];
+}
+/**
+ * Глава видео с вложенными моментами и ссылками на клипы.
+ */
+export interface VideoChapter {
+  clip_ids?: string[];
+  end: number;
+  moments?: VideoMoment[];
+  start: number;
+  summary: string;
+  title: string;
+}
+/**
+ * Интересный момент внутри главы (детальная разметка для фронта).
+ */
+export interface VideoMoment {
+  end: number;
+  kind: string;
+  label: string;
+  start: number;
+  why: string;
+}
+/**
+ * Статус+результат нарративного анализа видео (кэш data/<job>/video_map.json).
+ */
+export interface VideoMap {
+  chapters?: VideoChapter[];
+  error?: string | null;
+  narrative?: string;
+  status?: "pending" | "done" | "failed";
 }
