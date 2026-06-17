@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from app import artifacts
@@ -15,6 +16,8 @@ from app.editor import store
 from app.editor.store import EditConflict
 from app.errors import JobError
 from app.models import ClipEdit, HookOverlay, Word
+
+_log = logging.getLogger("clipflow.agent")
 
 # Ограничители для get_surrounding_transcript (защита контекста модели).
 _SURROUND_DEFAULT_SEC = 30.0
@@ -170,8 +173,10 @@ def _t_regenerate_hook(job_id: str, clip_id: str, args: dict[str, Any]) -> dict[
             narrative = compact.get("narrative", "")
             if narrative:
                 video_summary = narrative
-    except Exception:  # noqa: BLE001 — video map is optional; never block hook regen
-        pass
+    except Exception as e:  # noqa: BLE001 — video map is optional; never block hook regen
+        # Rule #8: don't swallow silently — log so a broken map/load is visible, but
+        # degrade gracefully (hook regen proceeds without whole-video context).
+        _log.warning("get_video_map for hook context failed (job=%s): %s", job_id, e)
 
     before: str | None = None
 
