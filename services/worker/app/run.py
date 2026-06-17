@@ -209,6 +209,7 @@ def run_pipeline(
             speak_threshold=s.reframe_speak_threshold,
             scene_threshold=s.reframe_scene_threshold,
             split_enabled=s.reframe_split_enabled,
+            wide_speak_min=s.reframe_wide_speak_min,
         )  # fmt: skip
         reframe_t += time.perf_counter() - t0
         lat = render_clip(

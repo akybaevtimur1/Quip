@@ -361,16 +361,42 @@ class TestPlanRegions:
         assert regions[0].points  # есть траектория
         assert abs(regions[0].points[0].cx - 0.7) < 1e-9
 
-    def test_two_spread_speakers_is_fit(self) -> None:
+    def test_two_spread_no_clear_speaker_is_fit(self) -> None:
+        # 2 разнесённых лица, НИКТО явно не говорит (speak < wide_speak_min) → fit (split off).
         from app.pipeline.stage3_reframe import plan_regions
 
         tracks = [
-            self._track(0, 30, 0.2, 0.1, 0.5),
-            self._track(0, 30, 0.8, 0.1, 0.5),
+            self._track(0, 30, 0.2, 0.1, 0.1),
+            self._track(0, 30, 0.8, 0.1, 0.1),
         ]
         regions = plan_regions([(0, 30)], tracks, fps=30.0, crop_w_frac=0.32)
         assert regions[0].mode == "fit"
         assert regions[0].points == ()
+
+    def test_wide_with_clear_speaker_is_fill(self) -> None:
+        # ГИБРИД: 2 разнесённых лица, но ОДИН явно говорит (speak ≥ 0.3) → fill на нём, НЕ fit.
+        from app.pipeline.stage3_reframe import plan_regions
+
+        tracks = [
+            self._track(0, 30, 0.2, 0.1, -0.5),  # молчит
+            self._track(0, 30, 0.8, 0.1, 0.8),  # говорит
+        ]
+        regions = plan_regions(
+            [(0, 30)], tracks, fps=30.0, crop_w_frac=0.32, smoothing=1.0, speak_threshold=0.0
+        )
+        assert regions[0].mode == "fill"
+        assert abs(regions[0].points[0].cx - 0.8) < 1e-9  # кроп на говорящем
+
+    def test_wide_clear_speaker_below_min_stays_fit(self) -> None:
+        # говорит, но слабо (< wide_speak_min) → не «явный» → fit (широкий план).
+        from app.pipeline.stage3_reframe import plan_regions
+
+        tracks = [
+            self._track(0, 30, 0.2, 0.1, 0.1),
+            self._track(0, 30, 0.8, 0.1, 0.2),
+        ]
+        regions = plan_regions([(0, 30)], tracks, fps=30.0, crop_w_frac=0.32, wide_speak_min=0.3)
+        assert regions[0].mode == "fit"
 
     def test_picks_louder_speaker_not_largest(self) -> None:
         from app.pipeline.stage3_reframe import plan_regions
@@ -438,11 +464,11 @@ class TestPlanRegions:
     def test_split_two_spread_stable_tracks(self) -> None:
         from app.pipeline.stage3_reframe import plan_regions
 
-        # 2 устойчивых разнесённых трека + split_enabled → split (вместо fit),
-        # обе траектории; порядок стабилен по cx (левый → points).
+        # 2 устойчивых разнесённых трека, НИКТО явно не говорит (speak<0.3) + split_enabled →
+        # split (вместо fit); обе траектории; порядок стабилен по cx (левый → points).
         tracks = [
-            self._track(0, 30, 0.8, 0.1, 0.5),
-            self._track(0, 30, 0.2, 0.1, 0.5),
+            self._track(0, 30, 0.8, 0.1, 0.1),
+            self._track(0, 30, 0.2, 0.1, 0.1),
         ]
         regions = plan_regions(
             [(0, 30)], tracks, fps=30.0, crop_w_frac=0.32, smoothing=1.0, split_enabled=True
@@ -456,8 +482,8 @@ class TestPlanRegions:
         from app.pipeline.stage3_reframe import plan_regions
 
         tracks = [
-            self._track(0, 30, 0.2, 0.1, 0.5),
-            self._track(0, 30, 0.8, 0.1, 0.5),
+            self._track(0, 30, 0.2, 0.1, 0.1),
+            self._track(0, 30, 0.8, 0.1, 0.1),
         ]
         regions = plan_regions([(0, 30)], tracks, fps=30.0, crop_w_frac=0.32, split_enabled=False)
         assert regions[0].mode == "fit"
@@ -466,9 +492,9 @@ class TestPlanRegions:
         from app.pipeline.stage3_reframe import plan_regions
 
         tracks = [
-            self._track(0, 30, 0.15, 0.1, 0.5),
-            self._track(0, 30, 0.5, 0.1, 0.5),
-            self._track(0, 30, 0.85, 0.1, 0.5),
+            self._track(0, 30, 0.15, 0.1, 0.1),
+            self._track(0, 30, 0.5, 0.1, 0.1),
+            self._track(0, 30, 0.85, 0.1, 0.1),
         ]
         regions = plan_regions([(0, 30)], tracks, fps=30.0, crop_w_frac=0.32, split_enabled=True)
         assert regions[0].mode == "fit"
@@ -476,10 +502,11 @@ class TestPlanRegions:
     def test_split_requires_stable_coverage(self) -> None:
         from app.pipeline.stage3_reframe import plan_regions
 
-        # Второй трек живёт лишь 6 кадров из 30 (<60% шота) → НЕ устойчив → fit как раньше
+        # Второй трек живёт лишь 6 кадров из 30 (<60% шота) → НЕ устойчив; никто явно не говорит
+        # (speak<0.3) → fit как раньше.
         tracks = [
-            self._track(0, 30, 0.2, 0.1, 0.5),
-            self._track(0, 6, 0.8, 0.1, 0.5),
+            self._track(0, 30, 0.2, 0.1, 0.1),
+            self._track(0, 6, 0.8, 0.1, 0.1),
         ]
         regions = plan_regions([(0, 30)], tracks, fps=30.0, crop_w_frac=0.32, split_enabled=True)
         assert regions[0].mode == "fit"

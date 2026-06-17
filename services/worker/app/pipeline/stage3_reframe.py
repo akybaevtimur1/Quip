@@ -316,6 +316,7 @@ def plan_regions(
     wide_spread_min: float | None = None,
     mode_setting: str = "auto",
     split_enabled: bool = False,
+    wide_speak_min: float = 0.3,
 ) -> list[TrackRegion]:
     """Cut-aligned планировщик: на КАЖДЫЙ шот один режим + траектория. Сердце Pass-1. PURE.
 
@@ -341,24 +342,34 @@ def plan_regions(
             prev_fill_end_cx = None
             continue
         if mode_setting != "fill" and (not active or _is_wide_shot(active, f0, f1, spread_min)):
-            pair = _split_pair(active, f0, f1, spread_min) if split_enabled else None
-            if pair is not None:
-                ta, tb = pair
-                regions.append(
-                    TrackRegion(
-                        t0=t0,
-                        t1=t1,
-                        mode="split",
-                        points=_track_trajectory(ta, f0, f1, fps, smoothing),
-                        points_b=_track_trajectory(tb, f0, f1, fps, smoothing),
+            # ГИБРИД (фаундер): на широком плане 1) есть ЯВНЫЙ говорящий (max speak ≥
+            # wide_speak_min) → кропим спикера (fill, проваливаемся ниже); 2) иначе РОВНО 2
+            # устойчивых разнесённых лица → split (верх/низ — «норм», не блюр-широкий); 3) иначе
+            # → fit. Нет лиц → speaker нет → split/fit. Так fit остаётся только для «никто не
+            # говорит / толпа / нет лиц», а не для любого диалога.
+            clear_speaker = bool(active) and max(t.speak for t in active) >= wide_speak_min
+            if not clear_speaker:
+                pair = _split_pair(active, f0, f1, spread_min) if split_enabled else None
+                if pair is not None:
+                    ta, tb = pair
+                    regions.append(
+                        TrackRegion(
+                            t0=t0,
+                            t1=t1,
+                            mode="split",
+                            points=_track_trajectory(ta, f0, f1, fps, smoothing),
+                            points_b=_track_trajectory(tb, f0, f1, fps, smoothing),
+                        )
                     )
-                )
+                    prev_fill_end_cx = None
+                    continue
+                regions.append(TrackRegion(t0=t0, t1=t1, mode="fit", points=()))
                 prev_fill_end_cx = None
                 continue
-            regions.append(TrackRegion(t0=t0, t1=t1, mode="fit", points=()))
-            prev_fill_end_cx = None
-            continue
         target = _pick_target(active, speak_threshold)
+        # Непрерывность центра поперёк подряд идущих fill-шотов (ebfc3dc, анти-телепорт): новый
+        # fill EMA-едет от прошлого центра (валидный кроп спикера, НЕ «пустая середина») к новому.
+        # На fit/split prev сброшен в None → fill после них СНАПАЕТ на спикера сразу.
         pts = (
             _track_trajectory(target, f0, f1, fps, smoothing, init_cx=prev_fill_end_cx)
             if target is not None
@@ -693,6 +704,7 @@ def reframe_segment(
     speak_threshold: float = 0.0,
     scene_threshold: float = 27.0,
     split_enabled: bool = False,
+    wide_speak_min: float = 0.3,
 ) -> tuple[list[TrackRegion], bool]:
     """Сегмент → (cut-aligned регионы, face_found). Единый путь (ASD по дефолту).
 
@@ -729,6 +741,7 @@ def reframe_segment(
             speak_threshold=speak_threshold,
             mode_setting=mode_setting,
             split_enabled=split_enabled,
+            wide_speak_min=wide_speak_min,
         ),
         min_hold_sec,
     )

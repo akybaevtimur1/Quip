@@ -159,6 +159,7 @@ def resolve_regions_accurate(
     speak_threshold: float = 0.0,
     scene_threshold: float = 27.0,
     split_enabled: bool = False,
+    wide_speak_min: float = 0.3,
 ) -> list[list[TrackRegion]]:
     """Регионы на интервалы ЕДИНЫМ frame-accurate путём (как batch): per-interval
     `reframe_segment` (PySceneDetect frame-accurate + ASD-говорящий + held-crop по шотам).
@@ -190,6 +191,7 @@ def resolve_regions_accurate(
             speaker_crop_scale=speaker_crop_scale, face_fps=face_fps, smoothing=smoothing,
             min_hold_sec=min_hold_sec, speak_threshold=speak_threshold,
             scene_threshold=scene_threshold, split_enabled=split_enabled,
+            wide_speak_min=wide_speak_min,
         )  # fmt: skip
         cache.write_text(
             json.dumps([_region_to_dict(r) for r in regions], ensure_ascii=False), "utf-8"

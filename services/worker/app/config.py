@@ -82,6 +82,9 @@ class Settings(BaseSettings):
     # PySceneDetect ContentDetector (~27) + ASD порог говорения.
     reframe_scene_threshold: float = 27.0
     reframe_speak_threshold: float = 0.0  # ниже порога → фолбэк на largest-face
+    # ГИБРИД (фаундер): на широком плане, если кто-то говорит с speak ≥ этого → кропим спикера
+    # (fill), а не fit. Шкала ASD speak ≈ [-2..+1]; 0.3 = «явно говорит». Ниже → split/fit.
+    reframe_wide_speak_min: float = 0.3
     # split-screen (v3): ровно 2 устойчивых разнесённых лица → верх/низ (вместо fit);
     # 3+ лиц / нестабильные треки → fit как раньше. false = всегда fit (старое поведение).
     reframe_split_enabled: bool = True
