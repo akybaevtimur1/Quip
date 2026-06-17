@@ -1,17 +1,28 @@
-"""PURE helpers: VideoMap parser (D1.2) + moment_to_interval snap helper (D1.3).
+"""VideoMap helpers: parser (D1.2), moment→interval snap (D1.3), Gemini generation (D1.4).
 
-No I/O, no Gemini calls (those live in D1.4). All defensive: broken input → failed status,
-never raises. Mirror style of postprocess_chapters in app/editor/chapters.py.
+Pure helpers (parse_video_map, moment_to_interval) never raise — broken input → failed status.
+Gemini I/O (generate_video_map) mirrors generate_chapters in app/editor/chapters.py exactly.
 """
 
 from __future__ import annotations
 
+import json
 import math
+from pathlib import Path
 from typing import Any
 
+from pydantic import BaseModel
+
 from app.editor.ops import clamp_interval
+from app.errors import JobError
 from app.models import Segment, VideoChapter, VideoMap, VideoMoment, Word
-from app.pipeline.stage2_select import indices_to_times, snap_end_index, snap_start_index
+from app.pipeline.stage2_select import (
+    build_indexed_transcript,
+    call_gemini_structured,
+    indices_to_times,
+    snap_end_index,
+    snap_start_index,
+)
 
 # Valid moment kinds (spec §2/§6). Unknown kind → fallback "insight" (moment kept).
 _VALID_KINDS = {"tension", "quote", "emotional", "insight", "funny"}
@@ -237,3 +248,149 @@ def moment_to_interval(
     s, e = indices_to_times(words, snapped_start_idx, snapped_end_idx)
 
     return clamp_interval(s, e, duration=source_dur, min_sec=min_sec, max_sec=source_dur)
+
+
+# ─────────────────────── Gemini generation (D1.4) ────────────────────────
+
+
+_STAGE = "video_map"
+_PROMPT_PATH = Path(__file__).resolve().parents[2] / "prompts" / "video_map.v1.txt"
+
+_DEFAULT_SYSTEM_PROMPT = """\
+You are an expert video analyst. Analyze the whole video from its word-indexed transcript
+and produce a VideoMap: a connected narrative overview, chapters covering the entire video,
+and key moments (kind ∈ {tension, quote, emotional, insight, funny}) inside chapters.
+Use word indices from the numbered transcript for all boundaries. Output language = video language.
+Never invent facts not in the transcript.
+"""
+
+
+def _load_video_map_prompt() -> str:
+    """System prompt from prompts/video_map.v1.txt; inline fallback if file missing."""
+    if _PROMPT_PATH.exists():
+        return _PROMPT_PATH.read_text(encoding="utf-8")
+    return _DEFAULT_SYSTEM_PROMPT
+
+
+# ── private response schema (word indices, converted to seconds below) ──
+
+
+class _LlmMoment(BaseModel):
+    start_word_index: int
+    end_word_index: int
+    label: str
+    why: str
+    kind: str
+
+
+class _LlmChapter(BaseModel):
+    start_word_index: int
+    end_word_index: int
+    title: str
+    summary: str
+    moments: list[_LlmMoment] = []
+
+
+class _LlmVideoMap(BaseModel):
+    narrative: str
+    chapters: list[_LlmChapter]
+
+
+def generate_video_map(
+    words: list[Word],
+    duration: float,
+    language: str,
+    segments: list[Segment],
+    *,
+    usage_sink: dict[str, int] | None = None,
+) -> VideoMap:
+    """Gemini → VideoMap via word indices → seconds → parse_video_map.
+
+    Mirrors generate_chapters (app/editor/chapters.py) exactly.
+    Raises JobError on permanent Gemini failure (caller → status=failed).
+    Garbage/empty model output → parse_video_map returns status="failed" (never raises).
+    """
+    indexed = build_indexed_transcript(words)
+
+    # Build clip list so the model can reference [[clip:clip_NN]] in the narrative.
+    clip_lines: list[str] = []
+    for i, seg in enumerate(segments):
+        clip_id = f"clip_{i + 1:02d}"
+        start_mm, start_ss = divmod(int(seg.start), 60)
+        end_mm, end_ss = divmod(int(seg.end), 60)
+        clip_lines.append(
+            f"  {clip_id}: [{start_mm:02d}:{start_ss:02d}–{end_mm:02d}:{end_ss:02d}]"
+            f"  type={seg.type}"
+        )
+    clips_block = "\n".join(clip_lines) if clip_lines else "  (no clips selected)"
+
+    user_prompt = (
+        f"Language: {language}  Duration: {duration:.0f}s  Words: {len(words)}\n\n"
+        f"Selected clips (reference as [[clip:clip_NN]] in narrative):\n{clips_block}\n\n"
+        f"Word-indexed transcript (each line starts with the index of its first word):\n"
+        f"{indexed}\n\n"
+        f"Produce a VideoMap covering the ENTIRE video."
+    )
+
+    text = call_gemini_structured(
+        user_prompt,
+        system_prompt=_load_video_map_prompt(),
+        response_schema=_LlmVideoMap,
+        stage=_STAGE,
+        usage_sink=usage_sink,
+    )
+
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError as e:
+        raise JobError(_STAGE, f"Gemini вернул не-JSON: {e}") from e
+
+    raw_chapters = parsed.get("chapters", [])
+    narrative = str(parsed.get("narrative", "")).strip()
+
+    n = len(words)
+    chapters_out: list[dict[str, Any]] = []
+    for ch_item in raw_chapters:
+        try:
+            si = max(0, min(int(ch_item["start_word_index"]), n - 1))
+            ei = max(0, min(int(ch_item["end_word_index"]), n - 1))
+            ch_start = words[si].start
+            ch_end = words[ei].end
+            if ch_end <= ch_start:
+                continue  # degenerate chapter after index clamping — skip
+        except (KeyError, TypeError, ValueError, IndexError):
+            continue
+
+        moments_out: list[dict[str, Any]] = []
+        for m_item in ch_item.get("moments") or []:
+            try:
+                msi = max(0, min(int(m_item["start_word_index"]), n - 1))
+                mei = max(0, min(int(m_item["end_word_index"]), n - 1))
+                m_start = words[msi].start
+                m_end = words[mei].end
+                if m_end <= m_start:
+                    continue  # degenerate moment — skip
+                moments_out.append(
+                    {
+                        "start": m_start,
+                        "end": m_end,
+                        "label": str(m_item.get("label", "")).strip(),
+                        "why": str(m_item.get("why", "")).strip(),
+                        "kind": str(m_item.get("kind", "")).strip(),
+                    }
+                )
+            except (KeyError, TypeError, ValueError, IndexError):
+                continue  # broken moment — skip, don't drop whole chapter
+
+        chapters_out.append(
+            {
+                "start": ch_start,
+                "end": ch_end,
+                "title": str(ch_item.get("title", "")).strip(),
+                "summary": str(ch_item.get("summary", "")).strip(),
+                "moments": moments_out,
+            }
+        )
+
+    raw: dict[str, Any] = {"narrative": narrative, "chapters": chapters_out}
+    return parse_video_map(raw, segments, duration)

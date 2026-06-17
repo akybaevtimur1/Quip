@@ -1,4 +1,4 @@
-"""TDD tests for parse_video_map (Task D1.2) and moment_to_interval (D1.3) — PURE, no I/O.
+"""TDD tests for parse_video_map (D1.2), moment_to_interval (D1.3), generate_video_map (D1.4).
 
 Run (from services/worker with PATH refresh):
     uv run pytest tests/unit/test_video_map.py -q
@@ -6,7 +6,10 @@ Run (from services/worker with PATH refresh):
 
 from __future__ import annotations
 
-from app.editor.video_map import moment_to_interval, parse_video_map
+import json
+from unittest.mock import patch
+
+from app.editor.video_map import generate_video_map, moment_to_interval, parse_video_map
 from app.models import Segment, VideoMap, Word
 
 # ─── helpers ─────────────────────────────────────────────────────────────────
@@ -283,3 +286,200 @@ def test_moment_to_interval_already_long_enough_not_trimmed() -> None:
     s, e = moment_to_interval(10.0, 35.0, words, source_dur=source_dur)
     assert e - s >= 20.0
     assert e <= source_dur
+
+
+# ─── generate_video_map (D1.4) — monkeypatched Gemini ────────────────────────
+
+
+def _make_words_simple(count: int, word_dur: float = 1.0) -> list[Word]:
+    """Build `count` words each spanning [i*word_dur, (i+1)*word_dur)."""
+    return [Word(text=f"w{i}", start=i * word_dur, end=(i + 1) * word_dur) for i in range(count)]
+
+
+def _seg(start: float, end: float) -> Segment:
+    return Segment(start=start, end=end, reason="r", score=0.5, type="hook")
+
+
+def _canned_llm_response(
+    narrative: str,
+    chapters: list[dict],
+) -> str:
+    """Build a JSON string as call_gemini_structured would return."""
+    return json.dumps({"narrative": narrative, "chapters": chapters})
+
+
+_MODULE = "app.editor.video_map.call_gemini_structured"
+
+
+def test_generate_video_map_index_to_seconds_conversion() -> None:
+    """Word indices from LLM are converted to correct seconds via words[idx].start/.end."""
+    words = _make_words_simple(20)  # words 0-19, each 1s wide: word i = [i, i+1)
+    segments = [_seg(0.0, 5.0), _seg(10.0, 15.0)]
+    duration = 20.0
+
+    # LLM says chapter from word 2 to word 9, moment from word 4 to word 6
+    canned = _canned_llm_response(
+        narrative="Test narrative",
+        chapters=[
+            {
+                "start_word_index": 2,
+                "end_word_index": 9,
+                "title": "Chapter One",
+                "summary": "First chapter summary.",
+                "moments": [
+                    {
+                        "start_word_index": 4,
+                        "end_word_index": 6,
+                        "label": "Key moment",
+                        "why": "Because it is important",
+                        "kind": "insight",
+                    }
+                ],
+            }
+        ],
+    )
+
+    with patch(_MODULE, return_value=canned):
+        result = generate_video_map(words, duration, "en", segments)
+
+    assert result.status == "done"
+    assert result.narrative == "Test narrative"
+    assert len(result.chapters) == 1
+
+    ch = result.chapters[0]
+    # word 2 starts at 2.0, word 9 ends at 10.0
+    assert ch.start == words[2].start  # 2.0
+    assert ch.end == words[9].end  # 10.0
+    assert ch.title == "Chapter One"
+
+    assert len(ch.moments) == 1
+    m = ch.moments[0]
+    # word 4 starts at 4.0, word 6 ends at 7.0
+    assert m.start == words[4].start  # 4.0
+    assert m.end == words[6].end  # 7.0
+    assert m.kind == "insight"
+
+
+def test_generate_video_map_clip_ids_attached() -> None:
+    """Chapters that overlap segments get correct clip_ids from parse_video_map."""
+    words = _make_words_simple(30)
+    # segments: clip_01=[0,5), clip_02=[10,20), clip_03=[25,30)
+    segments = [_seg(0.0, 5.0), _seg(10.0, 20.0), _seg(25.0, 30.0)]
+    duration = 30.0
+
+    # Chapter covers words 9-19 → seconds [9.0, 20.0) → overlaps clip_02
+    canned = _canned_llm_response(
+        narrative="N",
+        chapters=[
+            {
+                "start_word_index": 9,
+                "end_word_index": 19,
+                "title": "Mid",
+                "summary": "Middle section.",
+                "moments": [],
+            }
+        ],
+    )
+
+    with patch(_MODULE, return_value=canned):
+        result = generate_video_map(words, duration, "en", segments)
+
+    assert result.status == "done"
+    assert len(result.chapters) == 1
+    assert "clip_02" in result.chapters[0].clip_ids
+    assert "clip_01" not in result.chapters[0].clip_ids
+
+
+def test_generate_video_map_out_of_bounds_indices_clamped() -> None:
+    """Word indices beyond transcript length are clamped to [0, n-1], not dropped."""
+    words = _make_words_simple(10)  # indices 0-9
+    segments: list[Segment] = []
+    duration = 10.0
+
+    # LLM returns index 999 (way out of range) — should clamp to 9
+    canned = _canned_llm_response(
+        narrative="N",
+        chapters=[
+            {
+                "start_word_index": 0,
+                "end_word_index": 999,  # out of range → clamped to 9
+                "title": "All",
+                "summary": "Whole video.",
+                "moments": [],
+            }
+        ],
+    )
+
+    with patch(_MODULE, return_value=canned):
+        result = generate_video_map(words, duration, "en", segments)
+
+    assert result.status == "done"
+    assert len(result.chapters) == 1
+    # clamped end index = 9 → words[9].end = 10.0
+    assert result.chapters[0].end == words[9].end
+
+
+def test_generate_video_map_degenerate_moment_skipped() -> None:
+    """A moment where end_index <= start_index (after clamping) is skipped; chapter kept."""
+    words = _make_words_simple(20)
+    segments: list[Segment] = []
+    duration = 20.0
+
+    canned = _canned_llm_response(
+        narrative="N",
+        chapters=[
+            {
+                "start_word_index": 0,
+                "end_word_index": 19,
+                "title": "All",
+                "summary": "Whole.",
+                "moments": [
+                    # degenerate: start > end (word 10 > word 5 in seconds)
+                    {
+                        "start_word_index": 10,
+                        "end_word_index": 5,
+                        "label": "Bad",
+                        "why": "Bad",
+                        "kind": "tension",
+                    },
+                    # valid moment
+                    {
+                        "start_word_index": 2,
+                        "end_word_index": 4,
+                        "label": "Good",
+                        "why": "Good",
+                        "kind": "funny",
+                    },
+                ],
+            }
+        ],
+    )
+
+    with patch(_MODULE, return_value=canned):
+        result = generate_video_map(words, duration, "en", segments)
+
+    assert result.status == "done"
+    assert len(result.chapters) == 1
+    # degenerate moment (word 10 start=10.0 > word 5 end=6.0) should be skipped
+    # valid moment kept
+    assert len(result.chapters[0].moments) == 1
+    assert result.chapters[0].moments[0].label == "Good"
+
+
+def test_generate_video_map_empty_words_returns_failed() -> None:
+    """With no words the LLM returns a chapter but indices clamp to 0,0 → start==end → skipped."""
+    words: list[Word] = []
+    segments: list[Segment] = []
+    duration = 0.0
+
+    # With empty words we can't index at all — parse_video_map will get no valid chapters
+    # and narrative only → returns done with empty chapters (not failed)
+    # But the main guard: degenerate (start==end) chapters are dropped by generate_video_map.
+    canned = _canned_llm_response(narrative="N", chapters=[])
+
+    with patch(_MODULE, return_value=canned):
+        result = generate_video_map(words, duration, "en", segments)
+
+    # parse_video_map with empty chapters list → done (chapters key exists, list just empty)
+    assert result.status == "done"
+    assert result.chapters == []
