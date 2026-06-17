@@ -18,7 +18,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from app import db, storage
+from app import db, dispatch, storage
 from app.config import get_settings
 from app.errors import JobError
 from app.models import ClipOut, Job, JobStatus, Metrics, Segment, Transcript, Word
@@ -62,6 +62,104 @@ def _gemini_cost(usage: dict[str, int]) -> float:
     return round(
         usage.get("prompt", 0) * _GEMINI_IN_USD_PER_TOK + out_tok * _GEMINI_OUT_USD_PER_TOK, 4
     )
+
+
+def clip_spawn_args(
+    job_id: str, segments: list[Segment], meta: SourceMeta
+) -> list[tuple[str, int, dict[str, Any], dict[str, Any]]]:
+    """Аргументы фан-аута: один кортеж на сегмент ``(job_id, clip_index, seg, meta)``. PURE.
+
+    ``clip_index`` 1-based (совпадает с ``clip_id`` ``clip_{i:02d}``). seg/meta — ``model_dump``
+    для переноса через границу Modal (cloudpickle-дружелюбные dict'ы).
+    """
+    md = meta.model_dump()
+    return [(job_id, i, seg.model_dump(), md) for i, seg in enumerate(segments, start=1)]
+
+
+def build_clip_out(
+    clip_id: str, seg: Segment, transcript_words: list[Word], video_url: str
+) -> ClipOut:
+    """Сегмент + слова транскрипта + готовый ``video_url`` → ClipOut (wire). PURE.
+
+    Сниппет/слова считаются по окну сегмента — НЕ зависят от того, где рендерился клип
+    (локально или на фан-аут-контейнере).
+    """
+    return ClipOut(
+        id=clip_id,
+        start=seg.start,
+        end=seg.end,
+        duration=round(seg.end - seg.start, 2),
+        reason=seg.reason,
+        type=seg.type,
+        score=seg.score,
+        video_url=video_url,
+        thumbnail_url=None,
+        transcript=_snippet(transcript_words, seg.start, seg.end),
+        words=words_in_segment(transcript_words, seg.start, seg.end),
+        hook=seg.hook,
+        why_works=seg.why_works,
+        hook_style=seg.hook_style,
+    )
+
+
+def render_one_clip(
+    out: Path, source_name: str, clip_index: int, seg: Segment, meta: SourceMeta
+) -> dict[str, Any]:
+    """Stages 3–5 для ОДНОГО клипа: reframe → render → upload. Возвращает picklable result.
+
+    Общее ядро (DRY): локальный цикл И Modal-фан-аут зовут ЭТУ функцию. Настройки берём из
+    ``get_settings()`` ВНУТРИ (на фан-аут-контейнере свой процесс/env). ``source_name`` —
+    относительно ``out``. НЕ трогает stage3/stage5 — только вызывает (инвариант кадровой
+    сетки docs/REFRAME_FPS_GRID_INVARIANT.md цел).
+    """
+    s = get_settings()
+    clip_id = f"clip_{clip_index:02d}"
+    t0 = time.perf_counter()
+    regions, face_found = reframe_segment(
+        out / source_name, meta.width, meta.height, seg.start, seg.end,
+        clip_id=clip_id, out_dir=out, fps=meta.fps, mode_setting=s.reframe_mode,
+        speaker_crop_scale=s.reframe_speaker_crop_scale,
+        face_fps=s.reframe_face_fps, smoothing=s.reframe_smoothing,
+        min_hold_sec=s.reframe_min_hold_sec,
+        speak_threshold=s.reframe_speak_threshold,
+        scene_threshold=s.reframe_scene_threshold,
+        split_enabled=s.reframe_split_enabled,
+        wide_speak_min=s.reframe_wide_speak_min,
+    )  # fmt: skip
+    reframe_lat = round(time.perf_counter() - t0, 2)
+    render_lat = render_clip(
+        out, source_name, seg.start, f"clips/{clip_id}.mp4",
+        regions=regions, src_w=meta.width, src_h=meta.height, fps=meta.fps,
+        engine=s.reframe_engine,
+    )  # fmt: skip
+    video_url = storage.upload_clip(out / "clips" / f"{clip_id}.mp4", out.name, clip_id)
+    n_fit = sum(1 for r in regions if r.mode == "fit")
+    print(
+        f"  {clip_id}: {seg.start:.1f}-{seg.end:.1f} face={face_found} "
+        f"regions={len(regions)} fit={n_fit} render={render_lat}s"
+    )
+    return {
+        "clip_id": clip_id,
+        "clip_index": clip_index,
+        "video_url": video_url,
+        "reframe_lat": reframe_lat,
+        "render_lat": render_lat,
+        "face_found": face_found,
+    }
+
+
+def _render_all_clips(
+    job_id: str, out: Path, source_name: str, segments: list[Segment], meta: SourceMeta
+) -> list[dict[str, Any]]:
+    """Stages 3–5 для ВСЕХ клипов. Modal → фан-аут (контейнер на клип, ПАРАЛЛЕЛЬНО);
+    локально → последовательный цикл (идентично прежнему поведению). Результаты — в порядке
+    сегментов (стабильный ``clip_index`` для ассемблинга ClipOut).
+    """
+    if dispatch.modal_spawn_enabled():
+        return dispatch.map_render_clips(clip_spawn_args(job_id, segments, meta))
+    return [
+        render_one_clip(out, source_name, i, seg, meta) for i, seg in enumerate(segments, start=1)
+    ]
 
 
 def run_pipeline(
@@ -191,83 +289,48 @@ def run_pipeline(
     stages["llm_select"] = round(time.perf_counter() - t0, 2)
     select_cost = _gemini_cost(usage)
 
-    # ── Stages 3–5: per-clip (reframe → captions → render) ──
-    emit(JobStatus.rendering, 80)
-    clips: list[ClipOut] = []
-    reframe_t = 0.0
-    render_t = 0.0
-    ttfc: float | None = None
-    for i, seg in enumerate(segments, start=1):
-        clip_id = f"clip_{i:02d}"
-        t0 = time.perf_counter()
-        regions, face_found = reframe_segment(
-            out / "source.mp4", meta.width, meta.height, seg.start, seg.end,
-            clip_id=clip_id, out_dir=out, fps=meta.fps, mode_setting=s.reframe_mode,
-            speaker_crop_scale=s.reframe_speaker_crop_scale,
-            face_fps=s.reframe_face_fps, smoothing=s.reframe_smoothing,
-            min_hold_sec=s.reframe_min_hold_sec,
-            speak_threshold=s.reframe_speak_threshold,
-            scene_threshold=s.reframe_scene_threshold,
-            split_enabled=s.reframe_split_enabled,
-            wide_speak_min=s.reframe_wide_speak_min,
-        )  # fmt: skip
-        reframe_t += time.perf_counter() - t0
-        lat = render_clip(
-            out, "source.mp4", seg.start,
-            f"clips/{clip_id}.mp4",
-            regions=regions, src_w=meta.width, src_h=meta.height, fps=meta.fps,
-            engine=s.reframe_engine,
-        )  # fmt: skip
-        render_t += lat
-        if ttfc is None:
-            ttfc = round(time.perf_counter() - t_start, 2)
-        clips.append(
-            ClipOut(
-                id=clip_id,
-                start=seg.start,
-                end=seg.end,
-                duration=round(seg.end - seg.start, 2),
-                reason=seg.reason,
-                type=seg.type,
-                score=seg.score,
-                # local → "clips/<id>.mp4" (раздаётся на /media); r2 → публичный/presigned URL.
-                video_url=storage.upload_clip(out / "clips" / f"{clip_id}.mp4", job_id, clip_id),
-                thumbnail_url=None,
-                transcript=_snippet(transcript.words, seg.start, seg.end),
-                words=words_in_segment(transcript.words, seg.start, seg.end),
-                hook=seg.hook,
-                why_works=seg.why_works,
-                hook_style=seg.hook_style,
-            )
-        )
-        n_fit = sum(1 for r in regions if r.mode == "fit")
-        print(
-            f"  {clip_id}: {seg.start:.1f}-{seg.end:.1f} face={face_found} "
-            f"regions={len(regions)} fit={n_fit} render={lat}s"
-        )
-    stages["reframe"] = round(reframe_t, 2)
-    stages["render"] = round(render_t, 2)
-
-    # ── preview-прокси: лёгкий source для БЫСТРОЙ загрузки в редакторе (≤preview_height H.264
-    #    faststart). Кэш по наличию (повтор = $0/0с). Высота клампится высотой источника (без
-    #    апскейла). Рендер клипов идёт из ПОЛНОГО source выше → качество не падает. ──
-    t0 = time.perf_counter()
-    build_preview_proxy(
-        out / "source.mp4", out / "preview.mp4",
-        height=min(s.preview_height, meta.height), crf=s.preview_crf,
-    )  # fmt: skip
-    stages["preview_proxy"] = round(time.perf_counter() - t0, 2)
-
-    # ── persist для облака (Modal): источник + preview-прокси в R2 (редактор на др. контейнере) +
-    #    артефакты (meta/segments/transcript) в Postgres job_artifacts. Локально оба = no-op. ──
-    storage.upload_source(out / "source.mp4", job_id)
-    storage.upload_preview(out / "preview.mp4", job_id)
+    # ── Артефакты (meta/segments/transcript) в Postgres job_artifacts ДО фан-аута: preview_job
+    #    (и любой будущий клип-контейнер) читает meta из облака. Локально — no-op. ──
     db.put_job_artifacts(
         job_id,
         meta.model_dump(),
         [seg.model_dump() for seg in segments],
         transcript.model_dump(),
     )
+
+    # ── Источник в R2 ДО фан-аута: каждый клип-контейнер скачивает source из R2
+    #    (artifacts.ensure_source — тот же проверенный путь, что у editor-render). Локально
+    #    upload_source = no-op (исходник остаётся на диске). ──
+    storage.upload_source(out / "source.mp4", job_id)
+
+    # ── #3 Preview-прокси СНЯТ с критического пути: на Modal — отдельная функция preview_job,
+    #    спавним СЕЙЧАС → она строит прокси ПАРАЛЛЕЛЬНО с клипами и не держит set_done. Редактор
+    #    фолбэчит на source, пока прокси не готов (storage.preview_read_url). Локально строим
+    #    inline ПОСЛЕ клипов (dev: один процесс, клипы уже отданы). ──
+    if dispatch.modal_spawn_enabled():
+        dispatch.spawn("preview_job", job_id)
+
+    # ── Stages 3–5: #1 фан-аут per-clip по контейнерам Modal (параллельно) ЛИБО последовательный
+    #    цикл локально. Результаты приходят в порядке сегментов → стабильный ClipOut. ──
+    emit(JobStatus.rendering, 80)
+    results = _render_all_clips(job_id, out, "source.mp4", segments, meta)
+    results.sort(key=lambda r: r["clip_index"])
+    clips: list[ClipOut] = [
+        build_clip_out(r["clip_id"], seg, transcript.words, r["video_url"])
+        for seg, r in zip(segments, results, strict=True)
+    ]
+    stages["reframe"] = round(sum(r["reframe_lat"] for r in results), 2)
+    stages["render"] = round(sum(r["render_lat"] for r in results), 2)
+
+    # Локально (нет Modal) preview строим inline ПОСЛЕ клипов (cloud уже спавнил preview_job выше).
+    if not dispatch.modal_spawn_enabled():
+        t0 = time.perf_counter()
+        build_preview_proxy(
+            out / "source.mp4", out / "preview.mp4",
+            height=min(s.preview_height, meta.height), crf=s.preview_crf,
+        )  # fmt: skip
+        stages["preview_proxy"] = round(time.perf_counter() - t0, 2)
+        storage.upload_preview(out / "preview.mp4", job_id)
 
     # ── job.json (wire-контракт) ──
     total_sec = round(time.perf_counter() - t_start, 2)
@@ -291,7 +354,10 @@ def run_pipeline(
         "total_sec": total_sec,
         "total_usd": total_usd,
         "n_clips": len(clips),
-        "time_to_first_clip_sec": ttfc,
+        # При параллельном фан-ауте per-clip TTFC с координатора не имеет смысла (клипы
+        # рендерятся одновременно на отдельных контейнерах) → None. В локальном цикле тоже None
+        # (упрощение: телеметрия экономики живёт в stages/total_sec).
+        "time_to_first_clip_sec": None,
     }
     with (DATA_ROOT / "runs.jsonl").open("a", encoding="utf-8") as f:
         f.write(json.dumps(run_line, ensure_ascii=False) + "\n")

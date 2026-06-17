@@ -1016,3 +1016,22 @@ responsive-префиксами (база = мобайл, `sm:`/`lg:` восст
 - **Верификация:** перерендерил источник (job_060aaf70f05c), покадрово 2 независимые fill→fill
   склейки: 261 (man→woman) и 949 (woman→man) — контент и кроп меняются на ОДНОМ кадре, флеша нет.
   `just check` зелёный (628 unit), воркер задеплоен.
+
+### 2026-06-17 — Perf: параллельный рендер клипов + preview вне критического пути
+- **Проблема (по реальным логам Modal, job_7653abda6258):** stages 3–5 шли последовательным
+  Python-циклом на ОДНОМ run_job-контейнере. Соседние клипы стартовали ~57-60с друг от друга,
+  при этом `render=` всего ~8с → доминанта = reframe-анализ (MediaPipe+ASD) ~50с/клип. Wall-time
+  линеен по числу клипов (30 клипов ≈ 30 мин). Плюс `build_preview_proxy` (полный транскод
+  source→720p, до 30-60 мин для 3ч) сидел на критическом пути ДО set_done.
+- **#1 фан-аут:** per-clip тело (reframe→render→upload) вынесено в ОДНУ shared-функцию
+  `run.render_one_clip` (DRY). На Modal — новая функция `reframe_render_clip` (контейнер на клип,
+  `dispatch.map_render_clips` → `starmap`), клипы рендерятся ПАРАЛЛЕЛЬНО; локально — тот же
+  последовательный цикл (поведение идентично). Каждый клип-контейнер качает source из R2 через
+  `artifacts.ensure_source` (тот же путь, что editor-render). source грузится в R2 ДО фан-аута.
+- **#3 preview:** вынесен в отдельную `preview_job` (Modal), run_job спавнит её ПАРАЛЛЕЛЬНО с
+  клипами — не держит set_done. Редактор фолбэчит на source, пока прокси не готов
+  (`storage.preview_read_url`). Локально preview строится inline ПОСЛЕ клипов (dev).
+- **Инвариант цел:** НЕ трогали `stage3_reframe.py`/`stage5_render.py`/`reframe_cache.py` — только
+  вызовы. Кадровая сетка (REFRAME_FPS_GRID_INVARIANT, фикс 9e57981) не затронута. Без `models.py`
+  → без codegen. `just check` зелёный (632 unit). Ветка `perf/parallel-clip-render`.
+- План: `docs/superpowers/plans/2026-06-17-parallel-clip-render.md`.

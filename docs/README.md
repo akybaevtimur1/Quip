@@ -16,8 +16,15 @@
   (The old note "apps/web isn't deployed / the `quip` Vercel project is the landing repo" is
   **OUTDATED**. `quip` = old landing; `quip-app` = the real app.)
 - **Worker:** Modal app **`quip-worker`** — `https://akybaevtimur7--quip-worker-web.modal.run`
-  (functions `web` / `run_job` / `upload_job` / `render_job`; `/healthz` → 200). Redeploy =
-  `modal deploy deploy/modal/worker.py` (on Windows set `PYTHONIOENCODING=utf-8` first).
+  (functions `web` / `run_job` / `upload_job` / `render_job` / **`reframe_render_clip`** (per-clip
+  fan-out) / **`preview_job`**; `/healthz` → 200). Redeploy = `modal deploy deploy/modal/worker.py`
+  (on Windows set `PYTHONIOENCODING=utf-8` first).
+- **Рендер клипов = параллельный фан-аут (perf, 2026-06-17).** `run_job` делает import→
+  transcribe→select, грузит source в R2, затем фанит per-clip reframe+render по контейнерам
+  `reframe_render_clip` (`starmap`) вместо последовательного цикла. **preview-прокси** (полный
+  транскод source→720p) снят с критического пути — отдельная `preview_job` строит его ПАРАЛЛЕЛЬНО
+  с клипами (редактор фолбэчит на source, пока не готов). Локально (dev) — старый цикл + inline
+  preview. Не трогает stage3/stage5 (инвариант кадровой сетки цел). См. JOURNAL 2026-06-17.
 - **State:** Supabase Postgres project **`qiagetbnsssvbiowuxpp`**, migrations **0001–0005 applied**
   (billing, credits, usage-idempotency, feedback, promo codes). Clips in **Cloudflare R2**
   (`cdn.quip.ink`).

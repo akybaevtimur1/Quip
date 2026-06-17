@@ -248,6 +248,71 @@ def render_job(job_id: str, clip_id: str) -> None:
     render_clip_edit_job(job_id, clip_id)
 
 
+# Фан-аут per-clip (perf #1): ОДИН контейнер на клип → клипы рендерятся ПАРАЛЛЕЛЬНО, а не
+# последовательным циклом на одном run_job-контейнере. source.mp4 скачивается из R2
+# (artifacts.ensure_source — тот же путь, что у editor-render). timeout=1800 с запасом на длинный
+# клип (reframe ASD ~реалтайм + рендер). cpu=4/memory=4096 как render_job (CPU-bound ffmpeg+torch).
+# Возвращает picklable result-dict; run.py собирает из них ClipOut. НЕ трогает stage3/stage5 —
+# только зовёт reframe_segment/render_clip (инвариант кадровой сетки цел).
+@app.function(
+    secrets=[_SECRET, _BILLING_SECRET],
+    timeout=1800,
+    cpu=4,
+    memory=4096,
+    min_containers=0,
+    serialized=True,
+)
+def reframe_render_clip(job_id: str, clip_index: int, seg: dict, meta: dict) -> dict:
+    """Stages 3–5 ОДНОГО клипа на своём контейнере (параллельный фан-аут run_job)."""
+    import sys
+
+    if "/root" not in sys.path:
+        sys.path.insert(0, "/root")
+    from app import artifacts
+    from app.models import Segment
+    from app.pipeline.stage0_import import SourceMeta
+    from app.run import render_one_clip
+
+    src = artifacts.ensure_source(job_id)  # качает source из R2 на свежий контейнер
+    return render_one_clip(
+        src.parent,
+        src.name,
+        clip_index,
+        Segment.model_validate(seg),
+        SourceMeta.model_validate(meta),
+    )
+
+
+# Preview-прокси (perf #3) — отдельная функция: run_job спавнит её ПАРАЛЛЕЛЬНО с клипами, она НЕ
+# держит set_done (раньше полный транскод source→720p сидел на критическом пути, до 30-60 мин для
+# 3ч-видео). Качает source из R2, строит ≤720p H.264 faststart, льёт preview в R2. Редактор
+# фолбэчит на source, пока прокси не готов (storage.preview_read_url). cpu=2 — лёгкий ре-энкод.
+@app.function(
+    secrets=[_SECRET, _BILLING_SECRET],
+    timeout=1800,
+    cpu=2,
+    memory=2048,
+    min_containers=0,
+    serialized=True,
+)
+def preview_job(job_id: str) -> None:
+    """Построить и залить preview.mp4 в R2 (вне критического пути джоба)."""
+    import sys
+
+    if "/root" not in sys.path:
+        sys.path.insert(0, "/root")
+    from app import artifacts, storage
+    from app.config import get_settings
+    from app.pipeline.stage0_import import build_preview_proxy
+
+    s = get_settings()
+    src = artifacts.ensure_source(job_id)
+    meta = artifacts.load_meta(job_id)
+    dst = src.parent / "preview.mp4"
+    build_preview_proxy(src, dst, height=min(s.preview_height, meta.height), crf=s.preview_crf)
+    storage.upload_preview(dst, job_id)
+
+
 @app.function(
     secrets=[_SECRET, _BILLING_SECRET],
     timeout=600,

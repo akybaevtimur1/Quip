@@ -32,3 +32,18 @@ def spawn(fn_name: str, *args: Any) -> str | None:
     fn = modal.Function.from_name(_MODAL_APP, fn_name)
     fc = fn.spawn(*args)
     return str(fc.object_id)
+
+
+def map_render_clips(args: list[tuple[Any, ...]]) -> list[dict[str, Any]]:
+    """Фан-аут per-clip рендера на Modal: один контейнер на клип (``starmap``).
+
+    Возвращает результаты В ПОРЯДКЕ входа (Modal ``starmap`` сохраняет порядок) — стабильный
+    ``clip_index`` для ассемблинга ``ClipOut`` в run.py. Вызывается ТОЛЬКО в Modal-режиме:
+    coordinator ``run_job`` блокируется здесь, пока клипы рендерятся ПАРАЛЛЕЛЬНО на отдельных
+    контейнерах (вместо последовательного цикла на одном). ``args`` = кортежи
+    ``(job_id, clip_index, seg_dict, meta_dict)`` (см. ``run.clip_spawn_args``).
+    """
+    import modal
+
+    fn = modal.Function.from_name(_MODAL_APP, "reframe_render_clip")
+    return list(fn.starmap(args))
