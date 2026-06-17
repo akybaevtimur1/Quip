@@ -954,7 +954,7 @@ export default function ClipEditorScreen({
               PreviewPlayer сам contain'ится по aspectClass (w-full + max-h-full + aspect) →
               НЕ распирает страницу на 16:9/1:1/4:5 (баг T5 пофикшен). */}
           <div className="sticky top-0 z-10 flex min-h-0 flex-col bg-bg pb-3 lg:static lg:z-auto lg:pb-0">
-            <div className="flex h-[44vh] max-h-full w-full items-center justify-center lg:h-full">
+            <div className="flex h-[44vh] max-h-full w-full items-center justify-center lg:h-auto lg:min-h-0 lg:flex-1">
               <PreviewPlayer
                 src={sourceSrc}
                 outerStart={outerStart}
@@ -1073,16 +1073,19 @@ export default function ClipEditorScreen({
                 </PreviewPlayer>
             </div>
 
-            {/* #1: мини-таймлайн «форсировать кадр» под превью */}
+            {/* #1: мини-таймлайн «форсировать кадр» под превью. shrink-0 — чтобы плеер
+                (flex-1 выше) ужимался под него, а не клипал полосу за пределы колонки. */}
             {edit && (
-              <FitTimeline
-                regions={rawRegions}
-                intervals={edit.source_intervals}
-                overrides={edit.reframe_overrides}
-                nowSec={nowSec}
-                busy={busy}
-                onApplyRange={handleApplyRange}
-              />
+              <div className="shrink-0">
+                <FitTimeline
+                  regions={rawRegions}
+                  intervals={edit.source_intervals}
+                  overrides={edit.reframe_overrides}
+                  nowSec={nowSec}
+                  busy={busy}
+                  onApplyRange={handleApplyRange}
+                />
+              </div>
             )}
           </div>
 

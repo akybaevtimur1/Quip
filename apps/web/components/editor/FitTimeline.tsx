@@ -189,43 +189,14 @@ export function FitTimeline({
   return (
     <div className="mt-2 select-none">
       <div className="mb-1 flex items-center justify-between gap-2">
-        <span className="text-[11px] text-muted">
-          Drag to select shots, then force their framing
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted">
+          Per-shot framing
         </span>
-        <div className="flex items-center gap-1.5">
-          <div
-            className="flex gap-0.5 rounded-md border border-line bg-surface p-0.5"
-            role="radiogroup"
-            aria-label="Forced framing mode"
-          >
-            {FORCE_OPTIONS.map((opt) => (
-              <button
-                key={opt.value}
-                type="button"
-                role="radio"
-                aria-checked={mode === opt.value}
-                disabled={busy}
-                onClick={() => setMode(opt.value)}
-                className={`rounded px-2 py-1 text-[11px] font-semibold transition disabled:opacity-40 ${
-                  mode === opt.value
-                    ? "bg-surface-3 text-accent"
-                    : "text-muted hover:text-ink"
-                }`}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
-          <button
-            type="button"
-            disabled={busy || !sel}
-            onClick={apply}
-            aria-label="Apply framing to selected shots"
-            className="rounded-md border border-line px-2.5 py-1 text-[11px] font-semibold text-accent transition enabled:hover:border-accent/50 enabled:hover:bg-surface-3 disabled:opacity-40"
-          >
-            Apply
-          </button>
-        </div>
+        <span className="text-[10px] text-muted">
+          {sel
+            ? `Shots ${sel.from + 1}–${sel.to + 1} selected`
+            : "Drag across the bar to pick shots"}
+        </span>
       </div>
 
       <div
@@ -234,7 +205,7 @@ export function FitTimeline({
         onPointerMove={onPointerMove}
         onPointerUp={endDrag}
         onPointerCancel={endDrag}
-        className={`relative flex h-7 w-full gap-px overflow-hidden rounded-lg border border-line bg-surface-2 touch-none ${
+        className={`relative flex h-9 w-full gap-px overflow-hidden rounded-lg border border-line bg-surface-2 touch-none ${
           busy ? "cursor-wait opacity-60" : "cursor-pointer"
         }`}
       >
@@ -274,6 +245,42 @@ export function FitTimeline({
             aria-hidden
           />
         )}
+      </div>
+
+      {/* действие: выбрать режим → применить к выделенным шотам (под полосой = понятный поток) */}
+      <div className="mt-1.5 flex items-center gap-2">
+        <div
+          className="flex gap-0.5 rounded-md border border-line bg-surface p-0.5"
+          role="radiogroup"
+          aria-label="Forced framing mode"
+        >
+          {FORCE_OPTIONS.map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              role="radio"
+              aria-checked={mode === opt.value}
+              disabled={busy}
+              onClick={() => setMode(opt.value)}
+              className={`rounded px-2.5 py-1 text-[11px] font-semibold transition disabled:opacity-40 ${
+                mode === opt.value ? "bg-surface-3 text-accent" : "text-muted hover:text-ink"
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+        <button
+          type="button"
+          disabled={busy || !sel}
+          onClick={apply}
+          aria-label="Apply framing to selected shots"
+          className="ml-auto rounded-md border border-accent/60 bg-accent/10 px-3 py-1 text-[11px] font-semibold text-accent transition enabled:hover:bg-accent/20 disabled:border-line disabled:bg-transparent disabled:text-muted disabled:opacity-50"
+        >
+          {sel
+            ? `Apply ${FORCE_OPTIONS.find((o) => o.value === mode)?.label ?? ""}`
+            : "Select shots first"}
+        </button>
       </div>
 
       {/* легенда */}
