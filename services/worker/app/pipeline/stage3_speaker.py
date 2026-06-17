@@ -13,6 +13,19 @@ from typing import Any
 import numpy as np
 
 
+def should_score_asd(n_tracks: int) -> bool:
+    """Нужен ли ASD speak-score для этого сегмента. PURE (perf #2).
+
+    ASD-скор используется ТОЛЬКО для выбора говорящего СРЕДИ нескольких дорожек
+    (``_pick_target`` max-speak, ``_is_wide_shot`` и ``wide_speak_min`` — все требуют ≥2 active
+    дорожки в шоте). При 0–1 дорожке говорящий однозначен → дорогой crop+torch-форвард не влияет
+    на регионы (и max-speak, и fallback-by-width вернут ту же единственную дорожку). Пропуская
+    его, экономим ~половину времени reframe на одно-спикерных клипах. НЕ трогает геометрию
+    (склейки/шоты/границы) — инвариант docs/REFRAME_FPS_GRID_INVARIANT.md цел.
+    """
+    return n_tracks >= 2
+
+
 def _iou(a: list[float], b: list[float]) -> float:
     """IOU двух bbox [x1,y1,x2,y2]."""
     x_a, y_a = max(a[0], b[0]), max(a[1], b[1])

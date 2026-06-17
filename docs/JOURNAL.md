@@ -1031,7 +1031,16 @@ responsive-префиксами (база = мобайл, `sm:`/`lg:` восст
 - **#3 preview:** вынесен в отдельную `preview_job` (Modal), run_job спавнит её ПАРАЛЛЕЛЬНО с
   клипами — не держит set_done. Редактор фолбэчит на source, пока прокси не готов
   (`storage.preview_read_url`). Локально preview строится inline ПОСЛЕ клипов (dev).
-- **Инвариант цел:** НЕ трогали `stage3_reframe.py`/`stage5_render.py`/`reframe_cache.py` — только
-  вызовы. Кадровая сетка (REFRAME_FPS_GRID_INVARIANT, фикс 9e57981) не затронута. Без `models.py`
-  → без codegen. `just check` зелёный (632 unit). Ветка `perf/parallel-clip-render`.
+- **#2 пропуск ASD на одно-спикерных клипах:** ASD speak-скор нужен ТОЛЬКО чтобы выбрать
+  говорящего среди 2+ дорожек (`_pick_target`/`_is_wide_shot`/`wide_speak_min` все требуют ≥2
+  active). При РОВНО одной дорожке говорящий однозначен → дорогой `_crop_faces`+torch-форвард
+  `score_track` не влияет на регионы (доказано: и max-speak, и fallback-by-width вернут ту же
+  единственную дорожку). Новый pure-предикат `stage3_speaker.should_score_asd(n_tracks)` (≥2);
+  `asd_reframe.score_tracks_in_segment` пропускает crop+ASD при одной дорожке (speak=`_SILENT`,
+  аудио не читаем зря). На talking-head подкастах (доминирующий кейс) режет ~половину времени
+  reframe. ВЫХОД для таких сегментов идентичен (не меняет регионы/границы — инвариант цел).
+- **Инвариант цел:** НЕ трогали `stage3_reframe.py`/`stage5_render.py`/`reframe_cache.py`. #2
+  правит `asd_reframe.py` (I/O-обёртка ASD) + `stage3_speaker.py` (pure-предикат) — НЕ геометрию
+  склеек/шотов/границ. Кадровая сетка (REFRAME_FPS_GRID_INVARIANT, фикс 9e57981) не затронута.
+  Без `models.py` → без codegen. `just check` зелёный (635 unit). Ветка `perf/parallel-clip-render`.
 - План: `docs/superpowers/plans/2026-06-17-parallel-clip-render.md`.

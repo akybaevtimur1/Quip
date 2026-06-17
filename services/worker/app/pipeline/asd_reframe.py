@@ -20,7 +20,7 @@ import numpy as np
 
 from app.errors import JobError
 from app.pipeline.stage3_reframe import SpeakerTrack
-from app.pipeline.stage3_speaker import build_tracks
+from app.pipeline.stage3_speaker import build_tracks, should_score_asd
 
 _STAGE = "reframe"
 _SILENT: float = -9.0  # speak-score для дорожки без валидного скора
@@ -164,14 +164,23 @@ def score_tracks_in_segment(
         if not tracks:
             return []
 
-        sr, audio = wavfile.read(wav)
+        # Perf (#2): ASD speak-скор нужен ТОЛЬКО для выбора говорящего среди 2+ дорожек. При одной
+        # дорожке говорящий однозначен → crop+torch-форвард не влияет на регионы (см.
+        # should_score_asd). Пропускаем его → speak=_SILENT (как «нет валидного скора»; downstream
+        # _pick_target всё равно вернёт эту единственную дорожку). Аудио не читаем зря.
+        score_asd = should_score_asd(len(tracks))
+        sr, audio = wavfile.read(wav) if score_asd else (0, None)
         out: list[SpeakerTrack] = []
         for tr in tracks:
-            faces224 = _crop_faces(tr, frames, crop_scale)
-            a0 = int(tr["frame"][0] / fps * sr)
-            a1 = int((tr["frame"][-1] + 1) / fps * sr)
-            sc = score_track(faces224, audio[a0:a1])
-            speak = float(np.mean(sc)) if sc.size else _SILENT
+            if score_asd:
+                assert audio is not None  # score_asd → wav прочитан выше
+                faces224 = _crop_faces(tr, frames, crop_scale)
+                a0 = int(tr["frame"][0] / fps * sr)
+                a1 = int((tr["frame"][-1] + 1) / fps * sr)
+                sc = score_track(faces224, audio[a0:a1])
+                speak = float(np.mean(sc)) if sc.size else _SILENT
+            else:
+                speak = _SILENT
             cx_series = ((tr["bbox"][:, 0] + tr["bbox"][:, 2]) / 2 / src_w).tolist()
             width = float(((tr["bbox"][:, 2] - tr["bbox"][:, 0]) / src_w).mean())
             out.append(
