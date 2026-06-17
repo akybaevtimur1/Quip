@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from app.agent.loop import TextReply, ToolCall, run_agent_loop
+from app.agent.loop import FINISH_TOOL, TextReply, ToolCall, run_agent_loop
 from app.models import AgentEvent
 
 
@@ -92,6 +92,40 @@ def test_step_cap_finalizes_with_message() -> None:
     actions = [e for e in events if e.role == "action"]
     assert len(actions) == 3  # не больше cap
     assert events[-1].role == "agent"  # финальное сообщение есть
+
+
+def test_finish_tool_delivers_answer_and_ends() -> None:
+    events: list[AgentEvent] = []
+    applied: list[tuple] = []
+    run_agent_loop(
+        "обрежь нормально",
+        model_turn=_runner(
+            [
+                ToolCall("set_interval", {"start_sec": 9.0, "end_sec": 30.0}, rationale="режу"),
+                ToolCall(FINISH_TOOL, {"message": "Готово — глянь превью"}, rationale="готов"),
+            ]
+        ),
+        apply_tool=lambda n, a: applied.append((n, a)) or {"ok": True, "summary": "ok"},
+        emit=events.append,
+        max_steps=8,
+    )
+    # respond_to_user НЕ исполняется как обычный тул → его нет в applied
+    assert applied == [("set_interval", {"start_sec": 9.0, "end_sec": 30.0})]
+    assert events[-1].role == "agent"
+    assert events[-1].text == "Готово — глянь превью"
+
+
+def test_empty_text_reply_does_not_show_a_bare_thought() -> None:
+    events: list[AgentEvent] = []
+    run_agent_loop(
+        "x",
+        model_turn=_runner([TextReply("")]),  # «мысль» без ответа → пусто
+        apply_tool=lambda n, a: {},
+        emit=events.append,
+        max_steps=8,
+    )
+    assert events[-1].role == "agent"
+    assert events[-1].text == "Готово."  # нейтральный финал, НЕ пустой пузырь/мысль
 
 
 def test_tool_error_is_fed_back_and_loop_continues() -> None:

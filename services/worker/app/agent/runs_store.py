@@ -182,6 +182,34 @@ def set_cancelled(run_id: str) -> bool:
         return cur.rowcount == 1
 
 
+def latest_run(job_id: str, clip_id: str) -> dict[str, Any] | None:
+    """Самый недавний прогон клипа (ЛЮБОЙ статус) — для подсева прошлой беседы в новый run
+    (история чата, #1). None если прогонов ещё не было."""
+    if cs.cloud_enabled():
+        r = httpx.get(
+            f"{cs._base()}/agent_runs",
+            params={
+                "job_id": f"eq.{job_id}",
+                "clip_id": f"eq.{clip_id}",
+                "select": "*",
+                "order": "created_at.desc",
+                "limit": "1",
+            },  # fmt: skip
+            headers=cs._headers(),
+            timeout=cs._TIMEOUT,
+        )
+        r.raise_for_status()
+        row = cs.first_row(r.json())
+        return _normalize(row) if row else None
+    with _conn() as c:
+        row = c.execute(
+            "SELECT * FROM agent_runs WHERE job_id=? AND clip_id=?"
+            " ORDER BY created_at DESC LIMIT 1",
+            (job_id, clip_id),
+        ).fetchone()
+    return _normalize(dict(row)) if row is not None else None
+
+
 def running_run(job_id: str, clip_id: str) -> dict[str, Any] | None:
     """Активный (running) прогон для клипа → идемпотентность старта (один run на клип)."""
     if cs.cloud_enabled():

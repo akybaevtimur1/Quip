@@ -67,6 +67,58 @@ def _manual_region(ov: CropOverride, dur: float) -> list[TrackRegion]:
     return [TrackRegion(t0=0.0, t1=dur, mode="fill", points=(pt,))]
 
 
+def _covers_interval(ov: CropOverride, iv: SourceInterval) -> bool:
+    """True если override покрывает интервал ЦЕЛИКОМ (fast-path → _manual_region)."""
+    return ov.source_start <= iv.source_start and ov.source_end >= iv.source_end
+
+
+def _recolor_region(r: TrackRegion, ov: CropOverride) -> TrackRegion:
+    """Регион → ручной режим override'а, СОХРАНЯЯ t0/t1 (инвариант кадровой сетки).
+
+    Меняется ТОЛЬКО mode/points — границы (кадры склеек) не трогаются → флешей нет.
+    Неизвестный mode → регион не меняется.
+    """
+    if ov.mode == "fit":
+        return TrackRegion(t0=r.t0, t1=r.t1, mode="fit", points=())
+    if ov.mode == "fill":
+        cx = ov.center if ov.center is not None else 0.5
+        return TrackRegion(
+            t0=r.t0, t1=r.t1, mode="fill",
+            points=(TrackPoint(t=r.t0, mode="fill", cx=cx),),
+        )  # fmt: skip
+    if ov.mode == "split":
+        cx_a = min(1.0, max(0.0, ov.center if ov.center is not None else 0.3))
+        cx_b = min(1.0, max(0.0, ov.center_b if ov.center_b is not None else 0.7))
+        return TrackRegion(
+            t0=r.t0, t1=r.t1, mode="split",
+            points=(TrackPoint(t=r.t0, mode="split", cx=cx_a),),
+            points_b=(TrackPoint(t=r.t0, mode="split", cx=cx_b),),
+        )  # fmt: skip
+    return r
+
+
+def apply_overrides_to_regions(
+    regions: list[TrackRegion], overrides: list[CropOverride], iv: SourceInterval
+) -> list[TrackRegion]:
+    """«Перекрась, не перерезай»: override меняет режим только тех шотов, что он покрывает.
+
+    PURE. Для каждого региона берём source-time середину mid = iv.source_start + (t0+t1)/2
+    и находим ПОСЛЕДНИЙ override с ov.source_start <= mid < ov.source_end (last-wins, как в
+    _override_for). Найден → регион перекрашивается в режим override'а с СОХРАНЕНИЕМ t0/t1
+    (инвариант кадровой сетки — новых границ нет). Не покрытые шоты остаются авто.
+    Результат той же длины и с теми же границами.
+    """
+    out: list[TrackRegion] = []
+    for r in regions:
+        mid = iv.source_start + (r.t0 + r.t1) / 2
+        chosen: CropOverride | None = None
+        for ov in overrides:
+            if ov.source_start <= mid < ov.source_end:
+                chosen = ov
+        out.append(_recolor_region(r, chosen) if chosen is not None else r)
+    return out
+
+
 def resolve_regions(
     intervals: list[SourceInterval],
     raw_by_interval: list[RawReframe],
@@ -176,26 +228,30 @@ def resolve_regions_accurate(
     out: list[list[TrackRegion]] = []
     for i, iv in enumerate(intervals):
         dur = round(iv.source_end - iv.source_start, 3)
-        ov = _override_for(overrides, iv)
-        if ov is not None:
-            out.append(_manual_region(ov, dur))
+        # Fast path: override покрывает ВЕСЬ интервал → один ручной регион (дёшево, без ASD).
+        # Сохраняет поведение таба «Кадр» (вся клипа fit/fill/split).
+        ov_full = _override_for(overrides, iv)
+        if ov_full is not None and _covers_interval(ov_full, iv):
+            out.append(_manual_region(ov_full, dur))
             continue
         cache = cache_dir / f"acc_{iv.source_start:.2f}_{iv.source_end:.2f}.json"
         if cache.exists():
-            out.append([_region_from_dict(d) for d in json.loads(cache.read_text("utf-8"))])
-            continue
-        cid = clip_id if i == 0 else f"{clip_id}_iv{i}"
-        regions, _ = reframe_segment(
-            video, src_w, src_h, iv.source_start, iv.source_end,
-            clip_id=cid, out_dir=out_dir, fps=fps, mode_setting=mode_setting,
-            speaker_crop_scale=speaker_crop_scale, face_fps=face_fps, smoothing=smoothing,
-            min_hold_sec=min_hold_sec, speak_threshold=speak_threshold,
-            scene_threshold=scene_threshold, split_enabled=split_enabled,
-            wide_speak_min=wide_speak_min,
-        )  # fmt: skip
-        cache.write_text(
-            json.dumps([_region_to_dict(r) for r in regions], ensure_ascii=False), "utf-8"
-        )
+            regions = [_region_from_dict(d) for d in json.loads(cache.read_text("utf-8"))]
+        else:
+            cid = clip_id if i == 0 else f"{clip_id}_iv{i}"
+            regions, _ = reframe_segment(
+                video, src_w, src_h, iv.source_start, iv.source_end,
+                clip_id=cid, out_dir=out_dir, fps=fps, mode_setting=mode_setting,
+                speaker_crop_scale=speaker_crop_scale, face_fps=face_fps, smoothing=smoothing,
+                min_hold_sec=min_hold_sec, speak_threshold=speak_threshold,
+                scene_threshold=scene_threshold, split_enabled=split_enabled,
+                wide_speak_min=wide_speak_min,
+            )  # fmt: skip
+            cache.write_text(
+                json.dumps([_region_to_dict(r) for r in regions], ensure_ascii=False), "utf-8"
+            )
+        # Перекрашиваем покрытые шоты (per-shot force-framing), не трогая границы.
+        regions = apply_overrides_to_regions(regions, overrides, iv)
         out.append(regions)
     return out
 

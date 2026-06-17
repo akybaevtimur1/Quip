@@ -5,6 +5,7 @@ from app.editor.reframe_cache import (
     _region_from_dict,
     _region_to_dict,
     analyze_source_range,
+    apply_overrides_to_regions,
     regions_to_clip_time,
     resolve_regions,
 )
@@ -152,3 +153,92 @@ def test_analyze_reads_cache_without_ffmpeg(tmp_path):
     )
     assert raw.cuts == [1.0]
     assert raw.faces == [(0.0, [(0.5, 0.2)])]
+
+
+# ── apply_overrides_to_regions — "recolor, don't re-cut" (bug #5) ────────────────
+# Per-shot force-framing must recolor ONLY the covered shot, keeping every region's
+# t0/t1 (cut-frame boundaries) untouched (REFRAME_FPS_GRID_INVARIANT). Coverage rule:
+# region midpoint mid = iv.source_start + (t0+t1)/2; LAST override with
+# ov.source_start <= mid < ov.source_end wins.
+
+
+def _three_shots():
+    # interval-relative regions: shot#1 [0,2) fill, shot#2 [2,4) fill, shot#3 [4,6) fit
+    return [
+        TrackRegion(t0=0.0, t1=2.0, mode="fill", points=(TrackPoint(t=0.0, mode="fill", cx=0.4),)),
+        TrackRegion(t0=2.0, t1=4.0, mode="fill", points=(TrackPoint(t=2.0, mode="fill", cx=0.6),)),
+        TrackRegion(t0=4.0, t1=6.0, mode="fit", points=()),
+    ]
+
+
+def test_apply_overrides_recolors_only_covered_shot():
+    # override covers ONLY shot#2 (abs source 12..14; mid of shot#2 = 10+3 = 13)
+    iv = SourceInterval(source_start=10.0, source_end=16.0)
+    regions = _three_shots()
+    ov = [CropOverride(source_start=12.0, source_end=14.0, mode="fit")]
+    out = apply_overrides_to_regions(regions, ov, iv)
+    assert len(out) == 3  # same length — no new boundaries
+    # shot#1 unchanged (same boundaries + original mode/points)
+    assert (out[0].t0, out[0].t1, out[0].mode) == (0.0, 2.0, "fill")
+    assert out[0].points == regions[0].points
+    # shot#2 recolored to fit, boundaries kept
+    assert (out[1].t0, out[1].t1, out[1].mode) == (2.0, 4.0, "fit")
+    assert out[1].points == ()
+    # shot#3 unchanged
+    assert (out[2].t0, out[2].t1, out[2].mode) == (4.0, 6.0, "fit")
+    assert out[2].points == regions[2].points
+
+
+def test_apply_overrides_fill_center():
+    # override mode fill + center=0.7 over shot#3 (abs mid = 10+5 = 15)
+    iv = SourceInterval(source_start=10.0, source_end=16.0)
+    regions = _three_shots()
+    ov = [CropOverride(source_start=14.0, source_end=16.0, mode="fill", center=0.7)]
+    out = apply_overrides_to_regions(regions, ov, iv)
+    assert (out[2].t0, out[2].t1, out[2].mode) == (4.0, 6.0, "fill")
+    assert out[2].points[0].cx == 0.7
+    assert out[2].points[0].t == 4.0  # point anchored at region t0
+    # shots #1/#2 untouched
+    assert out[0] == regions[0] and out[1] == regions[1]
+
+
+def test_apply_overrides_split_clamps_centers():
+    iv = SourceInterval(source_start=10.0, source_end=16.0)
+    regions = _three_shots()
+    ov = [CropOverride(source_start=12.0, source_end=14.0, mode="split", center=0.25, center_b=0.8)]
+    out = apply_overrides_to_regions(regions, ov, iv)
+    assert out[1].mode == "split"
+    assert out[1].points[0].cx == 0.25
+    assert out[1].points_b[0].cx == 0.8
+    assert (out[1].t0, out[1].t1) == (2.0, 4.0)
+
+
+def test_apply_overrides_no_overrides_unchanged():
+    iv = SourceInterval(source_start=10.0, source_end=16.0)
+    regions = _three_shots()
+    out = apply_overrides_to_regions(regions, [], iv)
+    assert out == regions
+
+
+def test_apply_overrides_last_wins():
+    # two overlapping overrides over shot#2 → LAST one wins
+    iv = SourceInterval(source_start=10.0, source_end=16.0)
+    regions = _three_shots()
+    ov = [
+        CropOverride(source_start=11.0, source_end=15.0, mode="fit"),
+        CropOverride(source_start=12.0, source_end=14.0, mode="fill", center=0.9),
+    ]
+    out = apply_overrides_to_regions(regions, ov, iv)
+    # shot#2 mid=13 covered by BOTH → last (fill 0.9) wins
+    assert out[1].mode == "fill" and out[1].points[0].cx == 0.9
+    # shot#1 mid=11 → fit (first only); shot#3 mid=15 → unchanged (half-open excludes it)
+    assert out[0].mode == "fit"
+    assert out[2] == regions[2]
+
+
+def test_apply_overrides_unknown_mode_unchanged():
+    iv = SourceInterval(source_start=10.0, source_end=16.0)
+    regions = _three_shots()
+    ov = [CropOverride(source_start=12.0, source_end=14.0, mode="bogus")]
+    out = apply_overrides_to_regions(regions, ov, iv)
+    assert out[1] == regions[1]  # unknown mode → region left unchanged

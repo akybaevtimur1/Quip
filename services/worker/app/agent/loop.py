@@ -16,6 +16,11 @@ from app.models import AgentEvent
 # Финал при достижении лимита шагов — не молча обрываем, а честно сообщаем (правило №8).
 STEP_CAP_MESSAGE = "Остановился на лимите шагов. Уточни, что ещё поправить."
 
+# Явный «финиш»-тул: модель доставляет финальный ответ ТОЛЬКО через него (Gemini в режиме
+# function-calling ANY всегда зовёт тул → свободный текст-«мысль» больше НЕ принимается за ответ;
+# это чинит «выбрал свою мысль рандомную как за ответ»). Имя ⇄ clip_agent._FN_DECLS / промпт.
+FINISH_TOOL = "respond_to_user"
+
 
 @dataclass
 class ToolCall:
@@ -59,8 +64,18 @@ def run_agent_loop(
     for _ in range(max_steps):
         turn = model_turn(history)
         if isinstance(turn, TextReply):
-            emit(AgentEvent(role="agent", text=turn.text))
+            # Фолбэк: модель вернула свободный текст (в режиме ANY быть не должно). Пустой текст
+            # (одна «мысль» без ответа) НЕ выдаём за ответ — мягко завершаем нейтрально.
+            emit(AgentEvent(role="agent", text=turn.text or "Готово."))
             history.append({"role": "model", "text": turn.text})
+            return
+        # Финиш-тул: модель доставила финальный ответ → показываем мысль (если есть) + ответ, конец.
+        if turn.name == FINISH_TOOL:
+            if turn.rationale:
+                emit(AgentEvent(role="thinking", text=turn.rationale))
+            msg = str(turn.args.get("message") or "").strip() or "Готово."
+            emit(AgentEvent(role="agent", text=msg))
+            history.append({"role": "model", "text": msg})
             return
         # ToolCall: опц. мысль → выполнить → записать действие → вернуть результат модели.
         if turn.rationale:

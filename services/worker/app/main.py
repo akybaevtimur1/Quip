@@ -876,6 +876,16 @@ def op_regenerate_hook(job_id: str, clip_id: str, body: RegenerateHookBody) -> d
 
 _AGENT_TERMINAL = ("done", "failed", "cancelled")
 _AGENT_MSG_MAX = 2000
+_AGENT_HISTORY_SEED_MAX = 40  # сколько прошлых событий ленты подсевать в новый run (история чата)
+
+
+def _seed_events(prior: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """События прошлого прогона клипа для подсева в новый run (история чата, #1). Кап последних
+    N → UI показывает непрерывный тред без безграничного роста ленты."""
+    if not prior:
+        return []
+    evs = prior.get("events") or []
+    return list(evs[-_AGENT_HISTORY_SEED_MAX:])
 
 
 def _agent_payload(run: dict[str, Any]) -> dict[str, Any]:
@@ -920,8 +930,14 @@ def agent_start(
     existing = runs_store.running_run(job_id, clip_id)
     if existing is not None:
         return _agent_payload(existing)  # уже работает → не плодим (дабл-клик/гонка)
+    # История чата (#1): прошлый прогон клипа ДО создания нового (latest_run иначе вернёт пустой
+    # новый). Засеваем его ленту в новый run → UI = непрерывный тред, агент = память (run_clip_agent
+    # берёт prior из ленты). Берём ДО create_run.
+    prior = runs_store.latest_run(job_id, clip_id)
     run_id = runs_store.new_run_id()
     runs_store.create_run(run_id, job_id, clip_id, x_user_id)
+    for ev in _seed_events(prior):
+        runs_store.append_event(run_id, ev)
     runs_store.append_event(run_id, AgentEvent(role="user", text=msg).model_dump())
     if dispatch.modal_spawn_enabled():
         try:

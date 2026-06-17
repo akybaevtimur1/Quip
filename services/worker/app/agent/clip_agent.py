@@ -98,6 +98,17 @@ _FN_DECLS: list[dict[str, Any]] = [
         "timing or hook.",
         "parameters": {"type": "object", "properties": {}},
     },
+    {
+        "name": "respond_to_user",
+        "description": "Deliver your FINAL reply to the user (or ask a clarifying question). Call "
+        "this exactly once when you are done — it ENDS your turn and is the ONLY way your words "
+        "reach the user. Reply in the user's language.",
+        "parameters": {
+            "type": "object",
+            "properties": {"message": {"type": "string"}},
+            "required": ["message"],
+        },
+    },
 ]
 
 
@@ -123,22 +134,42 @@ def build_system_prompt(ctx: dict[str, Any]) -> str:
 
 
 def parse_model_response(parts: Any) -> ModelTurn:
-    """PURE. Части ответа Gemini → ход агента. function_call → ToolCall (текст до него = rationale);
-    иначе текст → TextReply. Защита от пустого: TextReply('')."""
+    """PURE. Части ответа Gemini → ход агента.
+
+    function_call → ToolCall (предшествующий текст = rationale для ленты thinking). Иначе TextReply,
+    но финальным ОТВЕТОМ считаем ТОЛЬКО НЕ-thought текст: «мысли» (part.thought=True, Gemini 2.5)
+    идут в rationale и НИКОГДА не выдаются за ответ (чинит «случайная мысль как ответ»). Чистая
+    мысль без вызова → TextReply('') (луп завершит нейтрально, не покажет мысль ответом).
+    В режиме function-calling ANY текста почти нет → финал идёт через respond_to_user.
+    """
     rationale = ""
+    answer = ""
+    fc = None
     for p in parts or []:
-        fc = getattr(p, "function_call", None)
-        if fc is not None:
-            args = dict(getattr(fc, "args", None) or {})
-            return ToolCall(name=fc.name, args=args, rationale=rationale.strip())
+        f = getattr(p, "function_call", None)
+        if f is not None and fc is None:
+            fc = f
+            continue
         txt = getattr(p, "text", None)
-        if txt:
+        if not txt:
+            continue
+        if getattr(p, "thought", False):
             rationale += txt
-    return TextReply(text=rationale.strip())
+        else:
+            answer += txt
+    if fc is not None:
+        args = dict(getattr(fc, "args", None) or {})
+        return ToolCall(name=fc.name, args=args, rationale=(rationale + answer).strip())
+    return TextReply(text=answer.strip())
 
 
-def _gemini_turn(system_prompt: str) -> Any:
-    """Построить model_turn(history) поверх Gemini function-calling (с ретраями транзиентных)."""
+def _gemini_turn(system_prompt: str, prior_turns: list[dict[str, Any]] | None = None) -> Any:
+    """Построить model_turn(history) поверх Gemini function-calling (с ретраями транзиентных).
+
+    prior_turns (опц.) — прошлая беседа клипа ({role:'user'|'model', text}) → засевается в contents
+    ПЕРЕД текущим сообщением (память агента, #1). Только ТЕКСТ (без function_call) → не несёт
+    thought_signature → echo-логика текущих tool-вызовов не затрагивается.
+    """
     from google import genai
     from google.genai import types
 
@@ -153,6 +184,13 @@ def _gemini_turn(system_prompt: str) -> Any:
     cfg = types.GenerateContentConfig(
         system_instruction=system_prompt,
         tools=[types.Tool(function_declarations=fn_decls)],
+        # ANY: модель ОБЯЗАНА вызывать тул каждый ход → свободный текст-«мысль» не принимается за
+        # ответ (стабильный флоу). Финальный ответ доставляется ТОЛЬКО через respond_to_user.
+        tool_config=types.ToolConfig(
+            function_calling_config=types.FunctionCallingConfig(
+                mode=types.FunctionCallingConfigMode.ANY
+            )
+        ),
         temperature=0.4,
         max_output_tokens=1024,
     )
@@ -169,6 +207,9 @@ def _gemini_turn(system_prompt: str) -> Any:
     def turn(history: list[dict[str, Any]]) -> ModelTurn:
         nonlocal contents, pending_model_content, consumed_tools
         if not contents:
+            for pt in prior_turns or []:
+                role = "model" if pt.get("role") == "model" else "user"
+                contents.append(types.Content(role=role, parts=[types.Part(text=pt["text"])]))
             contents.append(types.Content(role="user", parts=[types.Part(text=history[0]["text"])]))
         tool_entries = [h for h in history if h["role"] == "tool"]
         while consumed_tools < len(tool_entries):
@@ -211,13 +252,35 @@ def _gemini_turn(system_prompt: str) -> Any:
     return turn
 
 
+_PRIOR_TURNS_CAP = 16  # сколько прошлых реплик беседы держим в памяти модели (кап против блоата)
+
+
+def _prior_turns(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """PURE. Прошлая беседа клипа для памяти модели: пары (user→user, agent→model) ДО ПОСЛЕДНЕГО
+    user-события (= текущий запрос). thinking/action/error НЕ шлём (внутреннее; tool-вызовы прошлых
+    ранов несут thought_signature, непереиспользуемый между генерациями). Кап последних N реплик."""
+    last_user = max((i for i, e in enumerate(events) if e.get("role") == "user"), default=-1)
+    out: list[dict[str, Any]] = []
+    for e in events[:last_user]:
+        if e.get("role") == "user":
+            out.append({"role": "user", "text": e.get("text", "")})
+        elif e.get("role") == "agent":
+            out.append({"role": "model", "text": e.get("text", "")})
+    return out[-_PRIOR_TURNS_CAP:]
+
+
 def run_clip_agent(run_id: str) -> None:
     """Фон-точка входа: прогнать агента для run_id. Биллинг не трогаем (минуты не списываем)."""
     run = runs_store.get_run(run_id)
     if run is None:
         return
     job_id, clip_id = run["job_id"], run["clip_id"]
-    user_msg = next((e["text"] for e in run["events"] if e["role"] == "user"), "")
+    events = run["events"]
+    # Текущий запрос = ПОСЛЕДНЕЕ user-событие: ленту нового рана засеяли прошлой беседой (см.
+    # agent_start), поэтому текущее сообщение — последнее, а не первое.
+    user_msgs = [e["text"] for e in events if e.get("role") == "user"]
+    user_msg = user_msgs[-1] if user_msgs else ""
+    prior = _prior_turns(events)
 
     def emit(ev: AgentEvent) -> None:
         runs_store.append_event(run_id, ev.model_dump())
@@ -227,7 +290,7 @@ def run_clip_agent(run_id: str) -> None:
 
     try:
         ctx = tools.clip_state(job_id, clip_id)
-        turn = _gemini_turn(build_system_prompt(ctx))
+        turn = _gemini_turn(build_system_prompt(ctx), prior)
         run_agent_loop(
             user_msg,
             model_turn=turn,

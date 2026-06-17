@@ -17,9 +17,10 @@ class _FC:
 
 
 class _Part:
-    def __init__(self, text=None, function_call=None):
+    def __init__(self, text=None, function_call=None, thought=False):
         self.text = text
         self.function_call = function_call
+        self.thought = thought
 
 
 class TestParseModelResponse:
@@ -40,6 +41,41 @@ class TestParseModelResponse:
     def test_empty_parts_is_empty_text(self):
         turn = parse_model_response([])
         assert isinstance(turn, TextReply) and turn.text == ""
+
+    def test_thought_only_is_not_returned_as_answer(self):
+        # «мысль» (thought=True) без вызова → НЕ финальный ответ (TextReply пустой)
+        turn = parse_model_response([_Part(text="дай-ка подумаю…", thought=True)])
+        assert isinstance(turn, TextReply) and turn.text == ""
+
+    def test_thought_goes_to_rationale_before_call(self):
+        parts = [
+            _Part(text="надо сдвинуть", thought=True),
+            _Part(function_call=_FC("set_interval", {"start_sec": 9})),
+        ]
+        turn = parse_model_response(parts)
+        assert isinstance(turn, ToolCall) and turn.rationale == "надо сдвинуть"
+
+
+class TestPriorTurns:
+    def test_pairs_before_last_user_only(self):
+        from app.agent.clip_agent import _prior_turns
+
+        events = [
+            {"role": "user", "text": "u1"},
+            {"role": "thinking", "text": "..."},
+            {"role": "action", "text": "set_interval"},
+            {"role": "agent", "text": "a1"},
+            {"role": "user", "text": "u2-current"},  # последний user = текущий запрос → исключаем
+        ]
+        assert _prior_turns(events) == [
+            {"role": "user", "text": "u1"},
+            {"role": "model", "text": "a1"},  # agent → model; thinking/action отброшены
+        ]
+
+    def test_no_prior_when_single_user(self):
+        from app.agent.clip_agent import _prior_turns
+
+        assert _prior_turns([{"role": "user", "text": "first"}]) == []
 
 
 def _init(monkeypatch, tmp_path):
@@ -70,7 +106,9 @@ def test_run_clip_agent_happy_path(monkeypatch, tmp_path):
             TextReply("готово"),
         ]
     )
-    monkeypatch.setattr(clip_agent, "_gemini_turn", lambda system: lambda history: next(turns))
+    monkeypatch.setattr(
+        clip_agent, "_gemini_turn", lambda system, prior=None: lambda history: next(turns)
+    )
 
     run_clip_agent(rid)
 
@@ -88,7 +126,7 @@ def test_run_clip_agent_gemini_failure_marks_failed(monkeypatch, tmp_path):
     rs.append_event(rid, {"role": "user", "text": "x"})
     monkeypatch.setattr(clip_agent.tools, "clip_state", lambda j, c: _CTX)
 
-    def _boom(system):
+    def _boom(system, prior=None):
         raise JobError("agent", "Gemini недоступен")
 
     monkeypatch.setattr(clip_agent, "_gemini_turn", _boom)
@@ -111,7 +149,7 @@ def test_run_clip_agent_cancel_propagates(monkeypatch, tmp_path):
     class _Cancel(BaseException):
         pass
 
-    def _cancel_turn(system):
+    def _cancel_turn(system, prior=None):
         def turn(history):
             raise _Cancel()
 
