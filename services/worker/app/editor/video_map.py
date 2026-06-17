@@ -1,4 +1,4 @@
-"""PURE parser: raw Gemini dict → validated VideoMap (Task D1.2).
+"""PURE helpers: VideoMap parser (D1.2) + moment_to_interval snap helper (D1.3).
 
 No I/O, no Gemini calls (those live in D1.4). All defensive: broken input → failed status,
 never raises. Mirror style of postprocess_chapters in app/editor/chapters.py.
@@ -9,7 +9,9 @@ from __future__ import annotations
 import math
 from typing import Any
 
-from app.models import Segment, VideoChapter, VideoMap, VideoMoment
+from app.editor.ops import clamp_interval
+from app.models import Segment, VideoChapter, VideoMap, VideoMoment, Word
+from app.pipeline.stage2_select import indices_to_times, snap_end_index, snap_start_index
 
 # Valid moment kinds (spec §2/§6). Unknown kind → fallback "insight" (moment kept).
 _VALID_KINDS = {"tension", "quote", "emotional", "insight", "funny"}
@@ -168,3 +170,70 @@ def parse_video_map(
     chapters.sort(key=lambda c: c.start)
 
     return VideoMap(status="done", narrative=narrative, chapters=chapters, error=None)
+
+
+# ─────────────────────── moment → snapped interval (D1.3) ────────────────────────
+
+
+def _nearest_word_index(words: list[Word], t: float) -> int:
+    """Map a source time t (seconds) to the index of the nearest word.
+
+    Priority order:
+      1. Any word whose [start, end] contains t (containment).
+      2. The word whose midpoint is closest to t (fallback when t falls in a gap).
+    """
+    # containment pass
+    for i, w in enumerate(words):
+        if w.start <= t <= w.end:
+            return i
+    # closest midpoint
+    return min(range(len(words)), key=lambda i: abs((words[i].start + words[i].end) / 2.0 - t))
+
+
+def moment_to_interval(
+    start: float,
+    end: float,
+    words: list[Word],
+    *,
+    source_dur: float,
+    min_sec: float = 20.0,
+) -> tuple[float, float]:
+    """Snap a [start, end] moment to word boundaries and expand to ≥ min_sec.
+
+    Steps:
+      1. Map input seconds to nearest word indices via midpoint proximity.
+      2. Snap indices to clean sentence boundaries (snap_start_index / snap_end_index).
+      3. Convert snapped indices back to source seconds (indices_to_times).
+      4. Clamp / expand to [min_sec, source_dur] using clamp_interval.
+
+    Args:
+        start:      Moment start in source seconds.
+        end:        Moment end in source seconds.
+        words:      Word-level transcript (Word.start / Word.end in source seconds).
+        source_dur: Total source duration in seconds; clamp ceiling.
+        min_sec:    Minimum interval length (default 20.0s).
+
+    Returns:
+        (source_start, source_end) in source seconds, snapped and ≥ min_sec.
+    """
+    if not words:
+        # Degenerate: no words — fall back to raw clamp only.
+        return clamp_interval(start, end, duration=source_dur, min_sec=min_sec, max_sec=source_dur)
+
+    start_idx = _nearest_word_index(words, start)
+    end_idx = _nearest_word_index(words, end)
+
+    # Ensure indices are ordered (snap may not guarantee this for very short moments)
+    if start_idx > end_idx:
+        start_idx, end_idx = end_idx, start_idx
+
+    snapped_start_idx = snap_start_index(words, start_idx)
+    snapped_end_idx = snap_end_index(words, end_idx)
+
+    # After snapping, start may have moved forward past end — re-order defensively.
+    if snapped_start_idx > snapped_end_idx:
+        snapped_start_idx, snapped_end_idx = snapped_end_idx, snapped_start_idx
+
+    s, e = indices_to_times(words, snapped_start_idx, snapped_end_idx)
+
+    return clamp_interval(s, e, duration=source_dur, min_sec=min_sec, max_sec=source_dur)

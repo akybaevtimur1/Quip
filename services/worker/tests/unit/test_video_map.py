@@ -1,4 +1,4 @@
-"""TDD tests for parse_video_map (Task D1.2) — PURE parser, no I/O.
+"""TDD tests for parse_video_map (Task D1.2) and moment_to_interval (D1.3) — PURE, no I/O.
 
 Run (from services/worker with PATH refresh):
     uv run pytest tests/unit/test_video_map.py -q
@@ -6,13 +6,13 @@ Run (from services/worker with PATH refresh):
 
 from __future__ import annotations
 
-from app.editor.video_map import parse_video_map
-from app.models import Segment, VideoMap
+from app.editor.video_map import moment_to_interval, parse_video_map
+from app.models import Segment, VideoMap, Word
 
 # ─── helpers ─────────────────────────────────────────────────────────────────
 
 
-def _seg(start: float, end: float, idx: int = 0) -> Segment:
+def _seg(start: float, end: float) -> Segment:
     """Minimal valid Segment for testing clip_id intersection."""
     return Segment(start=start, end=end, reason="r", score=0.5, type="hook")
 
@@ -66,8 +66,14 @@ def test_chapters_not_list_returns_failed() -> None:
 
 
 def test_non_dict_raw_returns_failed() -> None:
-    # pass something that is not a dict at all — handled gracefully
-    # parse_video_map expects dict; we simulate by passing something weird
+    # pass something that is not a dict at all — the guard at top of parse_video_map fires
+    result = parse_video_map([], [], source_dur=100.0)  # type: ignore[arg-type]
+    assert result.status == "failed"
+    assert result.error
+
+
+def test_chapters_none_returns_failed() -> None:
+    # dict but chapters key maps to None — missing chapters guard fires
     result = parse_video_map({"narrative": 42, "chapters": None}, [], source_dur=100.0)
     assert result.status == "failed"
     assert result.error
@@ -199,3 +205,81 @@ def test_chapter_with_missing_required_fields_dropped() -> None:
     assert result.status == "done"
     assert len(result.chapters) == 1
     assert result.chapters[0].title == "Good"
+
+
+# ─── moment_to_interval (D1.3) ───────────────────────────────────────────────
+
+
+def _make_words(starts: list[float], dur: float = 2.0) -> list[Word]:
+    """Build a list of Word objects with sequential timing.
+
+    Each word spans [start, start+dur). Text alternates sentence-ending words to give
+    snap_start/snap_end clean boundaries.
+    """
+    words: list[Word] = []
+    for i, s in enumerate(starts):
+        # Every 5th word ends a sentence so snap has clean boundaries available.
+        text = "Hello." if (i % 5 == 4) else "word"
+        words.append(Word(text=text, start=s, end=s + dur))
+    return words
+
+
+def test_moment_to_interval_short_moment_expands_to_min_sec() -> None:
+    """A 10-second moment should expand to ≥20s (default min_sec)."""
+    # 40 words spaced 2s apart → transcript covers 0..82s
+    starts = [float(i * 2) for i in range(40)]
+    words = _make_words(starts)
+    source_dur = words[-1].end  # 82.0
+
+    # moment at 20s–30s = 10s long
+    s, e = moment_to_interval(20.0, 30.0, words, source_dur=source_dur)
+    assert e - s >= 20.0, f"expected ≥20s, got {e - s:.2f}s"
+    assert 0.0 <= s
+    assert e <= source_dur
+
+
+def test_moment_to_interval_near_eov_expands_left() -> None:
+    """A moment near the end of video must expand LEFT; end must stay ≤ source_dur."""
+    starts = [float(i * 2) for i in range(40)]
+    words = _make_words(starts)
+    source_dur = words[-1].end  # 82.0
+
+    # moment at 77s–82s = 5s, near EOV
+    s, e = moment_to_interval(77.0, 82.0, words, source_dur=source_dur)
+    assert e <= source_dur, f"end {e} exceeded source_dur {source_dur}"
+    assert e - s >= 20.0, f"expected ≥20s, got {e - s:.2f}s"
+    # end must NOT be pushed beyond source_dur; the expansion went left
+    assert s < e
+
+
+def test_moment_to_interval_snaps_to_word_boundaries() -> None:
+    """Returned times must match words[idx].start / words[idx].end exactly."""
+    # Simple uniform transcript: 30 words, each 1s wide, 0.5s gap between
+    # pattern: word spans [i*1.5, i*1.5+1.0]. Every 5th word sentence-ends.
+    words: list[Word] = []
+    for i in range(30):
+        text = "end." if (i % 5 == 4) else "word"
+        words.append(Word(text=text, start=i * 1.5, end=i * 1.5 + 1.0))
+    source_dur = words[-1].end  # 44.5
+
+    # moment input in the middle
+    s, e = moment_to_interval(10.0, 25.0, words, source_dur=source_dur)
+
+    # returned times must align exactly with some word's .start and some word's .end
+    word_starts = {w.start for w in words}
+    word_ends = {w.end for w in words}
+    assert s in word_starts, f"s={s} is not a word boundary (.start)"
+    assert e in word_ends, f"e={e} is not a word boundary (.end)"
+
+
+def test_moment_to_interval_already_long_enough_not_trimmed() -> None:
+    """A moment ≥20s should NOT be trimmed (only clamped to source_dur)."""
+    starts = [float(i * 2) for i in range(40)]
+    words = _make_words(starts)
+    source_dur = words[-1].end
+
+    # 25s moment — already above min_sec; result should be ≥25s (after snapping)
+    # (snap may extend slightly; clamp ensures we don't exceed source_dur)
+    s, e = moment_to_interval(10.0, 35.0, words, source_dur=source_dur)
+    assert e - s >= 20.0
+    assert e <= source_dur
