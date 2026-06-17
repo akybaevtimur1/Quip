@@ -208,6 +208,36 @@ def get_job_artifacts(job_id: str) -> dict[str, Any] | None:
     return first_row(r.json())
 
 
+def put_job_artifact(job_id: str, key: str, value: Any) -> None:
+    """Upsert ОДНОЙ jsonb-колонки строки job_artifacts (напр. video_map), не трогая остальные.
+
+    merge-duplicates по PK job_id: строка обычно уже создана put_job_artifacts (run.py до
+    фан-аута), поэтому это UPDATE одной колонки. Cross-container: video_map_job (отдельный
+    Modal-контейнер) пишет сюда, а /video-map (web-контейнер) читает get_job_artifact.
+    Требует колонку job_artifacts.<key> (jsonb) в Postgres.
+    """
+    r = httpx.post(
+        f"{_base()}/job_artifacts",
+        headers=_headers({"Prefer": "resolution=merge-duplicates,return=minimal"}),
+        json={"job_id": job_id, key: value},
+        timeout=_TIMEOUT,
+    )
+    r.raise_for_status()
+
+
+def get_job_artifact(job_id: str, key: str) -> Any:
+    """Прочитать ОДНУ jsonb-колонку job_artifacts[key]; None если строки/значения нет."""
+    r = httpx.get(
+        f"{_base()}/job_artifacts",
+        params={"job_id": f"eq.{job_id}", "select": key},
+        headers=_headers(),
+        timeout=_TIMEOUT,
+    )
+    r.raise_for_status()
+    row = first_row(r.json())
+    return row.get(key) if row else None
+
+
 # ─────────────────────────── transcript_cache (бережёт Deepgram) ───────────────────────────
 
 

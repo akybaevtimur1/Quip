@@ -585,6 +585,40 @@ def get_chapters(job_id: str, bg: BackgroundTasks, retry: bool = False) -> dict[
     return pending.model_dump()
 
 
+@app.get("/jobs/{job_id}/video-map")
+def get_video_map(job_id: str, bg: BackgroundTasks, retry: bool = False) -> dict[str, Any]:
+    """Нарративная VideoMap (главы+моменты+связный разбор). Durable в Postgres (cross-container).
+
+    Нет карты → пишем pending + триггерим генерацию (Gemini, платится один раз); фронт поллит до
+    done/failed. 404 — нет транскрипта. Повторный GET при pending вторую генерацию НЕ стартует.
+
+    ⚠️ Cloud: генерация идёт в ОТДЕЛЬНОМ Modal-контейнере (dispatch.spawn — bg.add_task сдох бы на
+    scale-to-zero web). save/load_video_map round-trip'ят через Postgres job_artifacts, поэтому этот
+    web-контейнер видит результат чужого контейнера. Локально (нет Modal) — bg.add_task + диск.
+
+    retry=true: кэш failed → перезапуск (перетираем failed → pending). На done/pending игнор.
+    """
+    from app import artifacts
+    from app import tasks as tasks_mod
+    from app.editor.video_map import load_video_map, save_video_map
+    from app.models import VideoMap
+
+    try:
+        artifacts.load_transcript(job_id)  # 404, если транскрипта нет нигде (диск/Postgres)
+    except JobError as e:
+        raise HTTPException(status_code=404, detail="transcript not found") from e
+    cached = load_video_map(job_id)
+    if cached is not None and not (retry and cached.status == "failed"):
+        return cached.model_dump()
+    pending = VideoMap(status="pending")
+    save_video_map(job_id, pending)
+    if dispatch.modal_spawn_enabled():
+        dispatch.spawn("generate_video_map_job", job_id)
+    else:
+        bg.add_task(tasks_mod.generate_video_map_job, job_id)
+    return pending.model_dump()
+
+
 # ──────────────────────────── Editor endpoints ────────────────────────────
 
 

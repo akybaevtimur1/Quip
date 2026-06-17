@@ -310,6 +310,12 @@ def run_pipeline(
     if dispatch.modal_spawn_enabled():
         dispatch.spawn("preview_job", job_id)
 
+    # ── VideoMap pre-warm: на Modal спавним СЕЙЧАС (отдельный контейнер, durable в Postgres) →
+    #    карта обычно готова, когда юзер открыл результаты. Локально — inline ПОСЛЕ клипов (ниже),
+    #    чтобы НЕ блокировать рендер. НЕ держит set_done и не влияет на нарезку. ──
+    if dispatch.modal_spawn_enabled():
+        dispatch.spawn("generate_video_map_job", job_id)
+
     # ── Stages 3–5: #1 фан-аут per-clip по контейнерам Modal (параллельно) ЛИБО последовательный
     #    цикл локально. Результаты приходят в порядке сегментов → стабильный ClipOut. ──
     emit(JobStatus.rendering, 80)
@@ -331,6 +337,11 @@ def run_pipeline(
         )  # fmt: skip
         stages["preview_proxy"] = round(time.perf_counter() - t0, 2)
         storage.upload_preview(out / "preview.mp4", job_id)
+        # VideoMap pre-warm локально: inline ПОСЛЕ клипов (dev: один процесс, клипы уже отданы →
+        # не блокирует рендер). На Modal уже заспавнено выше отдельным контейнером.
+        from app.tasks import generate_video_map_job
+
+        generate_video_map_job(job_id)
 
     # ── job.json (wire-контракт) ──
     total_sec = round(time.perf_counter() - t_start, 2)

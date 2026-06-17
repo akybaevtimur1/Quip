@@ -232,6 +232,41 @@ def generate_chapters_job(job_id: str) -> None:
         chmod.save_chapters(out, ChaptersData(status="failed", error=f"unexpected: {e}"))
 
 
+def generate_video_map_job(job_id: str) -> None:
+    """Сгенерировать нарративную VideoMap (главы+моменты) → диск + Postgres (dual-mode).
+
+    КРИТИЧНО: запускается в ОТДЕЛЬНОМ Modal-контейнере (dispatch.spawn), результат отдаёт
+    web-контейнер /video-map → save_video_map пишет durable в Postgres job_artifacts (см.
+    editor/video_map.py). Успех → status=done; пусто/падение → status=failed+error (правило
+    №8 — фронт видит причину, retry-путь GET /video-map?retry=true перезапускает).
+    """
+    from app import artifacts
+    from app.editor import video_map as vmmod
+    from app.models import VideoMap
+
+    try:
+        transcript = artifacts.load_transcript(job_id)
+        segments = artifacts.load_segments(job_id)
+        result = vmmod.generate_video_map(
+            transcript.words, transcript.duration, transcript.language, segments
+        )
+        if not result.chapters:
+            # Пустая карта → НЕ тихий done (правило №8): явный failed с причиной → видно на фронте.
+            vmmod.save_video_map(
+                job_id,
+                VideoMap(
+                    status="failed",
+                    error="AI-карта пуста (модель не вернула глав). Повторите генерацию.",
+                ),
+            )
+            return
+        vmmod.save_video_map(job_id, result)
+    except JobError as e:
+        vmmod.save_video_map(job_id, VideoMap(status="failed", error=str(e)))
+    except Exception as e:  # noqa: BLE001 — фон-таск: любое падение → статус failed, не молча
+        vmmod.save_video_map(job_id, VideoMap(status="failed", error=f"unexpected: {e}"))
+
+
 def run_pipeline_job(
     job_id: str,
     source_type: str,

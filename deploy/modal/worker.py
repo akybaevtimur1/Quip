@@ -333,6 +333,28 @@ def agent_edit_job(run_id: str) -> None:
     _job(run_id)
 
 
+# VideoMap: нарративный анализ (главы+моменты+связный разбор) в ОТДЕЛЬНОМ контейнере. Имя функции
+# ОБЯЗАНО совпадать со строкой dispatch.spawn("generate_video_map_job", ...). Результат durable в
+# Postgres job_artifacts.video_map (save_video_map) → web-контейнер /video-map читает его.
+@app.function(
+    secrets=[_SECRET, _BILLING_SECRET],
+    timeout=600,
+    cpu=2,
+    memory=2048,
+    min_containers=0,
+    serialized=True,
+)
+def generate_video_map_job(job_id: str) -> None:
+    """Сгенерировать VideoMap (Gemini) и сохранить в Postgres + диск контейнера."""
+    import sys
+
+    if "/root" not in sys.path:
+        sys.path.insert(0, "/root")
+    from app import tasks
+
+    tasks.generate_video_map_job(job_id)
+
+
 # Ретеншн R2: source.mp4/preview.mp4 — 70-90% хранилища, нужны лишь редактору; клипы (продукт)
 # вечны. Без чистки R2 растёт безлимитно (разовая оплата → вечное хранение). Раз в сутки удаляем
 # editor-only артефакты старше DEFAULT_SOURCE_RETENTION_DAYS. _SECRET даёт R2-креды.

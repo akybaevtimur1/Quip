@@ -310,6 +310,23 @@ def get_job_artifacts(job_id: str) -> dict[str, Any] | None:
     return None
 
 
+def put_job_artifact(job_id: str, key: str, value: Any) -> None:
+    """Сохранить ОДИН jsonb-артефакт (напр. video_map) в Postgres-строку job_artifacts (cloud).
+
+    Cross-container: video_map генерится в ОТДЕЛЬНОМ Modal-контейнере, а отдаётся web-контейнером
+    /video-map → диск-only артефакт невидим. Эта колонка делает его durable между контейнерами.
+    Локально — no-op (артефакт читается с диска)."""
+    if cs.cloud_enabled():
+        cs.put_job_artifact(job_id, key, value)
+
+
+def get_job_artifact(job_id: str, key: str) -> Any:
+    """Прочитать ОДИН jsonb-артефакт job_artifacts[key] из Postgres (cloud); локально → None."""
+    if cs.cloud_enabled():
+        return cs.get_job_artifact(job_id, key)
+    return None
+
+
 # ── content-addressed transcript-кэш (бережёт Deepgram между контейнерами) ──
 
 

@@ -394,3 +394,46 @@ def generate_video_map(
 
     raw: dict[str, Any] = {"narrative": narrative, "chapters": chapters_out}
     return parse_video_map(raw, segments, duration)
+
+
+# ─────────────────────── dual-mode storage (cross-container) ────────────────────────
+# КРИТИЧНО: video_map генерится в ОТДЕЛЬНОМ Modal-контейнере (dispatch.spawn), а отдаётся
+# web-контейнером (/video-map). Диск-only кэш (как chapters.json) на облаке НЕВИДИМ — разные
+# контейнеры. Поэтому пишем И на диск (local dev / тот же контейнер), И в Postgres job_artifacts
+# (cloud_key="video_map") — любой контейнер прочитает. Зеркало transcript/segments/meta.
+
+_VIDEO_MAP_FILE = "video_map.json"
+_VIDEO_MAP_KEY = "video_map"
+
+
+def load_video_map(job_id: str) -> VideoMap | None:
+    """Прочитать VideoMap: диск data/<job>/video_map.json, иначе Postgres job_artifacts.video_map.
+
+    None — если карты нет нигде (генерация ещё не стартовала). disk-first, cloud-fallback —
+    как artifacts._disk_or_cloud, но без JobError: отсутствие = None (endpoint решает дальше).
+    """
+    from app import artifacts, db
+
+    p = artifacts.job_dir(job_id) / _VIDEO_MAP_FILE
+    if p.exists():
+        return VideoMap.model_validate_json(p.read_text(encoding="utf-8"))
+    val = db.get_job_artifact(job_id, _VIDEO_MAP_KEY)
+    if val is None:
+        return None
+    return VideoMap.model_validate(val)
+
+
+def save_video_map(job_id: str, data: VideoMap) -> None:
+    """Записать VideoMap НА ДИСК и в Postgres (durable между контейнерами).
+
+    Диск — для local dev / того же контейнера; Postgres (db.put_job_artifact, локально no-op) —
+    чтобы web-контейнер /video-map увидел результат, сгенерённый отдельным Modal-контейнером.
+    """
+    from app import artifacts, db
+
+    out = artifacts.job_dir(job_id)
+    out.mkdir(parents=True, exist_ok=True)
+    (out / _VIDEO_MAP_FILE).write_text(
+        data.model_dump_json(indent=2), encoding="utf-8", newline="\n"
+    )
+    db.put_job_artifact(job_id, _VIDEO_MAP_KEY, data.model_dump())
