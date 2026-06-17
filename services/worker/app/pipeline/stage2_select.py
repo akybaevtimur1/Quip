@@ -320,7 +320,7 @@ def build_user_prompt(
     indexed: str,
     max_clips: int = 8,
     *,
-    min_sec: float = 15.0,
+    min_sec: float = 20.0,
     max_sec: float = 60.0,
 ) -> str:
     """W1: реальные min/max длины уходят в промпт как ЖЁСТКИЙ лимит (раньше хардкод «15-60s» в
