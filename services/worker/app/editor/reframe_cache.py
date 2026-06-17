@@ -67,11 +67,6 @@ def _manual_region(ov: CropOverride, dur: float) -> list[TrackRegion]:
     return [TrackRegion(t0=0.0, t1=dur, mode="fill", points=(pt,))]
 
 
-def _covers_interval(ov: CropOverride, iv: SourceInterval) -> bool:
-    """True если override покрывает интервал ЦЕЛИКОМ (fast-path → _manual_region)."""
-    return ov.source_start <= iv.source_start and ov.source_end >= iv.source_end
-
-
 def _recolor_region(r: TrackRegion, ov: CropOverride) -> TrackRegion:
     """Регион → ручной режим override'а, СОХРАНЯЯ t0/t1 (инвариант кадровой сетки).
 
@@ -227,13 +222,11 @@ def resolve_regions_accurate(
     cache_dir.mkdir(parents=True, exist_ok=True)
     out: list[list[TrackRegion]] = []
     for i, iv in enumerate(intervals):
-        dur = round(iv.source_end - iv.source_start, 3)
-        # Fast path: override покрывает ВЕСЬ интервал → один ручной регион (дёшево, без ASD).
-        # Сохраняет поведение таба «Кадр» (вся клипа fit/fill/split).
-        ov_full = _override_for(overrides, iv)
-        if ov_full is not None and _covers_interval(ov_full, iv):
-            out.append(_manual_region(ov_full, dur))
-            continue
+        # ВСЕГДА считаем авто-шоты (кэш acc_*.json), затем перекрашиваем покрытые override'ом —
+        # БЕЗ fast-path «override во весь интервал». Иначе override на весь клип (напр. таб «Кадр»
+        # Wide, или старый сломанный per-shot) схлопывал /reframe в ОДИН регион → мини-таймлайн
+        # показывал один блок «как будто нет сегментов», и пошотовый контроль было НЕ вернуть (#5,
+        # повторный фидбек). Перекрас сохраняет границы (инвариант цел); ASD амортизируется кэшем.
         cache = cache_dir / f"acc_{iv.source_start:.2f}_{iv.source_end:.2f}.json"
         if cache.exists():
             regions = [_region_from_dict(d) for d in json.loads(cache.read_text("utf-8"))]
