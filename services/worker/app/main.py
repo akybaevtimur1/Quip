@@ -1066,6 +1066,10 @@ def get_clip_reframe(job_id: str, clip_id: str) -> dict[str, Any]:
         speak_threshold=s.reframe_speak_threshold,
         scene_threshold=s.reframe_scene_threshold,
         split_enabled=s.reframe_split_enabled,
+        # WYSIWYG: тот же гибрид-порог, что у рендера/батча (render_edit_to_file его передаёт).
+        # Без него превью бралось дефолтом resolve_regions_accurate (0.3) ≠ настройке → широкий
+        # план в гриде показан горизонтально (fit), а в редакторе-превью — кропом (fill).
+        wide_speak_min=s.reframe_wide_speak_min,
     )
     return {"regions": regions_to_clip_time(region_lists, edit.source_intervals)}
 

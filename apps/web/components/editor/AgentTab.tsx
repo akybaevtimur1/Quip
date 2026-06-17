@@ -25,7 +25,7 @@ function isTerminal(s: AgentRunStatus | "idle"): boolean {
   return s === "done" || s === "failed" || s === "cancelled";
 }
 
-function EventRow({ ev }: { ev: AgentEvent }) {
+function EventRow({ ev, live }: { ev: AgentEvent; live: boolean }) {
   if (ev.role === "user") {
     return (
       <div className="ml-auto max-w-[85%] rounded-lg rounded-br-sm bg-surface-3 px-3 py-2 text-sm text-ink">
@@ -34,9 +34,15 @@ function EventRow({ ev }: { ev: AgentEvent }) {
     );
   }
   if (ev.role === "thinking") {
+    // Спиннер крутится ТОЛЬКО пока прогон живой. После done/failed/cancelled мысли — это
+    // история; крутящийся лоадер на каждой создавал ложное «всё ещё грузится» (фидбек фаундера).
     return (
       <p className="flex items-center gap-1.5 px-1 text-[11px] italic text-muted">
-        <Loader2 className="size-3 shrink-0 animate-spin" />
+        {live ? (
+          <Loader2 className="size-3 shrink-0 animate-spin" />
+        ) : (
+          <span className="size-1.5 shrink-0 rounded-full bg-muted/40" aria-hidden />
+        )}
         {ev.text}
       </p>
     );
@@ -212,7 +218,7 @@ export function AgentTab({
             </div>
           </div>
         ) : (
-          events.map((ev, i) => <EventRow key={i} ev={ev} />)
+          events.map((ev, i) => <EventRow key={i} ev={ev} live={running} />)
         )}
         {running && (
           <p className="flex items-center gap-1.5 px-1 text-[11px] text-muted">

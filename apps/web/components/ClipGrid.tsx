@@ -38,8 +38,11 @@ function downloadClips(urls: { href: string; name: string }[]) {
 // выбор сбрасывается на «все выбраны» без эффектов (см. page.tsx).
 export function ClipGrid({ job }: { job: Job }) {
   const jobId = job.id;
+  // Сорт по score ↓ с ДЕТЕРМИНИРОВАННЫМ тай-брейком по id: при равных score (часто у
+  // подкаст-клипов) без него порядок зависел от исходной последовательности фетча и мог
+  // разойтись с порядком в редакторе → «открываю первый, попадаю в третий», скачет ‹ ›.
   const clips = useMemo(
-    () => [...(job.clips ?? [])].sort((a, b) => b.score - a.score),
+    () => [...(job.clips ?? [])].sort((a, b) => b.score - a.score || a.id.localeCompare(b.id)),
     [job.clips],
   );
   const [selected, setSelected] = useState<Set<string>>(() => new Set(clips.map((c) => c.id)));

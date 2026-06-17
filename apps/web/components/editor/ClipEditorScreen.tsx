@@ -231,8 +231,12 @@ export default function ClipEditorScreen({
               if (cancelled) return;
               // Same order the grid shows (best score first) so "Clip N of M" and the
               // ‹ › nav match what the user clicked — otherwise opening the first card
-              // (highest score) showed "Clip 2 of 5".
-              const ids = [...(job.clips ?? [])].sort((a, b) => b.score - a.score).map((c) => c.id);
+              // (highest score) showed "Clip 2 of 5". ДЕТЕРМИНИРОВАННЫЙ тай-брейк по id
+              // (как в ClipGrid): при равных score порядок не зависит от очерёдности фетча,
+              // иначе грид и редактор расходились → «открыл первый — попал в третий».
+              const ids = [...(job.clips ?? [])]
+                .sort((a, b) => b.score - a.score || a.id.localeCompare(b.id))
+                .map((c) => c.id);
               setClipIds(ids.length > 0 ? ids : [clipId]);
               // D1: НЕ берём me.video_url (ЧИСТЫЙ клип без субтитров) как download —
               // downloadUrl остаётся null до рендера → ExportMenu рендерит captioned на лету.
