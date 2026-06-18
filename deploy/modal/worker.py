@@ -271,8 +271,19 @@ def render_job(job_id: str, clip_id: str) -> None:
     min_containers=0,
     serialized=True,
 )
-def reframe_render_clip(job_id: str, clip_index: int, seg: dict, meta: dict) -> dict:
-    """Stages 3–5 ОДНОГО клипа на своём контейнере (параллельный фан-аут run_job)."""
+def reframe_render_clip(
+    job_id: str,
+    clip_index: int,
+    seg: dict,
+    meta: dict,
+    user_id: str | None = None,
+) -> dict:
+    """Stages 3–5 ОДНОГО клипа на своём контейнере (параллельный фан-аут run_job).
+
+    ``user_id`` (владелец джоба) → план резолвится СЕРВЕРНО внутри render_one_clip
+    (вотермарка для free + потолок разрешения). Дефолт None оставлен для обратной совместимости
+    со старыми in-flight стартмапами; в проде run.clip_spawn_args ВСЕГДА передаёт user_id.
+    """
     import sys
 
     if "/root" not in sys.path:
@@ -289,6 +300,7 @@ def reframe_render_clip(job_id: str, clip_index: int, seg: dict, meta: dict) -> 
         clip_index,
         Segment.model_validate(seg),
         SourceMeta.model_validate(meta),
+        user_id,
     )
 
 

@@ -182,7 +182,17 @@ export function PreviewPlayer({
         isFullscreen ? "flex h-full w-full items-center justify-center" : `w-full max-h-full ${aspectClass}`
       }`}
     >
-      <div className={isFullscreen ? `relative h-full ${aspectClass}` : "absolute inset-0"}>
+      {/* Внутренний бокс = РЕНДЕР-бокс видео; video/canvas/хит-зоны/гайды все absolute
+          inset-0 относительно него → оверлей (libass + драг-зоны) ВСЕГДА совпадает с
+          картинкой. В fullscreen центрируемся в флекс-контейнере и держим aspect, но
+          ограничиваем ОБЕ стороны (max-h-full max-w-full): иначе при не-портретном
+          aspectClass `h-full`+aspect распирал ширину за вьюпорт → видео/субтитры
+          вылезали за экран = артефакты/смещение оверлея в fullscreen. */}
+      <div
+        className={
+          isFullscreen ? `relative h-full max-h-full max-w-full ${aspectClass}` : "absolute inset-0"
+        }
+      >
         {/* fit: блюр-фон позади (весь кадр + рамки, как в рендере).
             ПРОГРЕВ (#4 анти-флеш): монтируем во ВСЕХ режимах КРОМЕ split — не только в fit.
             Раньше {mode==="fit"} монтировал <video> заново НА переходе fill→fit: свежий элемент

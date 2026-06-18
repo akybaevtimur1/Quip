@@ -343,7 +343,7 @@ def generate_video_map(
     try:
         parsed = json.loads(text)
     except json.JSONDecodeError as e:
-        raise JobError(_STAGE, f"Gemini вернул не-JSON: {e}") from e
+        raise JobError(_STAGE, f"Gemini returned non-JSON: {e}") from e
 
     raw_chapters = parsed.get("chapters", [])
     narrative = str(parsed.get("narrative", "")).strip()

@@ -58,7 +58,7 @@ function overlaps(a: number, b: number, c: number, d: number): boolean {
 function PendingState() {
   return (
     <div className="px-3 py-2.5 text-xs text-muted" role="status">
-      AI читает видео…
+      AI is reading the video…
     </div>
   );
 }
@@ -96,7 +96,7 @@ function MomentRow({
         <span className="font-semibold text-ink leading-snug">{moment.label}</span>
         <span className="ml-1.5 font-mono text-faint">{mmss(moment.start)}</span>
         {isCurrent && (
-          <span className="ml-1.5 text-accent font-semibold">текущий</span>
+          <span className="ml-1.5 text-accent font-semibold">current</span>
         )}
       </div>
 
@@ -106,9 +106,9 @@ function MomentRow({
         onClick={handleMove}
         style={{ minHeight: "40px" }}
         className="shrink-0 rounded-md bg-surface-2 border border-line px-2 py-1 text-xs font-semibold text-ink hover:border-line-strong hover:bg-surface-3 transition-colors duration-150 whitespace-nowrap"
-        title="Сдвинуть клип на этот момент"
+        title="Move the clip to this moment"
       >
-        Подвинуть сюда
+        Move here
       </button>
     </div>
   );
@@ -218,11 +218,11 @@ export function TopicStrip({
           timerRef.current = setTimeout(() => poll(false), 2500);
         }
         if (data.status === "failed") {
-          setError(data.error ?? "Не удалось построить карту тем");
+          setError(data.error ?? "Couldn’t build the topic map");
         }
       })
       .catch((err: unknown) => {
-        setError(err instanceof Error ? err.message : "Ошибка загрузки карты тем");
+        setError(err instanceof Error ? err.message : "Failed to load the topic map");
       });
   }
 
@@ -252,7 +252,7 @@ export function TopicStrip({
       >
         <BookOpen className="size-3.5 shrink-0 text-muted" aria-hidden />
         <span className="text-[11px] font-semibold uppercase tracking-wider text-muted flex-1">
-          Темы видео
+          Video topics
         </span>
         <svg
           className="size-3.5 shrink-0 text-muted transition-transform duration-200 ease-snappy group-open:rotate-180"
@@ -284,14 +284,14 @@ export function TopicStrip({
               style={{ minHeight: "40px" }}
               className="shrink-0 rounded-md bg-surface-2 border border-line px-2 py-1 text-xs font-semibold text-ink hover:border-line-strong transition-colors duration-150"
             >
-              Повторить
+              Retry
             </button>
           </div>
         )}
 
         {/* Empty (done but no chapters) */}
         {isEmpty && !error && (
-          <p className="px-3 py-3 text-xs text-muted">Карта тем пока пуста.</p>
+          <p className="px-3 py-3 text-xs text-muted">No topics yet.</p>
         )}
 
         {/* Done */}

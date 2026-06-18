@@ -17,6 +17,8 @@ from app.pipeline.stage5_render import (
     build_fill_crop_expr,
     build_single_pass_cmd,
     build_smooth_filter,
+    build_watermark_drawtext,
+    clamp_output_dims,
     fill_crop_dims,
 )
 
@@ -32,6 +34,30 @@ class TestAspectToDims:
 
     def test_unknown_defaults_to_9_16(self) -> None:
         assert aspect_to_dims("bogus") == (1080, 1920)
+
+
+class TestClampOutputDims:
+    """clamp_output_dims: free-план капится 720p (меньшая сторона), аспект сохранён."""
+
+    def test_9_16_1080_to_720(self) -> None:
+        # 1080×1920 (меньшая сторона 1080) → 720×1280 при потолке 720
+        assert clamp_output_dims(1080, 1920, 720) == (720, 1280)
+
+    def test_no_upscale_when_under_cap(self) -> None:
+        # уже ≤ потолка → без изменений (не апскейлим)
+        assert clamp_output_dims(1080, 1920, 1080) == (1080, 1920)
+        assert clamp_output_dims(720, 1280, 1080) == (720, 1280)
+
+    def test_square_1080_to_720(self) -> None:
+        assert clamp_output_dims(1080, 1080, 720) == (720, 720)
+
+    def test_16_9_landscape_caps_height(self) -> None:
+        # 1920×1080 (меньшая сторона 1080 = высота) → 1280×720 при потолке 720
+        assert clamp_output_dims(1920, 1080, 720) == (1280, 720)
+
+    def test_dims_are_even(self) -> None:
+        w, h = clamp_output_dims(1080, 1350, 720)  # 4:5
+        assert w % 2 == 0 and h % 2 == 0
 
 
 class TestFillCropDims:
@@ -265,6 +291,76 @@ class TestBuildSmoothFilter:
         fc = build_smooth_filter(regions, 1920, 1080, 30.0, "c.ass")
         assert "xfade" not in fc
         assert fc.count("concat=n=2:v=1:a=0") >= 1
+
+
+# ─────────────────────── TestWatermark (free-план) ───────────────────────
+
+
+class TestBuildWatermarkDrawtext:
+    """build_watermark_drawtext: аддитивный drawtext в нижнем углу (free-вотермарка).
+
+    КРИТИЧНО (инвариант кадровой сетки): drawtext НЕ трогает trim/crop/fps — это чистый
+    оверлей поверх готового кадра на финальном энкоде. Δ=0 цел (см. REFRAME_FPS_GRID_INVARIANT).
+    """
+
+    def test_contains_drawtext_and_label(self) -> None:
+        dt = build_watermark_drawtext(1080, 1920, fontfile=None)
+        assert dt.startswith("drawtext=")
+        assert "Made with Quip" in dt
+
+    def test_semi_transparent_white(self) -> None:
+        dt = build_watermark_drawtext(1080, 1920, fontfile=None)
+        # белый текст с альфой < 1 (полупрозрачный, читаемый но не разрушающий клип)
+        assert "fontcolor=white@0" in dt
+
+    def test_positioned_bottom_with_padding(self) -> None:
+        dt = build_watermark_drawtext(1080, 1920, fontfile=None)
+        # y у нижней кромки (H - text_h - pad), x от правого края (W - text_w - pad)
+        assert "x=" in dt and "y=" in dt
+        assert "h-th-" in dt  # отступ снизу
+
+    def test_fontsize_scales_with_height(self) -> None:
+        small = build_watermark_drawtext(1080, 1080, fontfile=None)
+        tall = build_watermark_drawtext(1080, 1920, fontfile=None)
+        # шрифт пропорционален высоте → разные размеры для разных аспектов
+        assert "fontsize=" in small and "fontsize=" in tall
+
+    def test_fontfile_escaped_when_given(self) -> None:
+        dt = build_watermark_drawtext(1080, 1920, fontfile="../../fonts/Montserrat.ttf")
+        assert "fontfile=" in dt
+        assert "Montserrat.ttf" in dt
+
+
+class TestBuildSmoothFilterWatermark:
+    """build_smooth_filter(watermark=...): drawtext дописывается ПОСЛЕ субтитров на [outv]."""
+
+    def test_no_watermark_by_default(self) -> None:
+        fc = build_smooth_filter([_fill_region(0.0, 5.0, [0.5])], 1920, 1080, 24.0, "c.ass")
+        assert "drawtext" not in fc
+
+    def test_watermark_appended_after_subtitles(self) -> None:
+        fc = build_smooth_filter(
+            [_fill_region(0.0, 5.0, [0.5])], 1920, 1080, 24.0, "c.ass", watermark=True
+        )
+        assert "drawtext=" in fc
+        assert "Made with Quip" in fc
+        # subtitles прожигаются ДО вотермарки (вотермарка — последний шаг перед [outv])
+        assert fc.index("subtitles=") < fc.index("drawtext=")
+        assert fc.rstrip().endswith("[outv]")
+
+    def test_watermark_without_subtitles(self) -> None:
+        # ass_name=None (CC overlay в браузере) → вотермарка всё равно прожигается на сервере
+        fc = build_smooth_filter(
+            [_fill_region(0.0, 5.0, [0.5])], 1920, 1080, 24.0, None, watermark=True
+        )
+        assert "drawtext=" in fc
+        assert fc.rstrip().endswith("[outv]")
+
+    def test_watermark_multi_region(self) -> None:
+        regions = [_fill_region(0.0, 2.0, [0.5]), _fit_region(2.0, 5.0)]
+        fc = build_smooth_filter(regions, 1920, 1080, 30.0, "c.ass", watermark=True)
+        assert fc.count("drawtext=") == 1  # одна вотермарка на весь клип, не на регион
+        assert fc.rstrip().endswith("[outv]")
 
 
 # ─────────────────────── TestChainVideoSegs ───────────────────────

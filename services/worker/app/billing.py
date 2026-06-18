@@ -120,6 +120,36 @@ def resolve_plan(plan_id: str | None) -> PlanLimits:
 
 
 @dataclass(frozen=True)
+class RenderPolicy:
+    """Серверное решение по рендеру клипа для плана владельца джоба. PURE.
+
+    ``watermark``       — прожигать ли вотермарку «Made with Quip» (free=True).
+    ``max_resolution``  — потолок высоты выходного клипа в px (free=720, платные=1080).
+
+    Источник правды — ``PlanLimits`` (free.watermark/max_resolution). Решается СЕРВЕРНО из
+    плана владельца (``jobs.user_id`` → ``profiles.plan``) и не зависит ни от какого клиентского
+    флага → обойти с фронта невозможно.
+    """
+
+    watermark: bool
+    max_resolution: int
+
+
+def resolve_render_policy(plan_id: str | None, *, local_dev: bool) -> RenderPolicy:
+    """План владельца джоба → политика рендера (вотермарка + потолок разрешения). PURE.
+
+    Неизвестный/None план → free (безопасный дефолт через ``resolve_plan`` — НЕ чистый клип).
+    ``local_dev=True`` (нет облака/owner: локальный dev на SQLite/диске) → НИКОГДА не
+    вотермаркаем и не капим разрешение — это удобство разработки; в облаке у джоба всегда есть
+    ``user_id``, поэтому free-юзер ВСЕГДА получает вотермарку (обойти с клиента нельзя).
+    """
+    if local_dev:
+        return RenderPolicy(watermark=False, max_resolution=PLANS["pro"].max_resolution)
+    plan = resolve_plan(plan_id)
+    return RenderPolicy(watermark=plan.watermark, max_resolution=plan.max_resolution)
+
+
+@dataclass(frozen=True)
 class QuotaDecision:
     """Решение квоты в МИНУТАХ. Несёт split списания (месячный/PAYG) для корректного учёта.
 
@@ -214,3 +244,72 @@ def current_month(today: datetime.date | None = None) -> str:
     """Текущий расчётный месяц `YYYY-MM` (ключ месячного окна usage). PURE при заданном today."""
     d = today or datetime.date.today()
     return f"{d.year:04d}-{d.month:02d}"
+
+
+# ─────────────────────────── Анти-абьюз: одноразовые email-домены ───────────────────────────
+# Бесплатный план (2 видео) абьюзят регистрацией пачек ящиков на temp-mail сервисах. Денилист
+# самых ходовых одноразовых доменов — режем их на signup-гейте и на free-job-гейте (вместе с
+# требованием verified email). Стартовый набор, расширяемый ОДНОЙ строкой; зеркалится на фронте
+# (apps/web/lib/disposableEmail.ts) для UX-валидации до сабмита. Сервер — авторитет, фронт — UX.
+DISPOSABLE_EMAIL_DOMAINS: frozenset[str] = frozenset(
+    {
+        "0-mail.com",
+        "10minutemail.com",
+        "10minutemail.net",
+        "20minutemail.com",
+        "33mail.com",
+        "boun.cr",
+        "burnermail.io",
+        "byom.de",
+        "dispostable.com",
+        "emailondeck.com",
+        "fakeinbox.com",
+        "getairmail.com",
+        "getnada.com",
+        "guerrillamail.com",
+        "guerrillamail.net",
+        "guerrillamail.org",
+        "guerrillamailblock.com",
+        "inboxbear.com",
+        "inboxkitten.com",
+        "mailcatch.com",
+        "maildrop.cc",
+        "mailinator.com",
+        "mailnesia.com",
+        "mintemail.com",
+        "mohmal.com",
+        "moakt.com",
+        "mytemp.email",
+        "nada.email",
+        "sharklasers.com",
+        "spam4.me",
+        "tempmail.com",
+        "tempmail.net",
+        "tempmailo.com",
+        "temp-mail.io",
+        "temp-mail.org",
+        "throwawaymail.com",
+        "trashmail.com",
+        "trashmail.de",
+        "wegwerfmail.de",
+        "yopmail.com",
+        "yopmail.fr",
+        "yopmail.net",
+    }
+)
+
+
+def is_disposable_email(email: str | None) -> bool:
+    """Домен email принадлежит известному одноразовому/temp-mail сервису? PURE.
+
+    Регистронезависимо, обрезает пробелы. Матч по СУФФИКСУ домена на границе точки →
+    режет и поддомены сервиса (``mail.guerrillamail.com``), но НЕ ложно-похожие
+    (``notyopmail.com`` ≠ ``yopmail.com``). Битый ввод (нет ``@``, пустой домен) → ``False``
+    (валидность email — не наша забота; здесь только анти-абьюз по денилисту).
+    """
+    if not email:
+        return False
+    _, _, domain = email.strip().lower().partition("@")
+    if not domain or "." not in domain:
+        return False
+    return any(domain == bad or domain.endswith(f".{bad}") for bad in DISPOSABLE_EMAIL_DOMAINS)

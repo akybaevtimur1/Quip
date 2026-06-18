@@ -28,12 +28,12 @@ const MOCK_CLIPS: ClipOut[] = [
     end: 191.6,
     duration: 20.8,
     reason:
-      "Сатира на вторую поправку и владение оружием — острый, самодостаточный обмен репликами, понятный без контекста.",
+      "Satire on the Second Amendment and gun ownership — a sharp, self-contained exchange that lands without any context.",
     type: "strong_quote",
     score: 0.85,
-    hook: "Это дискриминация по 2-й поправке?",
+    hook: "Isn't that discrimination against the Second Amendment?",
     why_works:
-      "Абсурдная логика на серьёзных щах — мгновенно смешно и репостится без контекста.",
+      "Absurd logic delivered with a straight face — instantly funny and endlessly shareable on its own.",
     video_url: "/mock/clip_01.mp4",
     thumbnail_url: null,
     transcript: "Mafia, townsperson, angel. Mike, this seems kinda discriminatory against second amendment…",
@@ -48,12 +48,12 @@ const MOCK_CLIPS: ClipOut[] = [
     end: 1937.7,
     duration: 42.5,
     reason:
-      "Кульминация игры: игроки осознают, что убили Ангела — и мафия побеждает. Пиковая эмоция и развязка.",
+      "The climax of the game: players realize they killed the Angel — and the mafia wins. Peak emotion and a clean payoff.",
     type: "emotional_peak",
     score: 0.96,
-    hook: "Мафия победила в последний момент",
+    hook: "The mafia won at the very last second",
     why_works:
-      "Резкий разворот на пике напряжения — пейофф, ради которого досматривают до конца.",
+      "A sharp twist at peak tension — the payoff that keeps people watching to the end.",
     video_url: "/mock/clip_05.mp4",
     thumbnail_url: null,
     transcript: "Moxie was kicked into a vat of piranhas, and the mafia win. Yeah. Let's go…",

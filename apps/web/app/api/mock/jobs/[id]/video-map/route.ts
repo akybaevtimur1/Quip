@@ -5,71 +5,71 @@ import type { VideoMap } from "@/lib/types";
 const MOCK_VIDEO_MAP: VideoMap = {
   status: "done",
   narrative:
-    "Это видео — запись партии «Мафии» с неожиданными поворотами. В начале [2:50] игроки " +
-    "медленно разбираются в правилах, но уже в середине ломается уютная атмосфера: кто-то обвиняет " +
-    "невинного горожанина. Кульминация — [[clip:clip_02]] — момент, когда мафия буквально " +
-    "в последнюю секунду переворачивает исход. Видео прекрасно подходит как нарезка: много " +
-    "острых обменов репликами и сочных эмоциональных пиков.",
+    "This video is a recording of a Mafia game full of unexpected twists. Early on [2:50] the players " +
+    "slowly work out the rules, but by the middle the cozy mood breaks down: someone accuses " +
+    "an innocent townsperson. The climax — [[clip:clip_02]] — is the moment the mafia flips the " +
+    "outcome at the very last second. The video is a perfect source for clips: plenty of " +
+    "sharp exchanges and rich emotional peaks.",
   chapters: [
     {
-      title: "Начало: знакомство с правилами",
+      title: "Opening: learning the rules",
       start: 0,
       end: 600,
       summary:
-        "Игроки получают роли и разбираются в механиках. Юмор в том, что никто до конца " +
-        "не понимает, кто мафия.",
+        "Players get their roles and figure out the mechanics. The humor is that nobody quite " +
+        "knows who the mafia is.",
       clip_ids: ["clip_01"],
       moments: [
         {
           kind: "funny",
-          label: "Путаница с ролями",
-          why: "Игрок-мафиози забывает свою роль и случайно себя выдаёт",
+          label: "Mixed-up roles",
+          why: "A mafia player forgets their role and accidentally gives themselves away",
           start: 45,
           end: 62,
         },
         {
           kind: "quote",
-          label: "«Это дискриминация по 2-й поправке?»",
-          why: "Абсурдная реплика про вторую поправку — мгновенно стала мемом",
+          label: "“Isn't that discrimination against the Second Amendment?”",
+          why: "An absurd line about the Second Amendment that instantly became a meme",
           start: 172,
           end: 185,
         },
         {
           kind: "tension",
-          label: "Первое голосование",
-          why: "Напряжённое голосование: один голос решает судьбу невинного",
+          label: "The first vote",
+          why: "A tense vote: a single ballot decides an innocent player's fate",
           start: 520,
           end: 558,
         },
       ],
     },
     {
-      title: "Финал: мафия побеждает в последний момент",
+      title: "Finale: the mafia wins at the last moment",
       start: 600,
       end: 1987,
       summary:
-        "Горожане считают, что нашли мафию, но убивают Ангела — и мафия побеждает. " +
-        "Пиковая эмоция и развязка, ради которой досматривают до конца.",
+        "The townsfolk think they've found the mafia, but they kill the Angel — and the mafia wins. " +
+        "Peak emotion and a resolution worth watching to the end for.",
       clip_ids: ["clip_05"],
       moments: [
         {
           kind: "tension",
-          label: "Ангела обвиняют",
-          why: "Невинный игрок под ударом — зал замирает",
+          label: "The Angel is accused",
+          why: "An innocent player is on the chopping block — the room goes quiet",
           start: 1820,
           end: 1850,
         },
         {
           kind: "emotional",
-          label: "Ангел выбывает",
-          why: "Игроки в шоке — не того казнили",
+          label: "The Angel is eliminated",
+          why: "The players are stunned — they executed the wrong person",
           start: 1893,
           end: 1910,
         },
         {
           kind: "insight",
-          label: "Момент осознания",
-          why: "Ведущий объясняет, что именно пошло не так — наглядный разбор ошибки",
+          label: "The moment of realization",
+          why: "The host explains exactly what went wrong — a clear breakdown of the mistake",
           start: 1940,
           end: 1965,
         },

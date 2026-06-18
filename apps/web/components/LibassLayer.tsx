@@ -54,6 +54,13 @@ export function LibassLayer({ videoRef, assText, sourceStart, onError }: LibassL
     let local: SubtitlesOctopus | null = null;
     let raf = 0;
     let ro: ResizeObserver | null = null;
+    // applySize становится доступной слушателям fullscreen/resize ниже (а не только
+    // изнутри async-IIFE). Канвас обязан попиксельно совпадать с РЕНДЕР-боксом видео
+    // в ОБОИХ режимах; на входе/выходе из fullscreen бокс меняет CSS-размер и DPR может
+    // не измениться → одного ResizeObserver мало (мог промахнуться по таймингу перехода),
+    // поэтому дополнительно пере-меряем на fullscreenchange и window resize.
+    let applySize: () => void = () => {};
+    const onRelayout = () => applySize();
 
     (async () => {
       try {
@@ -85,7 +92,7 @@ export function LibassLayer({ videoRef, assText, sourceStart, onError }: LibassL
         instanceRef.current = local;
 
         // размер канваса = размер контейнера (CSS-пиксели × DPR)
-        const applySize = () => {
+        applySize = () => {
           const box = canvas.parentElement;
           if (!box || !local) return;
           const r = box.getBoundingClientRect();
@@ -101,6 +108,10 @@ export function LibassLayer({ videoRef, assText, sourceStart, onError }: LibassL
         applySize();
         ro = new ResizeObserver(applySize);
         if (canvas.parentElement) ro.observe(canvas.parentElement);
+        // fullscreen/resize: пере-меряем бокс явно (ResizeObserver может промахнуться
+        // по таймингу перехода в/из fullscreen → канвас-артефакты, оверлей «не догоняет»)
+        document.addEventListener("fullscreenchange", onRelayout);
+        window.addEventListener("resize", onRelayout);
 
         // время: ASS в клип-времени, видео в source-времени.
         // Троттл ~30Гц: каждый setCurrentTime = полный рендер в воркере
@@ -129,6 +140,8 @@ export function LibassLayer({ videoRef, assText, sourceStart, onError }: LibassL
       disposed = true;
       cancelAnimationFrame(raf);
       ro?.disconnect();
+      document.removeEventListener("fullscreenchange", onRelayout);
+      window.removeEventListener("resize", onRelayout);
       const inst = local ?? instanceRef.current;
       if (inst) {
         try {

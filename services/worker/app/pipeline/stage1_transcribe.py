@@ -38,7 +38,7 @@ def deepgram_to_transcript(resp: dict[str, Any], *, default_language: str = "en"
         channel = resp["results"]["channels"][0]
         raw_words = channel["alternatives"][0]["words"]
     except (KeyError, IndexError, TypeError) as e:
-        raise JobError(_STAGE, f"неожиданная структура ответа Deepgram: {e}") from e
+        raise JobError(_STAGE, f"unexpected Deepgram response structure: {e}") from e
 
     words: list[Word] = []
     for w in raw_words:
@@ -47,7 +47,7 @@ def deepgram_to_transcript(resp: dict[str, Any], *, default_language: str = "en"
             start = float(w["start"])
             end = float(w["end"])
         except (KeyError, TypeError, ValueError) as e:
-            raise JobError(_STAGE, f"битое слово в ответе Deepgram: {e}") from e
+            raise JobError(_STAGE, f"malformed word in Deepgram response: {e}") from e
         conf = w.get("confidence")
         words.append(
             Word(
@@ -58,7 +58,7 @@ def deepgram_to_transcript(resp: dict[str, Any], *, default_language: str = "en"
             )
         )
     if not words:
-        raise JobError(_STAGE, "Deepgram вернул 0 слов")
+        raise JobError(_STAGE, "Deepgram returned 0 words")
     words.sort(key=lambda x: x.start)
 
     language: str = channel.get("detected_language") or default_language
@@ -66,11 +66,11 @@ def deepgram_to_transcript(resp: dict[str, Any], *, default_language: str = "en"
     if raw_dur is None:
         # Раньше тут был тихий фолбэк 0.0 → стоимость в run.py = 0 (ломает учёт маржи,
         # правило №12) и проверки длины. Явный отказ (правило №8).
-        raise JobError(_STAGE, "Deepgram не вернул metadata.duration")
+        raise JobError(_STAGE, "Deepgram did not return metadata.duration")
     try:
         duration = float(raw_dur)
     except (TypeError, ValueError) as e:
-        raise JobError(_STAGE, f"битая metadata.duration {raw_dur!r}: {e}") from e
+        raise JobError(_STAGE, f"malformed metadata.duration {raw_dur!r}: {e}") from e
     return Transcript(language=language, duration=duration, words=words)
 
 
@@ -106,7 +106,7 @@ def call_deepgram(
             timeout=httpx.Timeout(connect=30.0, write=None, read=600.0, pool=5.0),
         )
     except httpx.HTTPError as e:
-        raise JobError(_STAGE, f"сетевая ошибка Deepgram: {e}") from e
+        raise JobError(_STAGE, f"Deepgram network error: {e}") from e
     if r.status_code != 200:
         raise JobError(_STAGE, f"Deepgram HTTP {r.status_code}: {r.text[:300]}")
     data: dict[str, Any] = r.json()
@@ -119,17 +119,17 @@ def call_deepgram(
 def transcribe(wav: Path) -> Transcript:
     """Транскрибировать wav выбранным провайдером (из настроек) → Transcript."""
     if not wav.exists():
-        raise JobError(_STAGE, f"нет входного wav: {wav}")
+        raise JobError(_STAGE, f"no input wav: {wav}")
     s = get_settings()
     if s.transcription_provider == "deepgram":
         key = s.deepgram_api_key
         if key is None:
-            raise JobError(_STAGE, "нет DEEPGRAM_API_KEY")
+            raise JobError(_STAGE, "DEEPGRAM_API_KEY is not set")
         resp = call_deepgram(
             wav, api_key=key, model=s.deepgram_model
         )  # language=None → авто-детект
         return deepgram_to_transcript(resp, default_language="en")
-    raise JobError(_STAGE, f"провайдер {s.transcription_provider} ещё не реализован")
+    raise JobError(_STAGE, f"provider {s.transcription_provider} is not implemented yet")
 
 
 def transcribe_to_file(wav: Path, out_path: Path) -> Transcript:

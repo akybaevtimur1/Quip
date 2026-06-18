@@ -42,15 +42,17 @@ def test_clip_spawn_args_one_tuple_per_segment_indexed_from_one() -> None:
     from app.run import clip_spawn_args
 
     segs = [_seg(0, 10), _seg(20, 35)]
-    args = clip_spawn_args("job_x", segs, _meta())
+    args = clip_spawn_args("job_x", segs, _meta(), "user_42")
     assert len(args) == 2
-    # (job_id, clip_index, seg_dict, meta_dict)
+    # (job_id, clip_index, seg_dict, meta_dict, user_id)
     assert args[0][0] == "job_x"
     assert args[0][1] == 1
     assert args[1][1] == 2
     assert args[0][2]["start"] == 0
     assert args[1][2]["end"] == 35
     assert args[0][3]["width"] == 1920
+    assert args[0][4] == "user_42"  # user_id несётся в каждый клип-контейнер
+    assert args[1][4] == "user_42"
 
 
 def test_build_clip_out_maps_segment_and_url() -> None:
@@ -78,10 +80,18 @@ def test_render_all_clips_local_uses_loop(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(run_mod.dispatch, "modal_spawn_enabled", lambda: False)
     calls: list[int] = []
 
+    seen_users: list[str | None] = []
+
     def fake_one(
-        out: Path, source_name: str, clip_index: int, seg: Segment, meta: SourceMeta
+        out: Path,
+        source_name: str,
+        clip_index: int,
+        seg: Segment,
+        meta: SourceMeta,
+        user_id: str | None = None,
     ) -> dict:
         calls.append(clip_index)
+        seen_users.append(user_id)
         return {
             "clip_id": f"clip_{clip_index:02d}",
             "clip_index": clip_index,
@@ -93,8 +103,9 @@ def test_render_all_clips_local_uses_loop(monkeypatch, tmp_path: Path) -> None:
 
     monkeypatch.setattr(run_mod, "render_one_clip", fake_one)
     segs = [_seg(0, 10), _seg(20, 35)]
-    results = run_mod._render_all_clips("job_x", tmp_path, "source.mp4", segs, _meta())
+    results = run_mod._render_all_clips("job_x", tmp_path, "source.mp4", segs, _meta(), "user_42")
     assert calls == [1, 2]
+    assert seen_users == ["user_42", "user_42"]  # owner прокинут в каждый клип
     assert [r["video_url"] for r in results] == ["u1", "u2"]
 
 
@@ -120,6 +131,7 @@ def test_render_all_clips_cloud_uses_map(monkeypatch, tmp_path: Path) -> None:
 
     monkeypatch.setattr(run_mod.dispatch, "map_render_clips", fake_map)
     segs = [_seg(0, 10), _seg(20, 35)]
-    results = run_mod._render_all_clips("job_x", tmp_path, "source.mp4", segs, _meta())
+    results = run_mod._render_all_clips("job_x", tmp_path, "source.mp4", segs, _meta(), "user_42")
     assert len(seen["args"]) == 2
+    assert seen["args"][0][4] == "user_42"  # user_id в args фан-аута
     assert [r["clip_index"] for r in results] == [1, 2]

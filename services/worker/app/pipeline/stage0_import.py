@@ -54,31 +54,31 @@ def parse_fps(rate: str) -> float:
     """
     rate = rate.strip()
     if not rate:
-        raise JobError(_STAGE, "пустой r_frame_rate")
+        raise JobError(_STAGE, "empty r_frame_rate")
     try:
         if "/" in rate:
             num_s, den_s = rate.split("/", 1)
             num, den = float(num_s), float(den_s)
             if den == 0:
-                raise JobError(_STAGE, f"нулевой знаменатель fps: {rate!r}")
+                raise JobError(_STAGE, f"zero fps denominator: {rate!r}")
             fps = num / den
         else:
             fps = float(rate)
     except JobError:
         raise
     except ValueError as e:
-        raise JobError(_STAGE, f"не разобрать r_frame_rate {rate!r}: {e}") from e
+        raise JobError(_STAGE, f"cannot parse r_frame_rate {rate!r}: {e}") from e
     if fps <= 0:
         # 0 fps → ZeroDivisionError в round(start*fps)/fps (stage5_render);
         # отрицательный → битая кадровая математика. Явный отказ вместо тихого брака.
-        raise JobError(_STAGE, f"неположительный fps: {rate!r} → {fps}")
+        raise JobError(_STAGE, f"non-positive fps: {rate!r} → {fps}")
     return round(fps, 3)
 
 
 def _video_stream(probe: dict[str, Any]) -> dict[str, Any]:
     streams = probe.get("streams") or []
     if not streams:
-        raise JobError(_STAGE, "ffprobe не вернул видеопоток")
+        raise JobError(_STAGE, "ffprobe returned no video stream")
     stream: dict[str, Any] = streams[0]
     return stream
 
@@ -89,13 +89,13 @@ def _duration(probe: dict[str, Any], stream: dict[str, Any]) -> float:
         fmt = probe.get("format")
         raw = fmt.get("duration") if isinstance(fmt, dict) else None
     if raw in (None, "", "N/A"):
-        raise JobError(_STAGE, "ffprobe не вернул длительность")
+        raise JobError(_STAGE, "ffprobe returned no duration")
     try:
         dur = float(raw)
     except (TypeError, ValueError) as e:
-        raise JobError(_STAGE, f"битая длительность {raw!r}: {e}") from e
+        raise JobError(_STAGE, f"malformed duration {raw!r}: {e}") from e
     if dur <= 0:
-        raise JobError(_STAGE, f"неположительная длительность: {dur}")
+        raise JobError(_STAGE, f"non-positive duration: {dur}")
     return dur
 
 
@@ -113,9 +113,9 @@ def build_source_meta(
         width = int(stream["width"])
         height = int(stream["height"])
     except (KeyError, TypeError, ValueError) as e:
-        raise JobError(_STAGE, f"нет width/height в ffprobe: {e}") from e
+        raise JobError(_STAGE, f"no width/height in ffprobe: {e}") from e
     if width <= 0 or height <= 0:
-        raise JobError(_STAGE, f"невалидные размеры кадра: {width}x{height}")
+        raise JobError(_STAGE, f"invalid frame dimensions: {width}x{height}")
     fps = parse_fps(str(stream.get("r_frame_rate", "")))
     duration = _duration(probe, stream)
     return SourceMeta(
@@ -138,10 +138,10 @@ def _run(cmd: list[str], *, cwd: Path | None = None) -> subprocess.CompletedProc
     try:
         proc = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
     except FileNotFoundError as e:
-        raise JobError(_STAGE, f"не найден бинарник {cmd[0]!r}: {e}") from e
+        raise JobError(_STAGE, f"binary not found {cmd[0]!r}: {e}") from e
     if proc.returncode != 0:
         tail = (proc.stderr or "").strip()[-500:]
-        raise JobError(_STAGE, f"{cmd[0]} код {proc.returncode}: {tail}")
+        raise JobError(_STAGE, f"{cmd[0]} exit code {proc.returncode}: {tail}")
     return proc
 
 
@@ -179,7 +179,7 @@ def download_youtube(
     _run(cmd)
     mp4 = out_dir / "source.mp4"
     if not mp4.exists():
-        raise JobError(_STAGE, f"yt-dlp не создал {mp4}")
+        raise JobError(_STAGE, f"yt-dlp did not create {mp4}")
     return mp4
 
 
@@ -231,7 +231,7 @@ def extract_audio(mp4: Path, wav: Path) -> None:
         ]
     )
     if not wav.exists():
-        raise JobError(_STAGE, f"ffmpeg не создал {wav}")
+        raise JobError(_STAGE, f"ffmpeg did not create {wav}")
 
 
 def build_preview_cmd(src: Path, dst: Path, *, height: int = 720, crf: int = 30) -> list[str]:
@@ -259,7 +259,7 @@ def build_preview_proxy(src: Path, dst: Path, *, height: int = 720, crf: int = 3
         return  # уже есть — не перекодируем (повторный прогон = $0/0с)
     _run(build_preview_cmd(src, dst, height=height, crf=crf))
     if not dst.exists():
-        raise JobError(_STAGE, f"ffmpeg не создал preview {dst}")
+        raise JobError(_STAGE, f"ffmpeg did not create preview {dst}")
 
 
 def probe_video(mp4: Path) -> dict[str, Any]:
@@ -325,7 +325,7 @@ def _try_ffmpeg(cmd: list[str], out: Path) -> bool:
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True)
     except FileNotFoundError as e:
-        raise JobError(_STAGE, f"не найден ffmpeg: {e}") from e
+        raise JobError(_STAGE, f"ffmpeg not found: {e}") from e
     return proc.returncode == 0 and out.exists()
 
 
@@ -375,7 +375,7 @@ def _ensure_mp4(src: Path, mp4: Path) -> None:
         ]  # fmt: skip
     )
     if not mp4.exists():
-        raise JobError(_STAGE, f"ffmpeg не создал {mp4}")
+        raise JobError(_STAGE, f"ffmpeg did not create {mp4}")
 
 
 def import_upload(src: Path, out_dir: Path, *, job_id: str, title: str) -> SourceMeta:
@@ -386,7 +386,7 @@ def import_upload(src: Path, out_dir: Path, *, job_id: str, title: str) -> Sourc
     """
     out_dir.mkdir(parents=True, exist_ok=True)
     if not src.exists():
-        raise JobError(_STAGE, f"нет загруженного файла: {src}")
+        raise JobError(_STAGE, f"no uploaded file: {src}")
     mp4 = out_dir / "source.mp4"
     _ensure_mp4(src, mp4)
     extract_audio(mp4, out_dir / "source.wav")

@@ -194,3 +194,31 @@ def get_monthly_usage(user_id: str, month: str) -> dict[str, float]:
     )
     r.raise_for_status()
     return _sum_usage(r.json())
+
+
+# ─────────────── Auth Admin: авторитетная проверка подтверждения email ───────────────
+# JWT Supabase НЕ несёт email_confirmed_at (см. docs/SUPABASE_SETUP.md §6). Авторитет —
+# auth.users.email_confirmed_at, доступный только service-role через Auth Admin API
+# (GET /auth/v1/admin/users/{id}). Анти-абьюз free-гейт зовёт это, когда verified нельзя
+# вывести из claims (не OAuth, нет user_metadata-флага).
+
+
+def _auth_admin_base() -> str:
+    return f"{os.environ['SUPABASE_URL'].rstrip('/')}/auth/v1"
+
+
+def auth_user_email_confirmed(user_id: str) -> bool:
+    """auth.users.email_confirmed_at для ``user_id`` непуст? (service-role Admin API).
+
+    True ⇔ email подтверждён (или Google/SSO-провайдер уже verified — GoTrue ставит
+    confirmed_at). Без тихих фолбэков: HTTP-ошибка всплывает (вызывающий → 5xx, не «молча
+    разрешить» абьюзеру). Нет такого юзера / нет даты → False.
+    """
+    r = httpx.get(
+        f"{_auth_admin_base()}/admin/users/{user_id}",
+        headers=_headers(),
+        timeout=_TIMEOUT,
+    )
+    r.raise_for_status()
+    data = r.json()
+    return bool(data.get("email_confirmed_at") or data.get("confirmed_at"))

@@ -129,6 +129,51 @@ def _resolve_user(authorization: str | None, x_user_id: str | None) -> str | Non
     return x_user_id
 
 
+def _enforce_free_identity(authorization: str | None, user_id: str | None) -> None:
+    """Анти-абьюз free-плана: verified email + не одноразовый домен (серверно, авторитетно).
+
+    Бесплатный план (2 видео) абьюзят пачками непроверенных/одноразовых ящиков. Гейт активен
+    при включённых auth (SUPABASE_URL) И billing; ТОЛЬКО для FREE-плана — платные мимо (заплатил
+    → не абьюз). Никогда не доверяем клиенту: email/verified берём из проверенного JWT (а где
+    неоднозначно — из админ-lookup email_confirmed_at). Ошибки lookup всплывают (502), не «молча
+    разрешить». Google OAuth уже verified Google → не блокируется (email_is_verified → True).
+
+    Отказ 403 с actionable-сообщением: непроверенный email → «verify your inbox»; одноразовый
+    домен → «use a real email». Зеркальная UX-валидация — на фронте (AuthForm), сервер — авторитет.
+    """
+    if not user_id or not _billing_enabled() or not auth.supabase_auth_enabled():
+        return
+    profile = db.get_profile(user_id)
+    if billing.resolve_plan(profile["plan"]).id != "free":
+        return  # платный план — анти-абьюз free-гейт не применяется
+    try:
+        # Сюда не должны дойти (quota-гейт уже валидировал токен), но без тихого пропуска.
+        claims = auth.resolve_claims(authorization)
+    except auth.AuthError as e:
+        raise HTTPException(status_code=401, detail=f"unauthorized: {e}") from e
+    email = auth.email_from_claims(claims)
+    if email and billing.is_disposable_email(email):
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Disposable email addresses aren't allowed on the free plan. "
+                "Please sign up with a real email."
+            ),
+        )
+    try:
+        verified = auth.email_is_verified(claims)
+    except Exception as e:  # noqa: BLE001 — админ-lookup упал → видимая ошибка, НЕ молчаливый пропуск
+        raise HTTPException(status_code=502, detail=f"could not verify email status: {e}") from e
+    if not verified:
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Verify your email to use the free plan — check your inbox for the "
+                "confirmation link, then try again."
+            ),
+        )
+
+
 def _enforce_quota(user_id: str | None) -> None:
     """Create-time гейт: быстрый отказ, если месячные минуты + PAYG ПОЛНОСТЬЮ исчерпаны.
 
@@ -199,8 +244,9 @@ def create_job(
     authorization: str | None = Header(default=None),
     x_user_id: str | None = Header(default=None),
 ) -> dict[str, Any]:
-    """Создать задачу: auth (JWT, если включён) → гейт квоты → queued + фоновый прогон."""
+    """Создать задачу: auth (JWT) → анти-абьюз free → гейт квоты → queued + фоновый прогон."""
     user_id = _resolve_user(authorization, x_user_id)
+    _enforce_free_identity(authorization, user_id)
     _enforce_quota(user_id)
     job_id = f"job_{uuid.uuid4().hex[:12]}"
     db.insert_job(job_id, body.source_type, body.source_ref, user_id=user_id)
@@ -238,6 +284,7 @@ async def create_upload_job(
     run_upload_job готовит source.mp4/wav/meta и гоняет тот же пайплайн, что и URL-путь.
     """
     user_id = _resolve_user(authorization, x_user_id)
+    _enforce_free_identity(authorization, user_id)
     _enforce_quota(user_id)
     job_id = f"job_{uuid.uuid4().hex[:12]}"
     out = DATA_ROOT / job_id
@@ -290,6 +337,7 @@ def create_upload_url(
     отменённая загрузка не оставляет «queued»-сироту.
     """
     user_id = _resolve_user(authorization, x_user_id)
+    _enforce_free_identity(authorization, user_id)
     _enforce_quota(user_id)
     if get_settings().storage_backend != "r2":
         return {"local": True}
@@ -342,6 +390,7 @@ def complete_upload(
     per-job presigned PUT оттуда же → чужой job_id не угадать/не подделать (джоба всегда на своего).
     """
     user_id = _resolve_user(authorization, x_user_id)
+    _enforce_free_identity(authorization, user_id)
     _enforce_quota(user_id)
     if not dispatch.modal_spawn_enabled():
         raise HTTPException(status_code=400, detail="direct upload only in cloud mode")

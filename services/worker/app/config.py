@@ -132,9 +132,11 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def _require_selected_provider_key(self) -> Self:
         if self.transcription_provider == "deepgram" and not self.deepgram_api_key:
-            raise ValueError("DEEPGRAM_API_KEY обязателен при TRANSCRIPTION_PROVIDER=deepgram")
+            raise ValueError("DEEPGRAM_API_KEY is required when TRANSCRIPTION_PROVIDER=deepgram")
         if self.transcription_provider == "assemblyai" and not self.assemblyai_api_key:
-            raise ValueError("ASSEMBLYAI_API_KEY обязателен при TRANSCRIPTION_PROVIDER=assemblyai")
+            raise ValueError(
+                "ASSEMBLYAI_API_KEY is required when TRANSCRIPTION_PROVIDER=assemblyai"
+            )
         return self
 
 

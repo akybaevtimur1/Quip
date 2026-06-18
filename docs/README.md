@@ -55,6 +55,17 @@
   «Сделать новый клип» из карты — ОТЛОЖЕНО (нет endpoint create-clip; пока только «подвинуть»). Источник
   правды генерации: `app/editor/video_map.py` + `prompts/video_map.v1.txt`.
 - **Auth:** Supabase (Google OAuth + email). The `(app)` route group is gated.
+- **Язык интерфейса (2026-06-18):** курс на **консистентный английский** — раньше был хаотичный
+  микс RU/EN. Весь user-facing текст (UI + user-facing `JobError`) приводится к английскому; русский —
+  только в комментариях/доках. **Правило:** новые строки — по-английски, без хардкода смеси (см.
+  `CLAUDE.md`). Полноценный мультиязык (next-intl, тумблер RU+EN) — отложенная фаза.
+- **Анти-абьюз free (2026-06-18):** free-джоба требует **подтверждённого email** (серверный gate
+  во всех точках создания, проверка `email_confirmed_at` через Supabase Admin API) + **блок
+  одноразовых email-доменов** (`billing.is_disposable_email` + зеркало `lib/disposableEmail.ts`).
+  Google OAuth = уже verified. ⚠️ Требует Supabase «Confirm email» = ON (см. `SUPABASE_SETUP §6`).
+- **Вотермарк free (2026-06-18):** план берётся СЕРВЕРНО от владельца джобы; для free прожигается
+  вотермарка в КАЖДЫЙ клип + кап 720p (обход через экспорт из редактора закрыт). Источник:
+  `billing.resolve_render_policy` + `stage5_render`.
 - **Uploads = direct browser→R2** (presigned PUT), NOT through the worker. `POST /jobs/upload-url`
   → browser PUTs straight to R2 → `POST /jobs/{id}/upload-complete` spawns processing. Needs an R2
   **CORS rule** on the bucket (set in Cloudflare dashboard — done; JSON in `deploy/modal/r2_setup.py`).

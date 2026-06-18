@@ -56,7 +56,7 @@ export default async function UseCasePage({ params }: Params) {
 
   const authed = Boolean(await getOptionalUser());
   const ctaHref = authed ? "/dashboard" : "/signup";
-  const ctaLabel = authed ? "Открыть приложение" : "Попробовать бесплатно";
+  const ctaLabel = authed ? "Open app" : "Try it free";
   // Sibling pages for internal linking (crawl depth + link equity).
   const related = USE_CASES.filter((u) => u.slug !== uc.slug).slice(0, 3);
 
@@ -84,12 +84,13 @@ export default async function UseCasePage({ params }: Params) {
                 <span aria-hidden>→</span>
               </Link>
               <Link href="/pricing" className={buttonVariants({ variant: "secondary", size: "lg" })}>
-                Тарифы
+                Pricing
               </Link>
             </div>
             {!authed && (
               <p className="mt-6 text-sm text-faint">
-                <span className="font-medium text-muted">Без карты.</span> 2 видео в месяц бесплатно.
+                <span className="font-medium text-muted">No card required.</span> 2 free videos every
+                month.
               </p>
             )}
           </Reveal>
@@ -101,7 +102,7 @@ export default async function UseCasePage({ params }: Params) {
         <Container>
           <Reveal>
             <h2 className="max-w-2xl font-display text-h2 text-ink sm:text-display-lg">
-              Как это работает
+              How it works
             </h2>
           </Reveal>
           <Reveal>
@@ -125,7 +126,7 @@ export default async function UseCasePage({ params }: Params) {
         <Container>
           <Reveal>
             <h2 className="max-w-2xl font-display text-h2 text-ink sm:text-display-lg">
-              Почему Quip
+              Why Quip
             </h2>
           </Reveal>
           <Reveal>
@@ -146,7 +147,7 @@ export default async function UseCasePage({ params }: Params) {
         <Container>
           <Reveal>
             <h2 className="max-w-2xl font-display text-h2 text-ink sm:text-display-lg">
-              Частые вопросы
+              FAQ
             </h2>
           </Reveal>
           <Reveal>
@@ -181,7 +182,7 @@ export default async function UseCasePage({ params }: Params) {
 
           {/* Internal links to sibling use-cases */}
           <Reveal className="mx-auto mt-16 max-w-3xl">
-            <p className="text-center text-sm text-faint">Ещё сценарии</p>
+            <p className="text-center text-sm text-faint">More use cases</p>
             <div className="mt-5 grid gap-3 sm:grid-cols-3">
               {related.map((r) => (
                 <Link

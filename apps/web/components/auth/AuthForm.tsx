@@ -4,7 +4,14 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Input, Label } from "@/components/ui/Input";
+import { isDisposableEmail } from "@/lib/disposableEmail";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+
+// Friendly UX message for throwaway domains. The SERVER is the authority (it rejects
+// disposable domains at the free-job gate); this is a pre-submit nicety so users don't get
+// a confusing failure later. Returns the message to show, or null when the email is fine.
+const DISPOSABLE_EMAIL_MESSAGE =
+  "Please use a real email address — disposable/temporary inboxes aren't allowed.";
 
 type Step = "email" | "code" | "password";
 
@@ -21,6 +28,8 @@ export function AuthForm({ mode, next }: { mode: "login" | "signup"; next: strin
   const [code, setCode] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
+  // Non-error guidance (e.g. "check your inbox to verify"), shown on the code step.
+  const [notice, setNotice] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   // Normalised once and reused for BOTH signInWithOtp and verifyOtp → the code is
@@ -52,6 +61,11 @@ export function AuthForm({ mode, next }: { mode: "login" | "signup"; next: strin
   // Send a fresh 6-digit code to the entered email (works for new and existing users).
   async function doSendCode() {
     setError(null);
+    // Block obvious throwaway domains before we even call Supabase (server enforces too).
+    if (isDisposableEmail(cleanEmail)) {
+      setError(DISPOSABLE_EMAIL_MESSAGE);
+      return;
+    }
     setLoading(true);
     try {
       const { error: err } = await createSupabaseBrowserClient().auth.signInWithOtp({
@@ -60,6 +74,7 @@ export function AuthForm({ mode, next }: { mode: "login" | "signup"; next: strin
       });
       if (err) throw err;
       setCode("");
+      setNotice("Check your inbox to verify your email, then enter the code below.");
       setStep("code");
     } catch (e) {
       fail(e, "Couldn't send the code. Check the email and try again.");
@@ -99,6 +114,11 @@ export function AuthForm({ mode, next }: { mode: "login" | "signup"; next: strin
   async function onPassword(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    // Anti-abuse: reject disposable domains on signup before hitting Supabase (server enforces too).
+    if (mode === "signup" && isDisposableEmail(cleanEmail)) {
+      setError(DISPOSABLE_EMAIL_MESSAGE);
+      return;
+    }
     setLoading(true);
     try {
       const supabase = createSupabaseBrowserClient();
@@ -113,7 +133,9 @@ export function AuthForm({ mode, next }: { mode: "login" | "signup"; next: strin
           router.replace(next);
           router.refresh();
         } else {
-          // Project requires confirmation → finish via the code we just emailed.
+          // Project requires email confirmation → verify via the code we just emailed.
+          // (The free plan requires a verified email, so this step is what unlocks it.)
+          setNotice("Check your inbox to verify your email, then enter the code below.");
           setStep("code");
         }
       } else {
@@ -141,6 +163,7 @@ export function AuthForm({ mode, next }: { mode: "login" | "signup"; next: strin
           <p className="mb-2.5 mt-1 text-sm text-muted">
             We sent a 6-digit code to <span className="text-ink">{cleanEmail}</span>.
           </p>
+          {notice && <p className="mb-2.5 text-sm text-muted">{notice}</p>}
           {/* Supabase OTP length is configurable (6–8). Accept up to 8, enable at 6+,
               so it works whatever the project's "Email OTP Length" is set to. */}
           <Input
@@ -179,6 +202,7 @@ export function AuthForm({ mode, next }: { mode: "login" | "signup"; next: strin
             onClick={() => {
               setStep("email");
               setError(null);
+              setNotice(null);
             }}
             className="text-muted transition-colors hover:text-ink"
           >

@@ -1,7 +1,7 @@
 "use client";
 
-import { Loader2, Send, Sparkles, Square, Wand2 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { ChevronRight, Loader2, Send, Square, Wand2 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   cancelAgentRun,
   getActiveAgentRun,
@@ -25,33 +25,83 @@ function isTerminal(s: AgentRunStatus | "idle"): boolean {
   return s === "done" || s === "failed" || s === "cancelled";
 }
 
-function EventRow({ ev, live }: { ev: AgentEvent; live: boolean }) {
+// thinking/action = внутренний прогресс. Для юзера это шум на жаргоне («thought»/«action»),
+// поэтому объединяем подряд идущие thinking/action в ОДИН ненавязчивый блок «процесса»
+// (свёрнутый по умолчанию), а финальный ответ агента (role=agent) оставляем крупным.
+type ProcessGroup = { kind: "process"; steps: AgentEvent[] };
+type ChatItem = AgentEvent | ProcessGroup;
+
+function isProcessRole(role: AgentEvent["role"]): boolean {
+  return role === "thinking" || role === "action";
+}
+
+function groupEvents(events: AgentEvent[]): ChatItem[] {
+  const items: ChatItem[] = [];
+  for (const ev of events) {
+    if (isProcessRole(ev.role)) {
+      const last = items[items.length - 1];
+      if (last && "kind" in last && last.kind === "process") {
+        last.steps.push(ev);
+      } else {
+        items.push({ kind: "process", steps: [ev] });
+      }
+    } else {
+      items.push(ev);
+    }
+  }
+  return items;
+}
+
+// Свёрнутая «работа агента»: муфта-строка «Working…/Готово · N шагов» + раскрытие в
+// человекочитаемые строки. Спиннер — ТОЛЬКО пока прогон живой (после терминала это история).
+function ProcessBlock({ steps, live }: { steps: AgentEvent[]; live: boolean }) {
+  const [open, setOpen] = useState(false);
+  const summary = live ? "Working on it…" : `Done · ${steps.length} step${steps.length === 1 ? "" : "s"}`;
+  return (
+    <div className="rounded-lg border border-line bg-surface-2/60 text-muted">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center gap-1.5 px-2.5 py-1.5 text-left text-[11px] transition hover:text-ink"
+        aria-expanded={open}
+      >
+        {live ? (
+          <Loader2 className="size-3 shrink-0 animate-spin" />
+        ) : (
+          <ChevronRight
+            className={`size-3 shrink-0 transition-transform ${open ? "rotate-90" : ""}`}
+            aria-hidden
+          />
+        )}
+        <span className="font-medium">{summary}</span>
+        {!live && <span className="ml-auto text-[10px] opacity-70">{open ? "Hide" : "Details"}</span>}
+      </button>
+      {open && (
+        <ul className="space-y-1 border-t border-line px-3 pb-2 pt-1.5">
+          {steps.map((s, i) => (
+            <li key={i} className="flex items-start gap-1.5 text-[11px] leading-snug">
+              <span
+                className="mt-1.5 size-1 shrink-0 rounded-full bg-muted/50"
+                aria-hidden
+              />
+              <span>{s.text}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function ChatItemRow({ item, live }: { item: ChatItem; live: boolean }) {
+  if ("kind" in item) {
+    return <ProcessBlock steps={item.steps} live={live} />;
+  }
+  const ev = item;
   if (ev.role === "user") {
     return (
       <div className="ml-auto max-w-[85%] rounded-lg rounded-br-sm bg-surface-3 px-3 py-2 text-sm text-ink">
         {ev.text}
-      </div>
-    );
-  }
-  if (ev.role === "thinking") {
-    // Спиннер крутится ТОЛЬКО пока прогон живой. После done/failed/cancelled мысли — это
-    // история; крутящийся лоадер на каждой создавал ложное «всё ещё грузится» (фидбек фаундера).
-    return (
-      <p className="flex items-center gap-1.5 px-1 text-[11px] italic text-muted">
-        {live ? (
-          <Loader2 className="size-3 shrink-0 animate-spin" />
-        ) : (
-          <span className="size-1.5 shrink-0 rounded-full bg-muted/40" aria-hidden />
-        )}
-        {ev.text}
-      </p>
-    );
-  }
-  if (ev.role === "action") {
-    return (
-      <div className="flex items-center gap-2 rounded-lg border border-line bg-surface-2 px-3 py-1.5 text-xs text-ink">
-        <Sparkles className="size-3.5 shrink-0 text-accent" />
-        <span className="truncate">{ev.text}</span>
       </div>
     );
   }
@@ -62,8 +112,8 @@ function EventRow({ ev, live }: { ev: AgentEvent; live: boolean }) {
       </div>
     );
   }
-  return ( // agent
-    <div className="max-w-[90%] rounded-lg rounded-bl-sm bg-surface-2 px-3 py-2 text-sm text-ink">
+  return ( // agent — финальный ответ, держим крупным/читабельным
+    <div className="max-w-[90%] rounded-lg rounded-bl-sm bg-surface-2 px-3 py-2 text-sm leading-snug text-ink">
       {ev.text}
     </div>
   );
@@ -81,6 +131,14 @@ export function AgentTab({
   onAgentEdited: () => void;
 }) {
   const [events, setEvents] = useState<AgentEvent[]>([]);
+  // Оптимистичные сообщения юзера: показываем МГНОВЕННО при отправке, до того как сервер
+  // вернёт прогон с эхом этого же сообщения. Реконсиляция: как только в серверной ленте
+  // появляется столько же user-сообщений, сколько мы насчитали оптимистично, — снимаем эхо
+  // (дедуп по числу user-событий, чтобы один и тот же текст дважды не задвоился).
+  const [pendingUser, setPendingUser] = useState<string[]>([]);
+  // отправка в полёте (POST /start ещё не вернулся) → блок ввода/кнопки против дабл-сенда,
+  // даже до того как статус прогона стал "running".
+  const [sending, setSending] = useState(false);
   const [runId, setRunId] = useState<string | null>(null);
   const [status, setStatus] = useState<AgentRunStatus | "idle">("idle");
   const [input, setInput] = useState("");
@@ -90,11 +148,16 @@ export function AgentTab({
   const actionsSeen = useRef(0);
 
   const running = status === "running";
+  const inFlight = running || sending;
 
   const applyRun = useCallback(
     (run: AgentRun) => {
       const evs = run.events ?? [];
       setEvents(evs);
+      // дедуп оптимистичных эх: сколько user-событий уже подтвердил сервер — столько и
+      // снимаем из локальной очереди (FIFO). Лишние (ещё не доехавшие) остаются видимыми.
+      const serverUserCount = evs.filter((e) => e.role === "user").length;
+      setPendingUser((prev) => (serverUserCount > 0 ? prev.slice(serverUserCount) : prev));
       setRunId(run.run_id);
       setStatus(run.status);
       // агент изменил edit-state (появились новые action) или завершился → перечитать редактор
@@ -156,24 +219,34 @@ export function AgentTab({
     };
   }, [jobId, clipId, applyRun, startPolling, stopPolling]);
 
-  // автоскролл ленты вниз
+  // автоскролл ленты вниз (на серверные события И на оптимистичное эхо юзера)
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
-  }, [events]);
+  }, [events, pendingUser]);
 
   const send = useCallback(async () => {
     const msg = input.trim();
-    if (!msg || running || busy) return;
+    if (!msg || inFlight || busy) return;
     setError(null);
     setInput("");
+    // оптимистичное эхо: сообщение юзера появляется в ленте СРАЗУ, не дожидаясь поллинга —
+    // иначе кажется, что отправка не сработала, и его шлют повторно (фидбек фаундера).
+    setPendingUser((prev) => [...prev, msg]);
+    setSending(true);
     try {
       const run = await startAgentRun(jobId, clipId, msg);
       applyRun(run);
       if (run.status === "running") startPolling(run.run_id);
     } catch (e) {
+      // не глушим: показываем ошибку и откатываем оптимистичное эхо (НЕ дедупится сервером,
+      // т.к. прогон не стартовал) + возвращаем текст в поле, чтобы можно было повторить.
+      setPendingUser((prev) => prev.slice(0, -1));
+      setInput(msg);
       setError(e instanceof Error ? e.message : "Failed to start the agent");
+    } finally {
+      setSending(false);
     }
-  }, [input, running, busy, jobId, clipId, applyRun, startPolling]);
+  }, [input, inFlight, busy, jobId, clipId, applyRun, startPolling]);
 
   const stop = useCallback(async () => {
     if (!runId) return;
@@ -186,6 +259,14 @@ export function AgentTab({
     }
   }, [runId, jobId, clipId, applyRun, stopPolling]);
 
+  // Лента = серверные события + ещё-не-подтверждённые оптимистичные эхо юзера, сгруппированные
+  // (подряд идущие thinking/action → один свёрнутый блок «процесса»).
+  const chatItems = useMemo<ChatItem[]>(() => {
+    const optimistic: AgentEvent[] = pendingUser.map((text) => ({ role: "user", text }));
+    return groupEvents([...events, ...optimistic]);
+  }, [events, pendingUser]);
+  const isEmpty = chatItems.length === 0;
+
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
       <div className="flex items-center gap-2">
@@ -197,7 +278,7 @@ export function AgentTab({
 
       {/* лента */}
       <div ref={scrollRef} className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-1">
-        {events.length === 0 ? (
+        {isEmpty ? (
           <div className="flex flex-col gap-2 py-2">
             <p className="text-xs leading-snug text-muted">
               Ask me to fix this clip’s timing or hook. I can move the start/end, trim, or rewrite
@@ -218,11 +299,11 @@ export function AgentTab({
             </div>
           </div>
         ) : (
-          events.map((ev, i) => <EventRow key={i} ev={ev} live={running} />)
+          chatItems.map((item, i) => <ChatItemRow key={i} item={item} live={running} />)
         )}
-        {running && (
+        {inFlight && (
           <p className="flex items-center gap-1.5 px-1 text-[11px] text-muted">
-            <Loader2 className="size-3 animate-spin" /> working…
+            <Loader2 className="size-3 animate-spin" /> Working on it…
           </p>
         )}
       </div>
@@ -233,10 +314,10 @@ export function AgentTab({
       <div className="flex items-end gap-2">
         <textarea
           value={input}
-          disabled={busy || running}
+          disabled={busy || inFlight}
           rows={2}
           maxLength={2000}
-          placeholder={running ? "Agent is working…" : "Ask the agent to fix this clip…"}
+          placeholder={inFlight ? "Agent is working…" : "Ask the agent to fix this clip…"}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
@@ -258,12 +339,12 @@ export function AgentTab({
         ) : (
           <button
             type="button"
-            disabled={busy || !input.trim()}
+            disabled={busy || sending || !input.trim()}
             onClick={() => void send()}
             className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-accent text-white transition hover:opacity-90 disabled:opacity-40"
             aria-label="Send"
           >
-            <Send className="size-4" />
+            {sending ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
           </button>
         )}
       </div>

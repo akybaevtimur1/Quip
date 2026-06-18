@@ -487,7 +487,7 @@ export function TimelineV2({
             </span>
             {!busy && segEnd - segStart <= CLIP_MIN_SEC + 0.5 && (
               <span className="pointer-events-none absolute inset-x-0 bottom-1 text-center text-[9px] text-muted">
-                мин. {CLIP_MIN_SEC}с
+                min {CLIP_MIN_SEC}s
               </span>
             )}
           </div>

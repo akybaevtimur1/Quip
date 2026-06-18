@@ -227,7 +227,7 @@ def test_trim_bad_index_returns_400(monkeypatch, tmp_path):
         f"/jobs/{job}/clips/clip_01/edit/trim", json={"version": v, "word_indices": [99]}
     )
     assert r.status_code == 400
-    assert "диапазон" in r.json()["detail"]
+    assert "range" in r.json()["detail"]
 
 
 def test_add_section_inverted_range_returns_400(monkeypatch, tmp_path):

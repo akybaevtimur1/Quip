@@ -7,6 +7,35 @@ import { cn } from "@/lib/cn";
 // Оба — оптимистично-локальные: высокочастотные input-события (пипетка цвета,
 // тяга слайдера) НЕ шлют PATCH на каждый тик; коммит — на change/blur (debounce).
 // Синк с пропом — паттерн adjust-during-render (без эффекта).
+//
+// ВЫРАВНИВАНИЕ: ColorField и DebouncedSlider встают рядом в одной grid-строке
+// (например «Цвет плашки | Прозрачность»). Чтобы строки не «кривились», оба
+// используют ОДИН wrapper <Field>: одинаковый gap метки и общую высоту контрола
+// (h-10) — слайдер вертикально центрируется в той же высоте, что и цветовой
+// свотч / Select. Раньше ColorField был flex-col gap-1.5 + h-10, а слайдер —
+// flex-col gap-1 + тонкий h-1.5 без своей высоты → колонки разъезжались.
+
+/** Общая обёртка метка+контрол: единый отступ метки и высота строки контрола.
+ *  meta — необязательное значение справа в метке (моноширинное число слайдера). */
+function Field({
+  label,
+  meta,
+  children,
+}: {
+  label: string;
+  meta?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <label className="flex flex-col gap-1.5 text-xs text-muted">
+      <span className="flex min-h-[16px] items-center justify-between gap-2">
+        {label}
+        {meta != null && <span className="font-mono text-[11px] text-ink">{meta}</span>}
+      </span>
+      {children}
+    </label>
+  );
+}
 
 export function ColorField({
   label,
@@ -26,9 +55,8 @@ export function ColorField({
     setLocal(value);
   }
   return (
-    <label className="flex flex-col gap-1.5 text-xs text-muted">
-      {label}
-      {/* h-10 matches Select/Input so grid rows line up (color + select side by side). */}
+    <Field label={label}>
+      {/* h-10 matches Select/Input/slider-row so grid rows line up. */}
       <span
         className={cn(
           "flex h-10 items-center gap-2.5 rounded-sm border border-line bg-surface-2 px-2.5",
@@ -48,7 +76,7 @@ export function ColorField({
         />
         <span className="font-mono text-xs uppercase tracking-wide text-ink">{local}</span>
       </span>
-    </label>
+    </Field>
   );
 }
 
@@ -84,21 +112,21 @@ export function DebouncedSlider({
   };
 
   return (
-    <label className="flex flex-col gap-1 text-xs text-muted">
-      <span className="flex items-center justify-between">
-        {label}
-        <span className="font-mono text-[11px] text-ink">{local}</span>
+    <Field label={label} meta={local}>
+      {/* h-10 wrapper centers the thin track at the same row height as ColorField/Select,
+          so a slider next to a color/select in a 2-col grid lines up cleanly. */}
+      <span className="flex h-10 items-center">
+        <input
+          type="range"
+          min={min}
+          max={max}
+          value={local}
+          disabled={disabled}
+          onChange={(e) => handle(Number(e.target.value))}
+          className="range-touch h-1.5 w-full cursor-pointer appearance-none rounded-full bg-surface-2 accent-accent disabled:opacity-50"
+        />
       </span>
-      <input
-        type="range"
-        min={min}
-        max={max}
-        value={local}
-        disabled={disabled}
-        onChange={(e) => handle(Number(e.target.value))}
-        className="range-touch h-1.5 cursor-pointer appearance-none rounded-full bg-surface-2 accent-accent"
-      />
       {hint && <span className="text-[10px] text-muted/70">{hint}</span>}
-    </label>
+    </Field>
   );
 }
