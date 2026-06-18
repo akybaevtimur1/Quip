@@ -244,3 +244,72 @@ def current_month(today: datetime.date | None = None) -> str:
     """Текущий расчётный месяц `YYYY-MM` (ключ месячного окна usage). PURE при заданном today."""
     d = today or datetime.date.today()
     return f"{d.year:04d}-{d.month:02d}"
+
+
+# ─────────────────────────── Анти-абьюз: одноразовые email-домены ───────────────────────────
+# Бесплатный план (2 видео) абьюзят регистрацией пачек ящиков на temp-mail сервисах. Денилист
+# самых ходовых одноразовых доменов — режем их на signup-гейте и на free-job-гейте (вместе с
+# требованием verified email). Стартовый набор, расширяемый ОДНОЙ строкой; зеркалится на фронте
+# (apps/web/lib/disposableEmail.ts) для UX-валидации до сабмита. Сервер — авторитет, фронт — UX.
+DISPOSABLE_EMAIL_DOMAINS: frozenset[str] = frozenset(
+    {
+        "0-mail.com",
+        "10minutemail.com",
+        "10minutemail.net",
+        "20minutemail.com",
+        "33mail.com",
+        "boun.cr",
+        "burnermail.io",
+        "byom.de",
+        "dispostable.com",
+        "emailondeck.com",
+        "fakeinbox.com",
+        "getairmail.com",
+        "getnada.com",
+        "guerrillamail.com",
+        "guerrillamail.net",
+        "guerrillamail.org",
+        "guerrillamailblock.com",
+        "inboxbear.com",
+        "inboxkitten.com",
+        "mailcatch.com",
+        "maildrop.cc",
+        "mailinator.com",
+        "mailnesia.com",
+        "mintemail.com",
+        "mohmal.com",
+        "moakt.com",
+        "mytemp.email",
+        "nada.email",
+        "sharklasers.com",
+        "spam4.me",
+        "tempmail.com",
+        "tempmail.net",
+        "tempmailo.com",
+        "temp-mail.io",
+        "temp-mail.org",
+        "throwawaymail.com",
+        "trashmail.com",
+        "trashmail.de",
+        "wegwerfmail.de",
+        "yopmail.com",
+        "yopmail.fr",
+        "yopmail.net",
+    }
+)
+
+
+def is_disposable_email(email: str | None) -> bool:
+    """Домен email принадлежит известному одноразовому/temp-mail сервису? PURE.
+
+    Регистронезависимо, обрезает пробелы. Матч по СУФФИКСУ домена на границе точки →
+    режет и поддомены сервиса (``mail.guerrillamail.com``), но НЕ ложно-похожие
+    (``notyopmail.com`` ≠ ``yopmail.com``). Битый ввод (нет ``@``, пустой домен) → ``False``
+    (валидность email — не наша забота; здесь только анти-абьюз по денилисту).
+    """
+    if not email:
+        return False
+    _, _, domain = email.strip().lower().partition("@")
+    if not domain or "." not in domain:
+        return False
+    return any(domain == bad or domain.endswith(f".{bad}") for bad in DISPOSABLE_EMAIL_DOMAINS)

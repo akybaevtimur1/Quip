@@ -130,10 +130,8 @@ export default function ClipEditorScreen({
   const [editingReply, setEditingReply] = useState<number | null>(null);
   const [draft, setDraft] = useState("");
   const [nowSec, setNowSec] = useState(0);
-  // драг позиции субтитров: текущая Y-доля гайда (null = не тащим)
-  const [dragFrac, setDragFrac] = useState<number | null>(null);
-  // драг позиции хука (верхний якорь): своя Y-доля гайда (null = не тащим)
-  const [hookDragFrac, setHookDragFrac] = useState<number | null>(null);
+  // Драг позиции субтитров/хука НЕ держим в state — гайд-линии двигаются императивно по ref
+  // (см. блок «драг субтитров/хука по видео»): иначе ререндер на каждый move = лаги/прыжки.
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -785,35 +783,60 @@ export default function ClipEditorScreen({
     [replyRanges, outerStart],
   );
 
-  // ── драг субтитров по видео: клик = правка, увод по Y = позиция ──
-  const dragRef = useRef<{ startY: number; moved: boolean; boxH: number; boxTop: number } | null>(
-    null,
-  );
-  const onHitPointerDown = useCallback((e: React.PointerEvent<HTMLButtonElement>) => {
+  // ── драг субтитров/хука по видео ──
+  // ВАЖНО (perf + стабильность масштаба): во время активного драга НЕ дёргаем React-state
+  // на каждый pointermove — это ререндерит весь тяжёлый ClipEditorScreen (libass/таймлайн/
+  // мемо) → дропы кадров, «не цепляется» 1:1. Вместо этого:
+  //   1) гайд-линию двигаем ИМПЕРАТИВНО через ref на её DOM-узел (style.top) — мгновенно;
+  //   2) долю Y нормируем по ЖИВОМУ getBoundingClientRect() РЕНДЕР-бокса видео на КАЖДЫЙ move
+  //      (offsetParent хит-зоны = inner render box PreviewPlayer = 9:16 кадр). Меряем заново,
+  //      а не кэшируем top/height на pointerdown → если бокс изменил высоту в процессе (моб.
+  //      URL-бар, h-[44vh]), доля остаётся верной и libass не «прыгает» масштабом;
+  //   3) в state коммитим ТОЛЬКО на pointerup (margin_v) — единственный ререндер за драг.
+  // Гайд-узлы рендерятся всегда (скрыты, когда не тащим) — драг показывает/двигает их по ref.
+  const captionGuideRef = useRef<HTMLDivElement>(null);
+  const hookGuideRef = useRef<HTMLDivElement>(null);
+
+  // Доля Y [0..1] от ВЕРХА живого рендер-бокса хит-зоны (res-независимо: не зависит от
+  // пиксельного размера превью, только от относительной позиции внутри кадра).
+  const fracFromEvent = (e: React.PointerEvent<HTMLButtonElement>): number | null => {
     const box = (e.currentTarget.offsetParent as HTMLElement | null)?.getBoundingClientRect();
-    if (!box) return;
-    dragRef.current = { startY: e.clientY, moved: false, boxH: box.height, boxTop: box.top };
+    if (!box || box.height <= 0) return null;
+    return Math.min(1, Math.max(0, (e.clientY - box.top) / box.height));
+  };
+
+  const dragRef = useRef<{ startY: number; moved: boolean } | null>(null);
+  const onHitPointerDown = useCallback((e: React.PointerEvent<HTMLButtonElement>) => {
+    dragRef.current = { startY: e.clientY, moved: false };
     e.currentTarget.setPointerCapture(e.pointerId);
   }, []);
   const onHitPointerMove = useCallback((e: React.PointerEvent<HTMLButtonElement>) => {
     const d = dragRef.current;
     if (!d) return;
     if (!d.moved && Math.abs(e.clientY - d.startY) < 6) return;
+    const frac = fracFromEvent(e);
+    if (frac === null) return;
     d.moved = true;
-    const frac = Math.min(1, Math.max(0, (e.clientY - d.boxTop) / d.boxH));
-    setDragFrac(frac);
+    // императивно: показать + сдвинуть гайд (без React-state → без ререндера на move)
+    const g = captionGuideRef.current;
+    if (g) {
+      g.style.top = `${frac * 100}%`;
+      g.style.display = "block";
+    }
   }, []);
   const onHitPointerUp = useCallback(
     (e: React.PointerEvent<HTMLButtonElement>) => {
       const d = dragRef.current;
       dragRef.current = null;
-      setDragFrac(null);
+      const g = captionGuideRef.current;
+      if (g) g.style.display = "none";
       if (!d) return;
       if (!d.moved) {
         openReplyEdit();
         return;
       }
-      const frac = Math.min(1, Math.max(0, (e.clientY - d.boxTop) / d.boxH));
+      const frac = fracFromEvent(e);
+      if (frac === null) return;
       // позиция указателя = базлайн субтитров: margin_v отсчитывается от низа (PlayResY=1920)
       handleMarginChange(Math.round((1 - frac) * 1920));
     },
@@ -821,25 +844,30 @@ export default function ClipEditorScreen({
   );
 
   // ── драг ХУКА по видео (верхний якорь): margin_v отсчитывается от ВЕРХА ──
-  const hookDragRef = useRef<{ boxH: number; boxTop: number } | null>(null);
+  const hookDragRef = useRef<boolean>(false);
   const onHookHitPointerDown = useCallback((e: React.PointerEvent<HTMLButtonElement>) => {
-    const box = (e.currentTarget.offsetParent as HTMLElement | null)?.getBoundingClientRect();
-    if (!box) return;
-    hookDragRef.current = { boxH: box.height, boxTop: box.top };
+    hookDragRef.current = true;
     e.currentTarget.setPointerCapture(e.pointerId);
   }, []);
   const onHookHitPointerMove = useCallback((e: React.PointerEvent<HTMLButtonElement>) => {
-    const d = hookDragRef.current;
-    if (!d) return;
-    setHookDragFrac(Math.min(1, Math.max(0, (e.clientY - d.boxTop) / d.boxH)));
+    if (!hookDragRef.current) return;
+    const frac = fracFromEvent(e);
+    if (frac === null) return;
+    const g = hookGuideRef.current;
+    if (g) {
+      g.style.top = `${frac * 100}%`;
+      g.style.display = "block";
+    }
   }, []);
   const onHookHitPointerUp = useCallback(
     (e: React.PointerEvent<HTMLButtonElement>) => {
-      const d = hookDragRef.current;
-      hookDragRef.current = null;
-      setHookDragFrac(null);
-      if (!d) return;
-      const frac = Math.min(1, Math.max(0, (e.clientY - d.boxTop) / d.boxH));
+      const wasDragging = hookDragRef.current;
+      hookDragRef.current = false;
+      const g = hookGuideRef.current;
+      if (g) g.style.display = "none";
+      if (!wasDragging) return;
+      const frac = fracFromEvent(e);
+      if (frac === null) return;
       // верхний якорь: margin_v = доля сверху × PlayResY, кламп в диапазон слайдера хука
       const mv = Math.min(900, Math.max(40, Math.round(frac * 1920)));
       handleHookChange({ margin_v: mv });
@@ -1008,18 +1036,17 @@ export default function ClipEditorScreen({
                     />
                   )}
 
-                  {/* гайд-линия при драге позиции */}
-                  {dragFrac !== null && (
-                    <div
-                      className="pointer-events-none absolute inset-x-0 z-40"
-                      style={{ top: `${dragFrac * 100}%` }}
-                    >
-                      <div className="h-px w-full bg-accent shadow-[0_0_8px_rgba(255,90,61,0.9)]" />
-                      <span className="absolute right-2 top-1 rounded bg-accent px-1.5 py-0.5 font-mono text-[10px] text-white">
-                        caption position
-                      </span>
-                    </div>
-                  )}
+                  {/* гайд-линия при драге позиции субтитров — всегда смонтирована (display:none
+                      по умолчанию), драг показывает/двигает её ИМПЕРАТИВНО по ref (без ререндера) */}
+                  <div
+                    ref={captionGuideRef}
+                    className="pointer-events-none absolute inset-x-0 z-40 hidden"
+                  >
+                    <div className="h-px w-full bg-accent shadow-[0_0_8px_rgba(255,90,61,0.9)]" />
+                    <span className="absolute right-2 top-1 rounded bg-accent px-1.5 py-0.5 font-mono text-[10px] text-white">
+                      caption position
+                    </span>
+                  </div>
 
                   {/* хит-зона ХУКА (таб «Хук», хук включён): драг по Y = позиция сверху */}
                   {useLibass && edit?.captions.hook?.enabled && tab === "hook" && (
@@ -1032,17 +1059,16 @@ export default function ClipEditorScreen({
                       className="absolute inset-x-0 top-0 z-20 h-[22%] w-full cursor-grab touch-none bg-transparent active:cursor-grabbing"
                     />
                   )}
-                  {hookDragFrac !== null && (
-                    <div
-                      className="pointer-events-none absolute inset-x-0 z-40"
-                      style={{ top: `${hookDragFrac * 100}%` }}
-                    >
-                      <div className="h-px w-full bg-accent shadow-[0_0_8px_rgba(255,90,61,0.9)]" />
-                      <span className="absolute right-2 top-1 rounded bg-accent px-1.5 py-0.5 font-mono text-[10px] text-white">
-                        hook position
-                      </span>
-                    </div>
-                  )}
+                  {/* гайд-линия драга хука — тоже императивная (см. caption guide выше) */}
+                  <div
+                    ref={hookGuideRef}
+                    className="pointer-events-none absolute inset-x-0 z-40 hidden"
+                  >
+                    <div className="h-px w-full bg-accent shadow-[0_0_8px_rgba(255,90,61,0.9)]" />
+                    <span className="absolute right-2 top-1 rounded bg-accent px-1.5 py-0.5 font-mono text-[10px] text-white">
+                      hook position
+                    </span>
+                  </div>
 
                   {/* inline-textarea правки активной реплики НА ВИДЕО */}
                   {useLibass && editingReply !== null && (

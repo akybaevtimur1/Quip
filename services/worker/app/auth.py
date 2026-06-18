@@ -104,10 +104,69 @@ def resolve_user_id(authorization: str | None, *, jwt_secret: str | None = None)
     Бросает ``AuthError``, если токен отсутствует/невалиден (вызывающий → 401). Зовётся
     только при ``supabase_auth_enabled()``.
     """
+    return user_id_from_claims(resolve_claims(authorization, jwt_secret=jwt_secret))
+
+
+def resolve_claims(authorization: str | None, *, jwt_secret: str | None = None) -> dict[str, Any]:
+    """``Authorization`` header → проверенные JWT-claims (Supabase access-token).
+
+    Как ``resolve_user_id``, но отдаёт ВСЕ claims (email/app_metadata/user_metadata нужны
+    анти-абьюз-гейту). Бросает ``AuthError`` при отсутствии/невалиде токена (вызывающий → 401).
+    Зовётся только при ``supabase_auth_enabled()``.
+    """
     base = os.environ.get("SUPABASE_URL", "")
     token = extract_bearer(authorization)
     if not token:
         raise AuthError("missing bearer token")
     secret = jwt_secret or os.environ.get("SUPABASE_JWT_SECRET") or None
-    claims = verify_token(token, jwks_url=jwks_url(base), jwt_secret=secret, audience=_AUDIENCE)
-    return user_id_from_claims(claims)
+    return verify_token(token, jwks_url=jwks_url(base), jwt_secret=secret, audience=_AUDIENCE)
+
+
+# ─────────────────────── Verified-email (анти-абьюз free-плана) ───────────────────────
+# Supabase JWT НЕ несёт авторитетного email_confirmed_at (см. docs/SUPABASE_SETUP.md §6):
+# в токене есть email, app_metadata.provider(s), user_metadata.email_verified. Авторитет —
+# auth.users.email_confirmed_at (только service-role/Admin API). email_is_verified резолвит
+# дёшево из claims (OAuth/metadata), а где неоднозначно — добивает админ-lookup.
+
+_OAUTH_VERIFIED_PROVIDERS = frozenset({"google"})  # email уже проверен провайдером
+
+
+def email_from_claims(claims: dict[str, Any]) -> str | None:
+    """claim ``email`` → нормализованный (lower/strip) адрес или None. PURE."""
+    email = str(claims.get("email") or "").strip().lower()
+    return email or None
+
+
+def oauth_verified_from_claims(claims: dict[str, Any]) -> bool:
+    """Юзер вошёл через внешний OAuth с уже-проверенным email (Google)? PURE.
+
+    Google валидирует email до выдачи токена → такие аккаунты считаем verified без lookup
+    (founder: не блокировать Google-входы). Проверяем ``app_metadata.provider`` и список
+    ``providers`` (мог быть привязан вторым методом).
+    """
+    meta = claims.get("app_metadata") or {}
+    provider = str(meta.get("provider") or "")
+    providers = meta.get("providers") or []
+    names = {provider, *(str(p) for p in providers)}
+    return bool(names & _OAUTH_VERIFIED_PROVIDERS)
+
+
+def metadata_email_verified(claims: dict[str, Any]) -> bool:
+    """``user_metadata.email_verified is True``? PURE. GoTrue ставит флаг при подтверждении."""
+    return (claims.get("user_metadata") or {}).get("email_verified") is True
+
+
+def email_is_verified(claims: dict[str, Any]) -> bool:
+    """Email пользователя подтверждён? (FREE-гейт). Дёшево из claims → дорого админ-lookup.
+
+    Порядок: (1) внешний OAuth (Google) → True (провайдер уже проверил email); (2) флаг
+    ``user_metadata.email_verified`` → True; (3) авторитетный админ-lookup
+    ``email_confirmed_at`` по user_id (service-role). Никаких тихих фолбэков: ошибка lookup
+    всплывает (вызывающий решает HTTP-код)."""
+    if oauth_verified_from_claims(claims):
+        return True
+    if metadata_email_verified(claims):
+        return True
+    from app import supa
+
+    return supa.auth_user_email_confirmed(user_id_from_claims(claims))
