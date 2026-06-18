@@ -32,8 +32,13 @@
   and verified. Pricing = **credit model** (Free $0 / 2 · Starter $15 / 10 · Pro $35 / 30 · PAYG $3);
   source of truth = `services/worker/app/billing.py`, mirrored by `apps/web/lib/plans.ts`.
 - **AI-модели:** транскрипция — Deepgram **`nova-3`**; отбор/хуки/агент — **Gemini** (прод
-  `gemini-flash-latest` через Modal-секрет `LLM_MODEL`; код-дефолт `gemini-2.5-flash`, fallback
-  `-flash-lite`). Видео в LLM не уходит — только индексированный текст транскрипта.
+  `gemini-flash-latest` через Modal-секрет `LLM_MODEL`; код-дефолт `gemini-2.5-flash`). Фолбэк:
+  select/хуки → `-flash-lite`; **чат-агент** перебирает цепочку
+  `gemini-flash-latest → 2.5-flash → 2.5-flash-lite` («хоть кто-то ответит» при перегрузе primary,
+  прилипает к сработавшей). Видео в LLM не уходит — только индексированный текст транскрипта.
+- **Язык чат-агента (2026-06-18):** ЧАТ — на языке юзера; ON-SCREEN хук — ВСЕГДА на языке
+  ТРАНСКРИПЦИИ клипа (язык видео), даже если юзер пишет на другом (`set_hook_text` переводит).
+  Источник: `prompts/agent_clip_editor.v1.txt` (LANGUAGE POLICY).
 - **Объяснимость + Карта видео (2026-06-18, LIVE — дифференциатор):** после select воркер фоном строит
   **VideoMap** (Gemini: связный нарратив + главы + цветные «моменты» tension/quote/emotional/insight/funny
   + привязка к клипам). Хранится в `job_artifacts.video_map` (jsonb, кросс-контейнерно — Postgres-first

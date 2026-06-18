@@ -22,12 +22,40 @@ AGENT_MAX_STEPS = 8
 _STAGE = "agent"
 _PROMPT_PATH = Path(__file__).resolve().parents[1] / "prompts" / "agent_clip_editor.v1.txt"
 
+# Фолбэк-цепочка моделей чата: если primary (s.llm_model, прод = gemini-flash-latest) перегружен/
+# недоступен, перебираем другие Flash-модели — цель «хоть кто-то ответит», а не падать. Берётся
+# ТОЛЬКО как фолбэк (primary остаётся пиновкой из секрета LLM_MODEL). gemini-flash-latest тут даёт
+# доступ к самой свежей Flash, когда конкретная версия временно лежит.
+_AGENT_FALLBACK_MODELS = ("gemini-flash-latest", "gemini-2.5-flash", "gemini-2.5-flash-lite")
+
+# Глобально-перманентные коды Gemini: фолбэк на ДРУГУЮ модель их не вылечит (битый ключ/доступ/
+# схема) → роняем сразу с корнем (правило №8, не маскируем бэкоффом). 404 сюда НЕ входит — «такой
+# модели нет» лечится переходом на следующую модель цепочки.
+_GLOBAL_PERMANENT_CODES = frozenset({400, 401, 403, 422})
+
+
+def _model_chain(
+    primary: str, fallbacks: tuple[str, ...], *, prefer: str | None = None
+) -> list[str]:
+    """PURE. Порядок моделей: prefer (уже сработавшая) → primary → фолбэки, без дублей."""
+    chain: list[str] = []
+    for m in (prefer, primary, *fallbacks):
+        if m and m not in chain:
+            chain.append(m)
+    return chain
+
+
 DEFAULT_AGENT_PROMPT = """\
 You are Quip's in-editor clip assistant. You refine ONE short clip by calling tools that change its
 timing (set_interval/nudge_interval) or its on-screen hook (regenerate_hook/set_hook_text), then
 call request_render. You CANNOT change subtitles or framing (say so if asked). You are NOT a general
-chatbot — decline anything unrelated to this clip in one sentence. Be concise; reply in the user's
-language; give one short sentence of reasoning before each tool call.
+chatbot — decline anything unrelated to this clip in one sentence. Be concise; give one short
+sentence of reasoning before each tool call.
+LANGUAGE: talk to the user in the USER's language. But on-screen text (the hook) MUST be written in
+the clip's TRANSCRIPTION language (the `language` in the context), NOT the chat language — if the
+user dictates exact hook words in another language, translate their wording into the transcription
+language before calling set_hook_text. The video is in that language; a hook in another language
+looks broken.
 """
 
 # Gemini function declarations (схема тулзов). Имена ⇄ app.agent.tools._DISPATCH.
@@ -93,7 +121,10 @@ _FN_DECLS: list[dict[str, Any]] = [
     },
     {
         "name": "set_hook_text",
-        "description": "Set the exact hook text (use when the user dictates the words).",
+        "description": "Set the exact on-screen hook text (use when the user dictates the words). "
+        "The text MUST be in the clip's TRANSCRIPTION language (the 'language' in the context), "
+        "NOT the user's chat language — if the user dictates the hook in another language, "
+        "translate their wording into the transcription language before passing it here.",
         "parameters": {
             "type": "object",
             "properties": {"text": {"type": "string"}},
@@ -211,6 +242,36 @@ def _gemini_turn(system_prompt: str, prior_turns: list[dict[str, Any]] | None = 
     contents: list[Any] = []
     pending_model_content: Any = None
     consumed_tools = 0
+    # прилипаем к первой заработавшей модели (меньше скачков между ходами → стабильнее)
+    chosen_model: str | None = None
+
+    def _generate(contents_: list[Any]) -> Any:
+        """Сгенерировать ответ, перебирая цепочку моделей с ретраями транзиентных ошибок.
+
+        Цель — «хоть кто-то ответит»: primary перегружен/недоступен (429/503/таймаут) → ретраи с
+        бэкоффом, затем следующая модель цепочки. 404 «модели нет» → сразу следующая. Глобально-
+        перманентная ошибка (битый ключ/доступ/схема: 400/401/403/422) фолбэком не лечится →
+        роняем сразу (правило №8). Прилипаем к сработавшей модели — меньше скачков между ходами.
+        """
+        nonlocal chosen_model
+        last: Exception | None = None
+        for model in _model_chain(s.llm_model, _AGENT_FALLBACK_MODELS, prefer=chosen_model):
+            for attempt in range(_MAX_ATTEMPTS):
+                try:
+                    resp = client.models.generate_content(
+                        model=model, contents=contents_, config=cfg
+                    )
+                    chosen_model = model
+                    return resp
+                except Exception as e:  # noqa: BLE001
+                    last = e
+                    if getattr(e, "code", None) in _GLOBAL_PERMANENT_CODES:
+                        raise JobError(_STAGE, f"Gemini: неретраябельная ошибка: {e}") from e
+                    if not is_transient_gemini_error(e):
+                        break  # перманентно для ЭТОЙ модели (напр. 404) → следующая модель
+                    if attempt < _MAX_ATTEMPTS - 1:
+                        time.sleep(min(2**attempt, 30))
+        raise JobError(_STAGE, f"Gemini недоступен после всех моделей/попыток: {last}")
 
     def turn(history: list[dict[str, Any]]) -> ModelTurn:
         nonlocal contents, pending_model_content, consumed_tools
@@ -238,24 +299,12 @@ def _gemini_turn(system_prompt: str, prior_turns: list[dict[str, Any]] | None = 
             )
             consumed_tools += 1
 
-        last: Exception | None = None
-        for attempt in range(_MAX_ATTEMPTS):
-            try:
-                resp = client.models.generate_content(
-                    model=s.llm_model, contents=contents, config=cfg
-                )
-                candidates = resp.candidates or []
-                cand = candidates[0] if candidates else None
-                pending_model_content = cand.content if cand else None  # сохранить для эха
-                parts = cand.content.parts if cand and cand.content else []
-                return parse_model_response(parts)
-            except Exception as e:  # noqa: BLE001
-                last = e
-                if not is_transient_gemini_error(e):
-                    raise JobError(_STAGE, f"Gemini: неретраябельная ошибка: {e}") from e
-                if attempt < _MAX_ATTEMPTS - 1:
-                    time.sleep(min(2**attempt, 30))
-        raise JobError(_STAGE, f"Gemini недоступен после всех попыток: {last}")
+        resp = _generate(contents)
+        candidates = resp.candidates or []
+        cand = candidates[0] if candidates else None
+        pending_model_content = cand.content if cand else None  # сохранить для эха
+        parts = cand.content.parts if cand and cand.content else []
+        return parse_model_response(parts)
 
     return turn
 

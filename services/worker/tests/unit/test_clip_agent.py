@@ -56,6 +56,32 @@ class TestParseModelResponse:
         assert isinstance(turn, ToolCall) and turn.rationale == "надо сдвинуть"
 
 
+class TestModelChain:
+    def test_primary_first_then_fallbacks_no_dupes(self):
+        from app.agent.clip_agent import _model_chain
+
+        chain = _model_chain("gemini-flash-latest", ("gemini-flash-latest", "gemini-2.5-flash"))
+        # primary не дублируется, даже если он же есть в фолбэках
+        assert chain == ["gemini-flash-latest", "gemini-2.5-flash"]
+
+    def test_prefer_sticks_to_working_model_first(self):
+        from app.agent.clip_agent import _model_chain
+
+        chain = _model_chain(
+            "gemini-2.5-flash",
+            ("gemini-flash-latest", "gemini-2.5-flash-lite"),
+            prefer="gemini-flash-latest",
+        )
+        # уже сработавшая модель идёт первой, остальное без дублей
+        assert chain == ["gemini-flash-latest", "gemini-2.5-flash", "gemini-2.5-flash-lite"]
+
+    def test_empty_prefer_ignored(self):
+        from app.agent.clip_agent import _model_chain
+
+        chain = _model_chain("a", ("b",), prefer=None)
+        assert chain == ["a", "b"]
+
+
 class TestPriorTurns:
     def test_pairs_before_last_user_only(self):
         from app.agent.clip_agent import _prior_turns
