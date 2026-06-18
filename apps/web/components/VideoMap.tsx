@@ -60,7 +60,8 @@ function parseNarrative(
   clips: ClipOut[],
 ): React.ReactNode[] {
   // Regex: captures [[clip:clip_NN]] OR [mm:ss] tokens
-  const TOKEN_RE = /\[\[clip:(clip_\d+)\]\]|\[(\d{1,2}:\d{2})\]/g;
+  // Accept both [[clip:clip_NN]] (prompt format) and [[clip_NN]] (Gemini sometimes drops "clip:").
+  const TOKEN_RE = /\[\[(?:clip:)?(clip_\d+)\]\]|\[(\d{1,2}:\d{2})\]/g;
   const nodes: React.ReactNode[] = [];
   let lastIndex = 0;
   let match: RegExpExecArray | null;
