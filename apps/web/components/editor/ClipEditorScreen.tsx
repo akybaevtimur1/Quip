@@ -38,7 +38,6 @@ import { AgentTab } from "./AgentTab";
 import { CaptionsTab } from "./CaptionsTab";
 import { EditorHeader, type RenderState } from "./EditorHeader";
 import { FitTimeline } from "./FitTimeline";
-import { TopicStrip } from "./TopicStrip";
 import { FrameTab } from "./FrameTab";
 import { HookTab } from "./HookTab";
 import { type FrameState, PreviewPlayer } from "./PreviewPlayer";
@@ -1088,17 +1087,6 @@ export default function ClipEditorScreen({
                 />
               </div>
             )}
-
-            {/* D4.1: Topic strip — chapters + moments with click-to-move */}
-            <div className="shrink-0">
-              <TopicStrip
-                jobId={jobId}
-                currentStart={outerStart}
-                currentEnd={outerEnd}
-                duration={timeline?.duration ?? outerEnd}
-                onMoveTo={handleSetInterval}
-              />
-            </div>
           </div>
 
           {/* ПРАВО: табы */}

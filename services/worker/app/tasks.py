@@ -102,7 +102,8 @@ def render_edit_to_file(job_id: str, clip_id: str, *, with_subtitles: bool, out_
     from app.editor.captions_v2 import write_caption_ass
     from app.editor.reframe_cache import resolve_regions_accurate
     from app.editor.timemap import ClipTimeMap
-    from app.pipeline.stage5_render import aspect_to_dims, render_timeline
+    from app.pipeline.stage5_render import aspect_to_dims, clamp_output_dims, render_timeline
+    from app.run import resolve_clip_render_policy
 
     s = get_settings()
     edit = store.load_edit(job_id, clip_id)
@@ -111,7 +112,14 @@ def render_edit_to_file(job_id: str, clip_id: str, *, with_subtitles: bool, out_
     # disk-first / cloud: на web-контейнере source.mp4 скачивается из R2, артефакты — из Postgres.
     out = artifacts.ensure_source(job_id).parent
     meta = artifacts.load_meta(job_id)
+    # Серверная политика рендера от владельца джоба (jobs.user_id → profiles.plan): free
+    # прожигает вотермарку + капится 720p. Тот же путь, что batch-рендер — обойти из редактора
+    # (download «чистый»/«с субтитрами», pere-render) НЕЛЬЗЯ (план не приходит с клиента).
+    job_row = db.get_job_row(job_id)
+    owner_id = job_row.get("user_id") if job_row else None
+    policy = resolve_clip_render_policy(owner_id)
     out_w, out_h = aspect_to_dims(edit.aspect)  # T5: размеры выхода соотношения сторон
+    out_w, out_h = clamp_output_dims(out_w, out_h, policy.max_resolution)
 
     ass_rel: str | None = None
     if with_subtitles:
@@ -161,6 +169,7 @@ def render_edit_to_file(job_id: str, clip_id: str, *, with_subtitles: bool, out_
         engine=s.reframe_engine,
         out_w=out_w,
         out_h=out_h,
+        watermark=policy.watermark,
     )
 
 
@@ -291,6 +300,7 @@ def run_pipeline_job(
             max_clips=max_clips,
             on_meta=_quota_gate(user_id, quota),
             on_cancellable=on_cancellable,
+            user_id=user_id,
         )
         db.set_done(job_id, job)
         _meter(user_id, job_id, job, quota)
@@ -334,6 +344,7 @@ def run_upload_job(
             max_clips=max_clips,
             on_meta=_quota_gate(user_id, quota),
             on_cancellable=on_cancellable,
+            user_id=user_id,
         )
         db.set_done(job_id, job)
         _meter(user_id, job_id, job, quota)

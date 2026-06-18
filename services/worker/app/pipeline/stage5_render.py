@@ -52,6 +52,25 @@ def aspect_to_dims(aspect: str) -> tuple[int, int]:
     return _ASPECT_DIMS.get(aspect, (1080, 1920))
 
 
+def clamp_output_dims(out_w: int, out_h: int, max_resolution: int) -> tuple[int, int]:
+    """Снизить (out_w,out_h) так, чтобы МЕНЬШАЯ сторона ≤ max_resolution (free→720p). PURE.
+
+    «720p»/«1080p» вертикали = меньшая сторона (ширина для портрета): 1080×1920 → 720×1280.
+    Меньшая сторона уже ≤ потолка → без изменений (не апскейлим). Масштаб пропорционален
+    (аспект сохранён); обе стороны округляются до чётного (yuv420p). НЕ трогает временную сетку
+    (trim по SOURCE-кадрам от out_w/out_h не зависит, см. render_clip) → Δ=0 инвариант цел.
+    """
+    short_side = min(out_w, out_h)
+    if short_side <= max_resolution:
+        return out_w, out_h
+    scale = max_resolution / short_side
+    new_w = round(out_w * scale)
+    new_h = round(out_h * scale)
+    new_w -= new_w % 2
+    new_h -= new_h % 2
+    return new_w, new_h
+
+
 def fill_crop_dims(src_w: int, src_h: int, out_w: int, out_h: int) -> tuple[int, int]:
     """Размеры fill-кропа целевого аспекта из источника (наибольшее окно, чётные). PURE.
 
@@ -145,6 +164,49 @@ def _fontsdir_rel(data_dir: Path) -> str | None:
         return None
     rel: str = os.path.relpath(_FONTS_DIR, data_dir)
     return rel.replace("\\", "/")
+
+
+_WATERMARK_TEXT = "Made with Quip"
+
+
+def build_watermark_drawtext(out_w: int, out_h: int, fontfile: str | None) -> str:
+    """drawtext-фильтр вотермарки «Made with Quip» в нижнем-правом углу (free-план). PURE.
+
+    Аддитивный оверлей поверх ГОТОВОГО кадра на финальном энкоде — НЕ трогает trim/crop/fps,
+    поэтому кадровая сетка reframe (Δ=0) цела (см. docs/REFRAME_FPS_GRID_INVARIANT.md). Текст
+    полупрозрачный белый с лёгкой тенью (читаемо на любом фоне, не разрушает клип). Размер
+    шрифта и отступ пропорциональны высоте выхода (одинаково смотрится на 9:16/1:1/4:5/16:9).
+    fontfile (опц.) — относительный (от cwd ffmpeg) путь к TTF проекта; None → шрифт ffmpeg.
+    Запятые НЕ используются в выражениях (drawtext в filtergraph их бы съел как разделитель).
+    """
+    fontsize = max(16, round(out_h * 0.022))  # ~42px на 1920 высоте
+    pad = max(12, round(out_h * 0.016))
+    font = f"fontfile={fontfile}:" if fontfile else ""
+    return (
+        f"drawtext={font}text='{_WATERMARK_TEXT}':"
+        f"fontsize={fontsize}:fontcolor=white@0.78:"
+        f"shadowcolor=black@0.45:shadowx=2:shadowy=2:"
+        f"x=w-tw-{pad}:y=h-th-{pad}"
+    )
+
+
+def _final_video_chain(
+    in_label: str, ass_name: str | None, fontsdir: str | None, watermark_dt: str | None
+) -> str:
+    """Финальная видео-цепочка на [outv]: [in](subtitles?)(drawtext-вотермарка?). PURE.
+
+    Порядок: субтитры прожигаются ПЕРВЫМИ (часть контента клипа), вотермарка — ПОСЛЕДНЕЙ
+    (поверх всего, включая субтитры). Оба — аддитивные фильтры на готовом кадре, кадровую
+    сетку не трогают. Нет ни субтитров, ни вотермарки → null-копи лейбла в [outv].
+    """
+    filters: list[str] = []
+    if ass_name:
+        filters.append(_subtitles_filter(ass_name, fontsdir))
+    if watermark_dt:
+        filters.append(watermark_dt)
+    if not filters:
+        return f"[{in_label}]null[outv]"
+    return f"[{in_label}]{','.join(filters)}[outv]"
 
 
 def _subtitles_filter(ass_name: str, fontsdir: str | None) -> str:
@@ -270,6 +332,7 @@ def build_smooth_filter(
     out_h: int = 1920,
     blur: int = 20,
     fontsdir: str | None = None,
+    watermark: bool = False,
 ) -> str:
     """filter_complex Engine A: split → per-region trim+crop_expr/fit → chain → [subtitles].
 
@@ -279,10 +342,13 @@ def build_smooth_filter(
     склейка источника, поэтому hard-cut невидим.
     setsar=1 на каждом (concat требует одинаковый SAR). Аудио НЕ трогаем.
     ass_name=None → субтитры НЕ жжём (CC overlay в браузере).
+    watermark=True (free-план) → аддитивный drawtext «Made with Quip» поверх ГОТОВОГО кадра
+    (после субтитров) — НЕ трогает кадровую сетку (Δ=0, см. REFRAME_FPS_GRID_INVARIANT).
     """
     if not regions:
         raise JobError(_STAGE, "smooth-фильтр требует ≥1 регион")
     n = len(regions)
+    wm = build_watermark_drawtext(out_w, out_h, fontsdir) if watermark else None
     heads = "".join(f"[a{i}]" for i in range(n))
     parts = [f"[0:v]setpts=PTS-STARTPTS,split={n}{heads};"]
     for i, r in enumerate(regions):
@@ -297,15 +363,11 @@ def build_smooth_filter(
         )
 
     if n == 1:
-        parts.append(
-            f"[s0]{_subtitles_filter(ass_name, fontsdir)}[outv]" if ass_name else "[s0]null[outv]"
-        )
+        final_in = "s0"
     else:
-        if ass_name:
-            parts.extend(_chain_video_segs([f"s{i}" for i in range(n)], "cv"))
-            parts.append(f"[cv]{_subtitles_filter(ass_name, fontsdir)}[outv]")
-        else:
-            parts.extend(_chain_video_segs([f"s{i}" for i in range(n)], "outv"))
+        final_in = "cv"
+        parts.extend(_chain_video_segs([f"s{i}" for i in range(n)], final_in))
+    parts.append(_final_video_chain(final_in, ass_name, fontsdir, wm))
     return "".join(parts)
 
 
@@ -375,12 +437,14 @@ def render_frame_by_frame(
     out_w: int = 1080,
     out_h: int = 1920,
     blur_k: int = 55,
+    watermark: bool = False,
 ) -> None:
     """Engine B: cv2 per-frame → pipe raw BGR → ffmpeg stdin.
 
     Fill: линейная интерполяция cx по TrackPoint → compute_crop_window → кроп+scale.
     Fit: blur background (GaussianBlur) + letterbox foreground overlay. aac из source.
     blur_k должен быть нечётным (GaussianBlur требует). 55 по умолчанию.
+    watermark=True (free) → аддитивный drawtext «Made with Quip» в -vf (после субтитров).
     """
     import cv2  # noqa: PLC0415
 
@@ -391,13 +455,19 @@ def render_frame_by_frame(
 
     total_frames = round(dur * fps)
     ksize = blur_k | 1  # гарантируем нечётное
+    # -vf: субтитры ПЕРВЫМИ (контент), вотермарка ПОСЛЕДНЕЙ (поверх). Оба — на готовом кадре.
+    vf_filters: list[str] = []
+    if ass_name:
+        vf_filters.append(f"subtitles={ass_name}")
+    if watermark:
+        vf_filters.append(build_watermark_drawtext(out_w, out_h, _fontsdir_rel(data_dir)))
     ffmpeg_cmd = [
         "ffmpeg", "-y", "-loglevel", "error",
         "-f", "rawvideo", "-pix_fmt", "bgr24",
         "-s", f"{out_w}x{out_h}", "-r", str(fps), "-i", "pipe:0",
         "-ss", str(aligned_start), "-t", str(dur), "-i", str(source),
         "-map", "0:v:0", "-map", "1:a:0?",
-        *(["-vf", f"subtitles={ass_name}"] if ass_name else []),
+        *(["-vf", ",".join(vf_filters)] if vf_filters else []),
         "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
         "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart",
         out_name,
@@ -459,6 +529,7 @@ def render_clip(
     engine: str = "A",
     out_w: int = 1080,
     out_h: int = 1920,
+    watermark: bool = False,
 ) -> float:
     """ОДИН проход рендера клипа (V2): Engine A (ffmpeg expr) или B (cv2 pipe).
 
@@ -466,6 +537,8 @@ def render_clip(
     engine='A' (default) — быстрый ffmpeg; engine='B' — точная per-frame линейная интерп.
     out_w/out_h (T5) — размеры выхода соотношения сторон (9:16 дефолт). Временная сетка
     (trim по кадрам) от аспекта НЕ зависит — Δ=0 инвариант цел.
+    watermark=True (free-план) — прожечь «Made with Quip» в нижнем углу (аддитивный drawtext,
+    кадровую сетку не трогает). Решается СЕРВЕРНО из плана владельца (см. run.render_one_clip).
     Возвращает латентность рендера (с). JobError при сбое.
     """
     if not regions:
@@ -490,11 +563,12 @@ def render_clip(
             data_dir,
             out_w=out_w,
             out_h=out_h,
+            watermark=watermark,
         )
     else:  # Engine A (default)
         fc = build_smooth_filter(
             regions, src_w, src_h, fps, ass_name, out_w=out_w, out_h=out_h,
-            fontsdir=_fontsdir_rel(data_dir),
+            fontsdir=_fontsdir_rel(data_dir), watermark=watermark,
         )  # fmt: skip
         cmd = build_single_pass_cmd(source_name, aligned_start, dur, fc, out_name)
         _run_ffmpeg(cmd, data_dir)
@@ -558,16 +632,19 @@ def build_timeline_filter(
     out_h: int = 1920,
     blur: int = 20,
     fontsdir: str | None = None,
+    watermark: bool = False,
 ) -> str:
     """filter_complex для мульти-интервального рендера (спека §6). PURE.
 
     Видео: split→per-seg trim(source-кадры)+reframe→_chain_video_segs→subtitles.
     Все переходы: жёсткий cut (concat). xfade удалён — границы = реальные склейки.
     Аудио: asplit→per-seg atrim(source-времена)→concat (бесшовно, до энкода).
+    watermark=True (free) → drawtext «Made with Quip» поверх готового кадра (после субтитров).
     """
     if not segments:
         raise JobError(_STAGE, "build_timeline_filter: пустой таймлайн")
     n = len(segments)
+    wm = build_watermark_drawtext(out_w, out_h, fontsdir) if watermark else None
     vheads = "".join(f"[v{i}]" for i in range(n))
     aheads = "".join(f"[a{i}]" for i in range(n))
     parts = [f"[0:v]split={n}{vheads};[0:a]asplit={n}{aheads};"]
@@ -585,19 +662,11 @@ def build_timeline_filter(
         )
 
     sv_labels = [f"sv{i}" for i in range(n)]
-    if n == 1:
-        parts.append(
-            f"[sv0]{_subtitles_filter(ass_name, fontsdir)}[outv];"
-            if ass_name
-            else "[sv0]null[outv];"
-        )
-    else:
-        if ass_name:
-            parts.extend(_chain_video_segs(sv_labels, "cv"))
-            parts.append(f"[cv]{_subtitles_filter(ass_name, fontsdir)}[outv];")
-        else:
-            parts.extend(_chain_video_segs(sv_labels, "outv"))
-            parts[-1] = parts[-1].rstrip(";") + ";"  # ensure trailing semicolon before audio
+    final_in = "sv0" if n == 1 else "cv"
+    if n > 1:
+        parts.extend(_chain_video_segs(sv_labels, final_in))
+    # Финальная видео-цепочка (субтитры+вотермарка) на [outv]; trailing ; перед аудио-concat.
+    parts.append(_final_video_chain(final_in, ass_name, fontsdir, wm) + ";")
 
     sa = "".join(f"[sa{i}]" for i in range(n))
     parts.append(f"{sa}concat=n={n}:v=0:a=1[outa]")
@@ -630,12 +699,15 @@ def render_timeline(
     engine: str = "A",
     out_w: int = 1080,
     out_h: int = 1920,
+    watermark: bool = False,
 ) -> float:
     """Рендер mp4 из edit-state (спека §6). Возвращает латентность (с). JobError при сбое.
 
     1 интервал → делегирует в render_clip (проверенный путь, непрерывное аудио).
     >1 интервал → мульти-интервальный concat (Engine A; бесшовное аудио внутри filtergraph).
     out_w/out_h (T5) — размеры выхода соотношения сторон (9:16 дефолт).
+    watermark=True (free) → прожечь «Made with Quip» (решается СЕРВЕРНО из плана владельца,
+    см. tasks.render_edit_to_file) — обойти из редактора нельзя.
     """
     if not intervals:
         raise JobError(_STAGE, "render_timeline: нет интервалов")
@@ -655,12 +727,13 @@ def render_timeline(
             engine=engine,
             out_w=out_w,
             out_h=out_h,
+            watermark=watermark,
         )
 
     segments = flatten_timeline(intervals, regions_per_interval, fps)
     fc = build_timeline_filter(
         segments, src_w, src_h, fps, ass_name, out_w=out_w, out_h=out_h,
-        fontsdir=_fontsdir_rel(data_dir),
+        fontsdir=_fontsdir_rel(data_dir), watermark=watermark,
     )  # fmt: skip
     t0 = time.perf_counter()
     _run_ffmpeg(build_timeline_cmd(source_name, fc, out_name), data_dir)

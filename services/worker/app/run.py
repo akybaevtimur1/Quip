@@ -18,7 +18,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from app import db, dispatch, storage
+from app import billing, db, dispatch, storage
 from app.config import get_settings
 from app.errors import JobError
 from app.models import ClipOut, Job, JobStatus, Metrics, Segment, Transcript, Word
@@ -27,7 +27,7 @@ from app.pipeline.stage1_transcribe import DEEPGRAM_NOVA_USD_PER_MIN, transcribe
 from app.pipeline.stage2_select import select_segments
 from app.pipeline.stage3_reframe import reframe_segment
 from app.pipeline.stage4_captions import words_in_segment
-from app.pipeline.stage5_render import render_clip
+from app.pipeline.stage5_render import clamp_output_dims, render_clip
 from app.transcript_cache import audio_sha, cache_key, evict, get_cached, put_cached
 
 DATA_ROOT = Path(__file__).resolve().parents[1] / "data"  # services/worker/data
@@ -65,15 +65,16 @@ def _gemini_cost(usage: dict[str, int]) -> float:
 
 
 def clip_spawn_args(
-    job_id: str, segments: list[Segment], meta: SourceMeta
-) -> list[tuple[str, int, dict[str, Any], dict[str, Any]]]:
-    """Аргументы фан-аута: один кортеж на сегмент ``(job_id, clip_index, seg, meta)``. PURE.
+    job_id: str, segments: list[Segment], meta: SourceMeta, user_id: str | None
+) -> list[tuple[str, int, dict[str, Any], dict[str, Any], str | None]]:
+    """Аргументы фан-аута: кортеж на сегмент ``(job_id, clip_index, seg, meta, user_id)``. PURE.
 
     ``clip_index`` 1-based (совпадает с ``clip_id`` ``clip_{i:02d}``). seg/meta — ``model_dump``
-    для переноса через границу Modal (cloudpickle-дружелюбные dict'ы).
+    для переноса через границу Modal (cloudpickle-дружелюбные dict'ы). ``user_id`` — владелец
+    джоба: на фан-аут-контейнере по нему резолвится план (вотермарка/разрешение) СЕРВЕРНО.
     """
     md = meta.model_dump()
-    return [(job_id, i, seg.model_dump(), md) for i, seg in enumerate(segments, start=1)]
+    return [(job_id, i, seg.model_dump(), md, user_id) for i, seg in enumerate(segments, start=1)]
 
 
 def build_clip_out(
@@ -102,8 +103,27 @@ def build_clip_out(
     )
 
 
+def resolve_clip_render_policy(user_id: str | None) -> billing.RenderPolicy:
+    """Владелец джоба → политика рендера (вотермарка/разрешение), резолвится СЕРВЕРНО. PURE-ish.
+
+    План берётся из ``profiles.plan`` по ``user_id`` (db.get_user_plan, dual-mode Postgres/
+    SQLite) — НИКОГДА из клиентского флага → обойти с фронта нельзя. Нет ``user_id`` (локальный
+    dev на диске/SQLite) → local_dev-политика (без вотермарки, полное разрешение). В облаке
+    (Modal) у джоба ВСЕГДА есть ``user_id``, поэтому free-юзер ВСЕГДА получает вотермарку.
+    """
+    if not user_id:
+        return billing.resolve_render_policy(None, local_dev=True)
+    plan_id = db.get_user_plan(user_id)
+    return billing.resolve_render_policy(plan_id, local_dev=False)
+
+
 def render_one_clip(
-    out: Path, source_name: str, clip_index: int, seg: Segment, meta: SourceMeta
+    out: Path,
+    source_name: str,
+    clip_index: int,
+    seg: Segment,
+    meta: SourceMeta,
+    user_id: str | None = None,
 ) -> dict[str, Any]:
     """Stages 3–5 для ОДНОГО клипа: reframe → render → upload. Возвращает picklable result.
 
@@ -111,8 +131,13 @@ def render_one_clip(
     ``get_settings()`` ВНУТРИ (на фан-аут-контейнере свой процесс/env). ``source_name`` —
     относительно ``out``. НЕ трогает stage3/stage5 — только вызывает (инвариант кадровой
     сетки docs/REFRAME_FPS_GRID_INVARIANT.md цел).
+
+    ``user_id`` (владелец джоба) → политика рендера (вотермарка + потолок разрешения)
+    резолвится СЕРВЕРНО из плана (см. resolve_clip_render_policy). Вотермарка/cap прожигаются
+    в render_clip — обойти с клиента невозможно (план не приходит с фронта).
     """
     s = get_settings()
+    policy = resolve_clip_render_policy(user_id)
     clip_id = f"clip_{clip_index:02d}"
     t0 = time.perf_counter()
     regions, face_found = reframe_segment(
@@ -127,10 +152,13 @@ def render_one_clip(
         wide_speak_min=s.reframe_wide_speak_min,
     )  # fmt: skip
     reframe_lat = round(time.perf_counter() - t0, 2)
+    # Базовый клип-аспект 9:16; free капится по меньшей стороне (1080→720). Кадровая сетка
+    # (trim по SOURCE-кадрам) от out_w/out_h НЕ зависит → Δ=0 инвариант цел.
+    out_w, out_h = clamp_output_dims(1080, 1920, policy.max_resolution)
     render_lat = render_clip(
         out, source_name, seg.start, f"clips/{clip_id}.mp4",
         regions=regions, src_w=meta.width, src_h=meta.height, fps=meta.fps,
-        engine=s.reframe_engine,
+        engine=s.reframe_engine, out_w=out_w, out_h=out_h, watermark=policy.watermark,
     )  # fmt: skip
     video_url = storage.upload_clip(out / "clips" / f"{clip_id}.mp4", out.name, clip_id)
     n_fit = sum(1 for r in regions if r.mode == "fit")
@@ -149,16 +177,23 @@ def render_one_clip(
 
 
 def _render_all_clips(
-    job_id: str, out: Path, source_name: str, segments: list[Segment], meta: SourceMeta
+    job_id: str,
+    out: Path,
+    source_name: str,
+    segments: list[Segment],
+    meta: SourceMeta,
+    user_id: str | None,
 ) -> list[dict[str, Any]]:
     """Stages 3–5 для ВСЕХ клипов. Modal → фан-аут (контейнер на клип, ПАРАЛЛЕЛЬНО);
     локально → последовательный цикл (идентично прежнему поведению). Результаты — в порядке
-    сегментов (стабильный ``clip_index`` для ассемблинга ClipOut).
+    сегментов (стабильный ``clip_index`` для ассемблинга ClipOut). ``user_id`` несётся в каждый
+    клип-контейнер → план владельца (вотермарка/разрешение) резолвится там СЕРВЕРНО.
     """
     if dispatch.modal_spawn_enabled():
-        return dispatch.map_render_clips(clip_spawn_args(job_id, segments, meta))
+        return dispatch.map_render_clips(clip_spawn_args(job_id, segments, meta, user_id))
     return [
-        render_one_clip(out, source_name, i, seg, meta) for i, seg in enumerate(segments, start=1)
+        render_one_clip(out, source_name, i, seg, meta, user_id)
+        for i, seg in enumerate(segments, start=1)
     ]
 
 
@@ -170,6 +205,7 @@ def run_pipeline(
     max_clips: int | None = None,
     on_meta: Callable[[SourceMeta], None] | None = None,
     on_cancellable: Callable[[bool], None] | None = None,
+    user_id: str | None = None,
 ) -> Job:
     """Прогнать весь конвейер для job_id. Возвращает Job (также пишет job.json/runs.jsonl).
 
@@ -180,6 +216,8 @@ def run_pipeline(
     on_cancellable(value) (опц.) — Stop-кнопка: вызывается с ``False`` ПРЯМО перед началом
     транскрипции (граница FREE→PAID: download/probe бесплатны, транскрипция — первый платный
     шаг). Джоб стартует cancellable=True (insert_job), True эмитить не нужно.
+    user_id (опц.) — владелец джоба: несётся в per-clip рендер → план (вотермарка/разрешение)
+    резолвится СЕРВЕРНО из profiles.plan (free прожигает вотермарку, обойти с клиента нельзя).
     """
     s = get_settings()  # fail-fast на отсутствии ключей; также берём reframe_mode
     out = DATA_ROOT / job_id
@@ -319,7 +357,7 @@ def run_pipeline(
     # ── Stages 3–5: #1 фан-аут per-clip по контейнерам Modal (параллельно) ЛИБО последовательный
     #    цикл локально. Результаты приходят в порядке сегментов → стабильный ClipOut. ──
     emit(JobStatus.rendering, 80)
-    results = _render_all_clips(job_id, out, "source.mp4", segments, meta)
+    results = _render_all_clips(job_id, out, "source.mp4", segments, meta, user_id)
     results.sort(key=lambda r: r["clip_index"])
     clips: list[ClipOut] = [
         build_clip_out(r["clip_id"], seg, transcript.words, r["video_url"])

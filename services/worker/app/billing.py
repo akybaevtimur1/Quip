@@ -120,6 +120,36 @@ def resolve_plan(plan_id: str | None) -> PlanLimits:
 
 
 @dataclass(frozen=True)
+class RenderPolicy:
+    """Серверное решение по рендеру клипа для плана владельца джоба. PURE.
+
+    ``watermark``       — прожигать ли вотермарку «Made with Quip» (free=True).
+    ``max_resolution``  — потолок высоты выходного клипа в px (free=720, платные=1080).
+
+    Источник правды — ``PlanLimits`` (free.watermark/max_resolution). Решается СЕРВЕРНО из
+    плана владельца (``jobs.user_id`` → ``profiles.plan``) и не зависит ни от какого клиентского
+    флага → обойти с фронта невозможно.
+    """
+
+    watermark: bool
+    max_resolution: int
+
+
+def resolve_render_policy(plan_id: str | None, *, local_dev: bool) -> RenderPolicy:
+    """План владельца джоба → политика рендера (вотермарка + потолок разрешения). PURE.
+
+    Неизвестный/None план → free (безопасный дефолт через ``resolve_plan`` — НЕ чистый клип).
+    ``local_dev=True`` (нет облака/owner: локальный dev на SQLite/диске) → НИКОГДА не
+    вотермаркаем и не капим разрешение — это удобство разработки; в облаке у джоба всегда есть
+    ``user_id``, поэтому free-юзер ВСЕГДА получает вотермарку (обойти с клиента нельзя).
+    """
+    if local_dev:
+        return RenderPolicy(watermark=False, max_resolution=PLANS["pro"].max_resolution)
+    plan = resolve_plan(plan_id)
+    return RenderPolicy(watermark=plan.watermark, max_resolution=plan.max_resolution)
+
+
+@dataclass(frozen=True)
 class QuotaDecision:
     """Решение квоты в МИНУТАХ. Несёт split списания (месячный/PAYG) для корректного учёта.
 

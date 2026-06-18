@@ -41,7 +41,9 @@ def map_render_clips(args: list[tuple[Any, ...]]) -> list[dict[str, Any]]:
     ``clip_index`` для ассемблинга ``ClipOut`` в run.py. Вызывается ТОЛЬКО в Modal-режиме:
     coordinator ``run_job`` блокируется здесь, пока клипы рендерятся ПАРАЛЛЕЛЬНО на отдельных
     контейнерах (вместо последовательного цикла на одном). ``args`` = кортежи
-    ``(job_id, clip_index, seg_dict, meta_dict)`` (см. ``run.clip_spawn_args``).
+    ``(job_id, clip_index, seg_dict, meta_dict, user_id)`` (см. ``run.clip_spawn_args``) —
+    ``user_id`` несёт владельца джоба, чтобы клип-контейнер резолвил план (вотермарка/
+    разрешение) СЕРВЕРНО.
     """
     import modal
 
