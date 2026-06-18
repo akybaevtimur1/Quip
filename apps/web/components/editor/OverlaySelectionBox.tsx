@@ -147,8 +147,12 @@ export function OverlaySelectionBox({
       onPointerMove={onBodyMove}
       onPointerUp={onBodyUp}
       style={{ [edgeStyle]: `${frac * 100}%`, height: `${heightForSize(size)}%` }}
-      className="absolute inset-x-[6%] z-30 cursor-grab touch-none rounded-md border border-accent/90 bg-accent/5 shadow-[0_0_0_1px_rgba(0,0,0,0.25)] active:cursor-grabbing"
+      className="absolute inset-x-[4%] z-30 flex items-center justify-center cursor-grab touch-none rounded-lg border-2 border-dashed border-accent bg-accent/15 shadow-[0_0_0_9999px_rgba(0,0,0,0.02)] active:cursor-grabbing"
     >
+      {/* hint so the affordance is obvious (CapCut-style) — non-interactive */}
+      <span className="pointer-events-none select-none rounded bg-black/55 px-1.5 py-0.5 text-[10px] font-semibold text-white/90">
+        {label} · drag to move · corner = size
+      </span>
       {/* corner handles (visual) — only bottom-right is interactive (resize) */}
       <Handle pos="-left-1 -top-1" />
       <Handle pos="-right-1 -top-1" />
@@ -181,7 +185,8 @@ function Handle({ pos }: { pos: string }) {
  * the existing handlers).
  */
 function heightForSize(size: number): number {
-  // PlayResY = 1920; a line of text is ~1.3× the font size tall. Clamp so the box
-  // stays a reasonable on-screen band.
-  return Math.min(28, Math.max(6, (size * 1.3 * 100) / 1920));
+  // PlayResY = 1920; a line of text is ~1.3× the font size tall. Generous min so the
+  // box is easy to SEE and GRAB (a thin sliver is unfindable — the whole point is a
+  // CapCut-like handle you can't miss); clamp the max so it stays a sane band.
+  return Math.min(34, Math.max(16, (size * 1.3 * 100) / 1920));
 }
