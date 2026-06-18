@@ -407,20 +407,22 @@ _VIDEO_MAP_KEY = "video_map"
 
 
 def load_video_map(job_id: str) -> VideoMap | None:
-    """Прочитать VideoMap: диск data/<job>/video_map.json, иначе Postgres job_artifacts.video_map.
+    """Прочитать VideoMap: Postgres job_artifacts.video_map (cloud), иначе диск.
 
-    None — если карты нет нигде (генерация ещё не стартовала). disk-first, cloud-fallback —
-    как artifacts._disk_or_cloud, но без JobError: отсутствие = None (endpoint решает дальше).
+    Postgres-FIRST (на cloud это источник правды): карту генерит ОТДЕЛЬНЫЙ Modal-контейнер и
+    пишет в Postgres, а web-контейнер мог записать "pending" на СВОЙ локальный диск — disk-first
+    отдавал бы устаревший pending навсегда. Локально db.get_job_artifact = no-op (None) → падаем
+    на диск. None — если карты нет нигде. Без JobError: отсутствие = None (endpoint решает).
     """
     from app import artifacts, db
 
+    val = db.get_job_artifact(job_id, _VIDEO_MAP_KEY)
+    if val is not None:
+        return VideoMap.model_validate(val)
     p = artifacts.job_dir(job_id) / _VIDEO_MAP_FILE
     if p.exists():
         return VideoMap.model_validate_json(p.read_text(encoding="utf-8"))
-    val = db.get_job_artifact(job_id, _VIDEO_MAP_KEY)
-    if val is None:
-        return None
-    return VideoMap.model_validate(val)
+    return None
 
 
 def save_video_map(job_id: str, data: VideoMap) -> None:
