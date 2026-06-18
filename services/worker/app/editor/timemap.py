@@ -19,7 +19,7 @@ class ClipTimeMap:
 
     def __init__(self, intervals: list[SourceInterval]) -> None:
         if not intervals:
-            raise JobError(_STAGE, "ClipTimeMap: пустой список интервалов")
+            raise JobError(_STAGE, "ClipTimeMap: empty interval list")
         self.intervals = list(intervals)
         self.lengths = [max(0.0, iv.source_end - iv.source_start) for iv in intervals]
         self.band_starts: list[float] = []

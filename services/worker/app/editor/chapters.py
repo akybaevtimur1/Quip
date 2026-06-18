@@ -114,7 +114,7 @@ def generate_chapters(
     try:
         raw_items = json.loads(text).get("chapters", [])
     except json.JSONDecodeError as e:
-        raise JobError(_STAGE, f"Gemini вернул не-JSON: {e}") from e
+        raise JobError(_STAGE, f"Gemini returned non-JSON: {e}") from e
 
     n = len(words)
     raw: list[Chapter] = []

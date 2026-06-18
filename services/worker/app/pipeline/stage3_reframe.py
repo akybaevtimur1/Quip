@@ -95,11 +95,11 @@ def compute_crop_window(src_w: int, src_h: int, center_x_frac: float, *, t: floa
     JobError при нулевых размерах или если source уже 9:16-окна (кроп невозможен).
     """
     if src_w <= 0 or src_h <= 0:
-        raise JobError(_STAGE, f"некорректные размеры source: {src_w}x{src_h}")
+        raise JobError(_STAGE, f"invalid source dimensions: {src_w}x{src_h}")
     w = round(src_h * _ASPECT_W / _ASPECT_H)
     h = src_h
     if w > src_w:
-        raise JobError(_STAGE, f"source {src_w}x{src_h} уже, чем 9:16-окно ({w}px)")
+        raise JobError(_STAGE, f"source {src_w}x{src_h} is narrower than the 9:16 window ({w}px)")
     cx = min(1.0, max(0.0, center_x_frac))
     x = round(cx * src_w - w / 2)
     x = max(0, min(x, src_w - w))
@@ -537,9 +537,10 @@ def detect_cuts(video: Path, start: float, end: float, *, threshold: float = 0.3
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True)
     except FileNotFoundError as e:
-        raise JobError(_STAGE, f"не найден ffmpeg: {e}") from e
+        raise JobError(_STAGE, f"ffmpeg not found: {e}") from e
     if proc.returncode != 0:
-        raise JobError(_STAGE, f"ffmpeg scene код {proc.returncode}: {(proc.stderr or '')[-300:]}")
+        tail = (proc.stderr or "")[-300:]
+        raise JobError(_STAGE, f"ffmpeg scene exit code {proc.returncode}: {tail}")
     cuts: list[float] = []
     for m in re.finditer(r"pts_time:([0-9.]+)", proc.stderr or ""):
         cuts.append(float(m.group(1)))
@@ -580,10 +581,10 @@ def detect_scene_cuts(
         try:
             proc = subprocess.run(cut_cmd, capture_output=True, text=True)
         except FileNotFoundError as e:
-            raise JobError(_STAGE, f"не найден ffmpeg: {e}") from e
+            raise JobError(_STAGE, f"ffmpeg not found: {e}") from e
         if proc.returncode != 0:
             tail = (proc.stderr or "")[-300:]
-            raise JobError(_STAGE, f"ffmpeg seg код {proc.returncode}: {tail}")
+            raise JobError(_STAGE, f"ffmpeg seg exit code {proc.returncode}: {tail}")
         vid = None
         try:
             vid = open_video(str(seg))
@@ -592,7 +593,7 @@ def detect_scene_cuts(
             sm.detect_scenes(vid)
             scenes = sm.get_scene_list()
         except Exception as e:
-            raise JobError(_STAGE, f"PySceneDetect сбой: {e}") from e
+            raise JobError(_STAGE, f"PySceneDetect failure: {e}") from e
         finally:
             # Закрываем дескриптор ДО выхода из TemporaryDirectory (Windows держит лок на файл).
             # ОБЯЗАТЕЛЬНО в finally: при сбое detect_scenes незакрытый VideoCapture держит лок →
@@ -624,9 +625,10 @@ def _extract_frames(
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True)
     except FileNotFoundError as e:
-        raise JobError(_STAGE, f"не найден ffmpeg: {e}") from e
+        raise JobError(_STAGE, f"ffmpeg not found: {e}") from e
     if proc.returncode != 0:
-        raise JobError(_STAGE, f"ffmpeg кадры код {proc.returncode}: {(proc.stderr or '')[-300:]}")
+        tail = (proc.stderr or "")[-300:]
+        raise JobError(_STAGE, f"ffmpeg frames exit code {proc.returncode}: {tail}")
     return sorted(out_dir.glob("f_*.png"))
 
 
@@ -641,7 +643,7 @@ def _ensure_face_model() -> Path:
         r = httpx.get(_FACE_MODEL_URL, timeout=60.0)
         r.raise_for_status()
     except httpx.HTTPError as e:
-        raise JobError(_STAGE, f"не скачать модель лица: {e}") from e
+        raise JobError(_STAGE, f"cannot download face model: {e}") from e
     _FACE_MODEL_PATH.write_bytes(r.content)
     return _FACE_MODEL_PATH
 

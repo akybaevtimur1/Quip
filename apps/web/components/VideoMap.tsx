@@ -81,7 +81,7 @@ function parseNarrative(
           href={`/edit/${jobId}/${clipId}`}
           className="font-semibold text-accent underline decoration-accent/40 underline-offset-2 hover:decoration-accent transition-colors duration-150"
         >
-          Клип №{clipNum(clipId)}
+          Clip #{clipNum(clipId)}
         </Link>,
       );
     } else if (match[2]) {
@@ -133,8 +133,8 @@ function Skeleton({ className = "" }: { className?: string }) {
 
 function PendingSkeleton() {
   return (
-    <div className="space-y-3 py-4" role="status" aria-label="AI читает видео…">
-      <p className="text-sm text-muted">AI читает видео…</p>
+    <div className="space-y-3 py-4" role="status" aria-label="AI is reading the video…">
+      <p className="text-sm text-muted">AI is reading the video…</p>
       <Skeleton className="h-4 w-full" />
       <Skeleton className="h-4 w-5/6" />
       <Skeleton className="h-4 w-4/6" />
@@ -225,7 +225,7 @@ function ChapterItem({
           </span>
           {clipIds.length > 0 && (
             <span className="ml-2 text-xs text-muted">
-              {clipIds.length} клип{clipIds.length === 1 ? "" : "а"}
+              {clipIds.length} clip{clipIds.length === 1 ? "" : "s"}
             </span>
           )}
         </div>
@@ -264,7 +264,7 @@ function ChapterItem({
                 className="inline-flex items-center gap-1.5 rounded-md bg-surface-2 border border-line px-2.5 py-1 text-xs font-semibold text-ink hover:border-line-strong transition-colors duration-150"
               >
                 <span className="size-1.5 rounded-full bg-accent" aria-hidden />
-                Клип №{clipNum(clipId)}
+                Clip #{clipNum(clipId)}
               </Link>
             ))}
           </div>
@@ -329,12 +329,12 @@ export function VideoMap({
           timerRef.current = setTimeout(() => poll(false), 2500);
         }
         if (data.status === "failed") {
-          setError(data.error ?? "Не удалось построить карту видео");
+          setError(data.error ?? "Couldn’t build the video map");
         }
       })
       .catch((err: unknown) => {
         setError(
-          err instanceof Error ? err.message : "Ошибка загрузки карты видео",
+          err instanceof Error ? err.message : "Failed to load the video map",
         );
       });
   };
@@ -360,7 +360,7 @@ export function VideoMap({
           style={{ minHeight: "48px" }}
         >
           <span className="font-display font-semibold text-sm sm:text-base tracking-tight">
-            🗺 О чём это видео
+            🗺 What this video is about
           </span>
           <svg
             className="size-4 shrink-0 text-muted transition-transform duration-200 ease-snappy group-open:rotate-180"
@@ -394,7 +394,7 @@ export function VideoMap({
                 onClick={() => poll(true)}
                 className="inline-flex h-9 items-center gap-2 rounded-md bg-surface-2 border border-line px-3.5 text-sm font-semibold text-ink hover:border-line-strong transition-colors duration-150"
               >
-                Повторить
+                Retry
               </button>
             </div>
           )}
@@ -405,7 +405,7 @@ export function VideoMap({
             chapters.length === 0 &&
             !error && (
               <div className="px-5 py-4">
-                <p className="text-sm text-muted">Карта видео пока пуста.</p>
+                <p className="text-sm text-muted">No video map yet.</p>
               </div>
             )}
 
@@ -424,7 +424,7 @@ export function VideoMap({
                 <div className="rounded-lg border border-line overflow-hidden">
                   <div className="flex items-center justify-between px-4 py-2.5 bg-surface-2 border-b border-line">
                     <span className="text-xs font-semibold uppercase tracking-wider text-faint">
-                      Главы
+                      Chapters
                     </span>
                     <Legend />
                   </div>

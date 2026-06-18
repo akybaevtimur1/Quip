@@ -120,7 +120,7 @@ def indices_to_times(words: list[Word], start_idx: int, end_idx: int) -> tuple[f
     """Индексы слов → (start_sec, end_sec). JobError при выходе за диапазон или start>end."""
     n = len(words)
     if not (0 <= start_idx < n and 0 <= end_idx < n):
-        raise JobError(_STAGE, f"индекс вне диапазона: start={start_idx}, end={end_idx}, n={n}")
+        raise JobError(_STAGE, f"index out of range: start={start_idx}, end={end_idx}, n={n}")
     if start_idx > end_idx:
         raise JobError(_STAGE, f"start_word_index > end_word_index: {start_idx} > {end_idx}")
     return words[start_idx].start, words[end_idx].end
@@ -362,7 +362,7 @@ def call_gemini_structured(
     s = get_settings()
     key = s.gemini_api_key
     if key is None:
-        raise JobError(stage, "нет GEMINI_API_KEY (LLM_PROVIDER=gemini)")
+        raise JobError(stage, "GEMINI_API_KEY is not set (LLM_PROVIDER=gemini)")
 
     client = genai.Client(api_key=key)
     cfg = types.GenerateContentConfig(
@@ -390,7 +390,7 @@ def call_gemini_structured(
             # Перманентная ошибка (ключ/доступ/модель/схема) → роняем сразу с корнем,
             # не маскируя 60с бэкоффа и не дёргая fallback (правило №8 — явная причина).
             if not is_transient_gemini_error(e):
-                raise JobError(stage, f"Gemini: неретраябельная ошибка: {e}") from e
+                raise JobError(stage, f"Gemini: non-retryable error: {e}") from e
             if attempt < _MAX_ATTEMPTS - 1:
                 time.sleep(min(2**attempt, 30))
 
@@ -405,14 +405,14 @@ def call_gemini_structured(
                 except Exception as e:
                     last_err = e
                     if not is_transient_gemini_error(e):
-                        raise JobError(stage, f"Gemini: неретраябельная ошибка: {e}") from e
+                        raise JobError(stage, f"Gemini: non-retryable error: {e}") from e
                     if attempt < 2:
                         time.sleep(min(2**attempt, 30))
             if resp is not None:
                 break
 
     if resp is None:
-        raise JobError(stage, f"Gemini недоступен после всех попыток: {last_err}")
+        raise JobError(stage, f"Gemini unavailable after all attempts: {last_err}")
 
     if usage_sink is not None and resp.usage_metadata is not None:
         um = resp.usage_metadata
@@ -422,7 +422,7 @@ def call_gemini_structured(
 
     text = resp.text
     if not text:
-        raise JobError(stage, "Gemini вернул пустой ответ")
+        raise JobError(stage, "Gemini returned an empty response")
     return str(text)
 
 
@@ -455,7 +455,7 @@ def select_segments(
     try:
         raw = json.loads(text).get("segments", [])
     except json.JSONDecodeError as e:
-        raise JobError(_STAGE, f"Gemini вернул не-JSON: {e}") from e
+        raise JobError(_STAGE, f"Gemini returned non-JSON: {e}") from e
 
     return postprocess(
         raw,
@@ -535,10 +535,10 @@ def parse_hook_response(text: str) -> tuple[str, str | None]:
     try:
         data = json.loads(text)
     except json.JSONDecodeError as e:
-        raise JobError(_HOOK_REGEN_STAGE, f"Gemini вернул не-JSON: {e}") from e
+        raise JobError(_HOOK_REGEN_STAGE, f"Gemini returned non-JSON: {e}") from e
     hook = str(data.get("hook", "")).strip()
     if not hook:
-        raise JobError(_HOOK_REGEN_STAGE, "Gemini не вернул текст хука")
+        raise JobError(_HOOK_REGEN_STAGE, "Gemini did not return hook text")
     style = str(data.get("hook_style", "")).strip().lower() or None
     return hook, style
 

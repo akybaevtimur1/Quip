@@ -111,7 +111,7 @@ def build_fill_crop_expr(
     crop_w (T5): ширина кропа целевого аспекта; None → 9:16 (compute_crop_window, дефолт).
     """
     if not points:
-        raise JobError(_STAGE, "fill-регион без траектории (build_fill_crop_expr)")
+        raise JobError(_STAGE, "fill region has no trajectory (build_fill_crop_expr)")
     pairs: list[tuple[float, int]] = []
     for p in points:
         t_rel = max(0.0, round(p.t - t0_offset, 3))
@@ -237,7 +237,7 @@ def build_split_crop_expr(
 ) -> str:
     """Piecewise X-expr для split-половины: кроп произвольной ширины crop_w вокруг cx. PURE."""
     if not points:
-        raise JobError(_STAGE, "split-регион без траектории (build_split_crop_expr)")
+        raise JobError(_STAGE, "split region has no trajectory (build_split_crop_expr)")
     pairs: list[tuple[float, int]] = []
     for p in points:
         t_rel = max(0.0, round(p.t - t0_offset, 3))
@@ -277,13 +277,14 @@ def _region_chain(
         )
     if mode == "split":
         if not points or not points_b:
-            raise JobError(_STAGE, f"split-регион #{i} без двух траекторий")
+            raise JobError(_STAGE, f"split region #{i} is missing two trajectories")
         half_h = out_h // 2
         crop_w = round(src_h * out_w / half_h / 2) * 2  # чётная ширина (yuv420p)
         if crop_w > src_w:
             raise JobError(
                 _STAGE,
-                f"source {src_w}x{src_h} уже, чем split-половина ({crop_w}px) — split невозможен",
+                f"source {src_w}x{src_h} is narrower than the split half "
+                f"({crop_w}px) — split impossible",
             )
         xa = build_split_crop_expr(points, t0_offset, src_w, crop_w)
         xb = build_split_crop_expr(points_b, t0_offset, src_w, crop_w)
@@ -294,7 +295,7 @@ def _region_chain(
             f"[pha{i}][phb{i}]vstack=inputs=2"
         )
     if not points:
-        raise JobError(_STAGE, f"fill-регион #{i} без траектории")
+        raise JobError(_STAGE, f"fill region #{i} has no trajectory")
     # T5: размеры кропа целевого аспекта (out_w:out_h), не жёсткое 9:16
     crop_w, crop_h = fill_crop_dims(src_w, src_h, out_w, out_h)
     if crop_w >= src_w:
@@ -346,7 +347,7 @@ def build_smooth_filter(
     (после субтитров) — НЕ трогает кадровую сетку (Δ=0, см. REFRAME_FPS_GRID_INVARIANT).
     """
     if not regions:
-        raise JobError(_STAGE, "smooth-фильтр требует ≥1 регион")
+        raise JobError(_STAGE, "smooth filter requires ≥1 region")
     n = len(regions)
     wm = build_watermark_drawtext(out_w, out_h, fontsdir) if watermark else None
     heads = "".join(f"[a{i}]" for i in range(n))
@@ -391,9 +392,9 @@ def _run_ffmpeg(cmd: list[str], cwd: Path) -> None:
     try:
         proc = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
     except FileNotFoundError as e:
-        raise JobError(_STAGE, f"не найден ffmpeg: {e}") from e
+        raise JobError(_STAGE, f"ffmpeg not found: {e}") from e
     if proc.returncode != 0:
-        raise JobError(_STAGE, f"ffmpeg код {proc.returncode}: {(proc.stderr or '')[-400:]}")
+        raise JobError(_STAGE, f"ffmpeg exit code {proc.returncode}: {(proc.stderr or '')[-400:]}")
 
 
 # ─────────────────────────── Engine B: cv2 pipe ───────────────────────────
@@ -450,7 +451,7 @@ def render_frame_by_frame(
 
     cap = cv2.VideoCapture(str(source))
     if not cap.isOpened():
-        raise JobError(_STAGE, f"Engine B: не открыть {source}")
+        raise JobError(_STAGE, f"Engine B: cannot open {source}")
     cap.set(cv2.CAP_PROP_POS_MSEC, aligned_start * 1000)
 
     total_frames = round(dur * fps)
@@ -509,7 +510,7 @@ def render_frame_by_frame(
     if proc.returncode != 0:
         stderr_bytes = proc.stderr.read() if proc.stderr else b""
         stderr = stderr_bytes.decode("utf-8", errors="replace")[-400:]
-        raise JobError(_STAGE, f"Engine B ffmpeg код {proc.returncode}: {stderr}")
+        raise JobError(_STAGE, f"Engine B ffmpeg exit code {proc.returncode}: {stderr}")
 
 
 # ─────────────────────────── Unified render_clip ───────────────────────────
@@ -542,7 +543,7 @@ def render_clip(
     Возвращает латентность рендера (с). JobError при сбое.
     """
     if not regions:
-        raise JobError(_STAGE, "render: пустые регионы")
+        raise JobError(_STAGE, "render: empty regions")
     (data_dir / out_name).parent.mkdir(parents=True, exist_ok=True)
     aligned_start = round(seg_start * fps) / fps
     clip_dur = max(r.t1 for r in regions)
@@ -574,7 +575,7 @@ def render_clip(
         _run_ffmpeg(cmd, data_dir)
 
     if not (data_dir / out_name).exists():
-        raise JobError(_STAGE, f"рендер не создал {out_name}")
+        raise JobError(_STAGE, f"render did not create {out_name}")
     return round(time.perf_counter() - t0, 2)
 
 
@@ -642,7 +643,7 @@ def build_timeline_filter(
     watermark=True (free) → drawtext «Made with Quip» поверх готового кадра (после субтитров).
     """
     if not segments:
-        raise JobError(_STAGE, "build_timeline_filter: пустой таймлайн")
+        raise JobError(_STAGE, "build_timeline_filter: empty timeline")
     n = len(segments)
     wm = build_watermark_drawtext(out_w, out_h, fontsdir) if watermark else None
     vheads = "".join(f"[v{i}]" for i in range(n))
@@ -710,7 +711,7 @@ def render_timeline(
     см. tasks.render_edit_to_file) — обойти из редактора нельзя.
     """
     if not intervals:
-        raise JobError(_STAGE, "render_timeline: нет интервалов")
+        raise JobError(_STAGE, "render_timeline: no intervals")
     (data_dir / out_name).parent.mkdir(parents=True, exist_ok=True)
 
     if len(intervals) == 1:
@@ -738,5 +739,5 @@ def render_timeline(
     t0 = time.perf_counter()
     _run_ffmpeg(build_timeline_cmd(source_name, fc, out_name), data_dir)
     if not (data_dir / out_name).exists():
-        raise JobError(_STAGE, f"render_timeline не создал {out_name}")
+        raise JobError(_STAGE, f"render_timeline did not create {out_name}")
     return round(time.perf_counter() - t0, 2)

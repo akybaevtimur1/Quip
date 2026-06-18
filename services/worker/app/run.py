@@ -244,7 +244,7 @@ def run_pipeline(
         )  # fmt: skip
         print(f"[0] import: {meta.duration:.0f}s {meta.width}x{meta.height}")
     else:
-        raise JobError("import", f"нет data/{job_id}/source.mp4 и не передан URL")
+        raise JobError("import", f"no data/{job_id}/source.mp4 and no URL provided")
     stages["download"] = round(time.perf_counter() - t0, 2)
 
     # ── Гейт квоты по РЕАЛЬНОЙ длине (до оплаты транскрипции). Поднимет JobError → failed,

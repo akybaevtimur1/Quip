@@ -125,7 +125,7 @@ def test_empty_text_reply_does_not_show_a_bare_thought() -> None:
         max_steps=8,
     )
     assert events[-1].role == "agent"
-    assert events[-1].text == "Готово."  # нейтральный финал, НЕ пустой пузырь/мысль
+    assert events[-1].text == "Done."  # нейтральный финал, НЕ пустой пузырь/мысль
 
 
 def test_tool_error_is_fed_back_and_loop_continues() -> None:

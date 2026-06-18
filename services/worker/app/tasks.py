@@ -108,7 +108,7 @@ def render_edit_to_file(job_id: str, clip_id: str, *, with_subtitles: bool, out_
     s = get_settings()
     edit = store.load_edit(job_id, clip_id)
     if edit is None:
-        raise JobError("render", f"нет edit для {clip_id}")
+        raise JobError("render", f"no edit for {clip_id}")
     # disk-first / cloud: на web-контейнере source.mp4 скачивается из R2, артефакты — из Postgres.
     out = artifacts.ensure_source(job_id).parent
     meta = artifacts.load_meta(job_id)
@@ -230,7 +230,7 @@ def generate_chapters_job(job_id: str) -> None:
                 out,
                 ChaptersData(
                     status="failed",
-                    error="AI-карта пуста (модель не вернула глав). Повторите генерацию.",
+                    error="AI map is empty (the model returned no chapters). Please try again.",
                 ),
             )
             return
@@ -265,7 +265,7 @@ def generate_video_map_job(job_id: str) -> None:
                 job_id,
                 VideoMap(
                     status="failed",
-                    error="AI-карта пуста (модель не вернула глав). Повторите генерацию.",
+                    error="AI map is empty (the model returned no chapters). Please try again.",
                 ),
             )
             return

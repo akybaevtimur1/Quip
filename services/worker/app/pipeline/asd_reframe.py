@@ -30,7 +30,7 @@ _SILENT: float = -9.0  # speak-score для дорожки без валидно
 def _ffmpeg(cmd: list[str]) -> None:
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
-        raise JobError(_STAGE, f"ffmpeg код {proc.returncode}: {(proc.stderr or '')[-300:]}")
+        raise JobError(_STAGE, f"ffmpeg exit code {proc.returncode}: {(proc.stderr or '')[-300:]}")
 
 
 def _crop_faces(track: dict[str, Any], frames: list[Any], crop_scale: float) -> np.ndarray:
@@ -131,7 +131,7 @@ def score_tracks_in_segment(
         for fpath in sorted(glob.glob(str(fdir / "*.jpg"))):
             img = cv2.imread(fpath)
             if img is None:
-                raise JobError(_STAGE, f"не прочитать кадр {fpath}")
+                raise JobError(_STAGE, f"cannot read frame {fpath}")
             frames.append(img)
         if not frames:
             return []

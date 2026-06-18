@@ -216,7 +216,7 @@ def _gemini_turn(system_prompt: str, prior_turns: list[dict[str, Any]] | None = 
 
     s = get_settings()
     if s.gemini_api_key is None:
-        raise JobError(_STAGE, "нет GEMINI_API_KEY")
+        raise JobError(_STAGE, "GEMINI_API_KEY is not set")
     client = genai.Client(api_key=s.gemini_api_key)
     # SDK коерсит dict→FunctionDeclaration в рантайме; типы строгие → cast(Any).
     fn_decls = cast(Any, _FN_DECLS)
@@ -266,12 +266,12 @@ def _gemini_turn(system_prompt: str, prior_turns: list[dict[str, Any]] | None = 
                 except Exception as e:  # noqa: BLE001
                     last = e
                     if getattr(e, "code", None) in _GLOBAL_PERMANENT_CODES:
-                        raise JobError(_STAGE, f"Gemini: неретраябельная ошибка: {e}") from e
+                        raise JobError(_STAGE, f"Gemini: non-retryable error: {e}") from e
                     if not is_transient_gemini_error(e):
                         break  # перманентно для ЭТОЙ модели (напр. 404) → следующая модель
                     if attempt < _MAX_ATTEMPTS - 1:
                         time.sleep(min(2**attempt, 30))
-        raise JobError(_STAGE, f"Gemini недоступен после всех моделей/попыток: {last}")
+        raise JobError(_STAGE, f"Gemini unavailable after all models/attempts: {last}")
 
     def turn(history: list[dict[str, Any]]) -> ModelTurn:
         nonlocal contents, pending_model_content, consumed_tools

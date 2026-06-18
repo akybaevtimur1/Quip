@@ -37,10 +37,10 @@ def job_dir(job_id: str) -> Path:
 def _cloud_row(job_id: str) -> dict[str, Any]:
     """job_artifacts из Postgres (cloud). JobError, если режим не облачный или строки нет."""
     if not cloud_enabled():
-        raise JobError("artifacts", f"нет артефактов для {job_id} (нет диска и не cloud)")
+        raise JobError("artifacts", f"no artifacts for {job_id} (no disk and not cloud)")
     row = db.get_job_artifacts(job_id)
     if row is None:
-        raise JobError("artifacts", f"нет артефактов в Supabase для {job_id}")
+        raise JobError("artifacts", f"no artifacts in Supabase for {job_id}")
     return row
 
 
@@ -51,7 +51,7 @@ def _disk_or_cloud(job_id: str, filename: str, cloud_key: str) -> Any:
         return json.loads(p.read_text(encoding="utf-8"))
     val = _cloud_row(job_id).get(cloud_key)
     if val is None:
-        raise JobError("artifacts", f"нет {cloud_key} для {job_id}")
+        raise JobError("artifacts", f"no {cloud_key} for {job_id}")
     return val
 
 
@@ -92,4 +92,4 @@ def ensure_source(job_id: str) -> Path:
         out.mkdir(parents=True, exist_ok=True)
         download_source(job_id, src)
         return src
-    raise JobError("artifacts", f"нет source.mp4 для {job_id}")
+    raise JobError("artifacts", f"no source.mp4 for {job_id}")
