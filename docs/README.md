@@ -19,6 +19,13 @@
   (functions `web` / `run_job` / `upload_job` / `render_job` / **`reframe_render_clip`** (per-clip
   fan-out) / **`preview_job`**; `/healthz` → 200). Redeploy = `modal deploy deploy/modal/worker.py`
   (on Windows set `PYTHONIOENCODING=utf-8` first).
+- **Латентность фронта воркера (perf, 2026-06-18):** функция `web` (FastAPI) теперь
+  **`min_containers=1` (всегда тёплая) + `@modal.concurrent(max_inputs=100)`**. Раньше была
+  scale-to-zero без concurrency → холодный старт **~5с перед стартом загрузки** (замер: cold 4.9s
+  vs warm 0.35s) и под нагрузкой (десятки юзеров) рой холодных контейнеров → тормозило у всех.
+  Теперь один тёплый контейнер тянет сотни параллельных upload-url/status/upload-complete.
+  Pipeline-функции (`run_job`/`render_job`/…) ОСТАЮТСЯ scale-to-zero (warm там дорого — тяжёлый
+  образ torch/mediapipe). Цена: 1 лёгкий web-контейнер 24/7. Источник: `deploy/modal/worker.py`.
 - **Рендер клипов = параллельный фан-аут (perf, 2026-06-17).** `run_job` делает import→
   transcribe→select, грузит source в R2, затем фанит per-clip reframe+render по контейнерам
   `reframe_render_clip` (`starmap`) вместо последовательного цикла. **preview-прокси** (полный

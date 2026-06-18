@@ -143,11 +143,20 @@ _BILLING_SECRET = modal.Secret.from_name("quip-billing")
 # timeout=3600 (НЕ 900): POST /jobs/upload СТРИМИТ весь файл ЧЕРЕЗ этот web-контейнер (приём
 # байтов + стейджинг в R2 = в одном запросе). Большое видео по обычному каналу грузится >15 мин →
 # на 900s Modal убивал input → «застряло на 100% + 500». 3600s (как run_job) даёт загрузке дойти.
-# (Правильный долгосрочный фикс — прямая presigned-загрузка браузер→R2; см. JOURNAL/доку.)
-@app.function(secrets=[_SECRET, _BILLING_SECRET], timeout=3600, min_containers=0, serialized=True)
+# (Правильный долгосрочный фикс — прямая presigned-загрузка браузер→R2; уже сделан, см. api.ts.)
+#
+# ⚡ ЛАТЕНТНОСТЬ ФРОНТА (замер: cold ~5s vs warm ~0.4s). web обслуживает /jobs/upload-url (БЛОКИРУЕТ
+# старт загрузки), /upload-complete и опрос статуса — это латентность-чувствительный путь. Два рычага:
+#   • min_containers=1 — входная дверь ВСЕГДА тёплая → нет +5s холодного старта перед загрузкой
+#     (отход от scale-to-zero ТОЛЬКО для лёгкого web; pipeline-функции остаются на 0 — там warm дорого).
+#   • @modal.concurrent(max_inputs=100) — web I/O-bound (ходит в Supabase/R2, спавнит джобы, без тяжёлого
+#     CPU): ОДИН контейнер тянет сотню параллельных запросов. Без него Modal плодит ~контейнер на запрос
+#     → под нагрузкой (десятки юзеров) рой ХОЛОДНЫХ стартов и очередь → тормозит у всех.
+@app.function(secrets=[_SECRET, _BILLING_SECRET], timeout=3600, min_containers=1, serialized=True)
+@modal.concurrent(max_inputs=100)
 @modal.asgi_app()
 def web() -> object:
-    """Лёгкий FastAPI (app.main): POST /jobs (spawn run_job), GET статусы, редактор. Scale-to-zero."""
+    """Лёгкий FastAPI (app.main): POST /jobs (spawn run_job), GET статусы, редактор. Warm + concurrent."""
     import sys
 
     if "/root" not in sys.path:
