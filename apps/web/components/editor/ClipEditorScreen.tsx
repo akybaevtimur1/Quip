@@ -40,6 +40,7 @@ import { EditorHeader, type RenderState } from "./EditorHeader";
 import { FitTimeline } from "./FitTimeline";
 import { FrameTab } from "./FrameTab";
 import { HookTab } from "./HookTab";
+import { OverlaySelectionBox } from "./OverlaySelectionBox";
 import { type FrameState, PreviewPlayer } from "./PreviewPlayer";
 import { buildReplyRanges, clampMargin, originalReplyText } from "./replyUtils";
 import { StyleTab } from "./StyleTab";
@@ -783,95 +784,49 @@ export default function ClipEditorScreen({
     [replyRanges, outerStart],
   );
 
-  // ── драг субтитров/хука по видео ──
-  // ВАЖНО (perf + стабильность масштаба): во время активного драга НЕ дёргаем React-state
-  // на каждый pointermove — это ререндерит весь тяжёлый ClipEditorScreen (libass/таймлайн/
-  // мемо) → дропы кадров, «не цепляется» 1:1. Вместо этого:
-  //   1) гайд-линию двигаем ИМПЕРАТИВНО через ref на её DOM-узел (style.top) — мгновенно;
-  //   2) долю Y нормируем по ЖИВОМУ getBoundingClientRect() РЕНДЕР-бокса видео на КАЖДЫЙ move
-  //      (offsetParent хит-зоны = inner render box PreviewPlayer = 9:16 кадр). Меряем заново,
-  //      а не кэшируем top/height на pointerdown → если бокс изменил высоту в процессе (моб.
-  //      URL-бар, h-[44vh]), доля остаётся верной и libass не «прыгает» масштабом;
-  //   3) в state коммитим ТОЛЬКО на pointerup (margin_v) — единственный ререндер за драг.
-  // Гайд-узлы рендерятся всегда (скрыты, когда не тащим) — драг показывает/двигает их по ref.
-  const captionGuideRef = useRef<HTMLDivElement>(null);
-  const hookGuideRef = useRef<HTMLDivElement>(null);
+  // ── on-video direct-grab manipulation (CapCut-style selection box) ──
+  // The visible selection box (OverlaySelectionBox) owns the pointer mechanics:
+  // setPointerCapture + imperative box-style during move (NO React state per move →
+  // no re-render of the heavy ClipEditorScreen / libass) and commits margin_v / size
+  // ONLY on pointerup. The fraction is normalised against the LIVE render box on every
+  // move, so it stays correct in fullscreen and after a resize. Here we only supply the
+  // current fractions/sizes and the commit callbacks.
+  //
+  // Vertical anchors (PlayResY = 1920, no horizontal field — text is centered):
+  //   • hook    → margin_v from the TOP  → box top    = margin_v / 1920
+  //   • caption → margin_v from the BOTTOM → box bottom = margin_v / 1920
+  const CAPTION_SIZE_MIN = 40; // mirror StyleTab "Size" slider
+  const CAPTION_SIZE_MAX = 140;
+  const HOOK_SIZE_MIN = 36; // mirror HookTab "Size" slider
+  const HOOK_SIZE_MAX = 120;
 
-  // Доля Y [0..1] от ВЕРХА живого рендер-бокса хит-зоны (res-независимо: не зависит от
-  // пиксельного размера превью, только от относительной позиции внутри кадра).
-  const fracFromEvent = (e: React.PointerEvent<HTMLButtonElement>): number | null => {
-    const box = (e.currentTarget.offsetParent as HTMLElement | null)?.getBoundingClientRect();
-    if (!box || box.height <= 0) return null;
-    return Math.min(1, Math.max(0, (e.clientY - box.top) / box.height));
-  };
+  const hook = edit?.captions.hook ?? null;
+  const hookEnabled = !!hook?.enabled;
+  const hookFrac = (hook?.margin_v ?? 150) / 1920;
+  const hookSize = hook?.size ?? 66;
 
-  const dragRef = useRef<{ startY: number; moved: boolean } | null>(null);
-  const onHitPointerDown = useCallback((e: React.PointerEvent<HTMLButtonElement>) => {
-    dragRef.current = { startY: e.clientY, moved: false };
-    e.currentTarget.setPointerCapture(e.pointerId);
-  }, []);
-  const onHitPointerMove = useCallback((e: React.PointerEvent<HTMLButtonElement>) => {
-    const d = dragRef.current;
-    if (!d) return;
-    if (!d.moved && Math.abs(e.clientY - d.startY) < 6) return;
-    const frac = fracFromEvent(e);
-    if (frac === null) return;
-    d.moved = true;
-    // императивно: показать + сдвинуть гайд (без React-state → без ререндера на move)
-    const g = captionGuideRef.current;
-    if (g) {
-      g.style.top = `${frac * 100}%`;
-      g.style.display = "block";
-    }
-  }, []);
-  const onHitPointerUp = useCallback(
-    (e: React.PointerEvent<HTMLButtonElement>) => {
-      const d = dragRef.current;
-      dragRef.current = null;
-      const g = captionGuideRef.current;
-      if (g) g.style.display = "none";
-      if (!d) return;
-      if (!d.moved) {
-        openReplyEdit();
-        return;
-      }
-      const frac = fracFromEvent(e);
-      if (frac === null) return;
-      // позиция указателя = базлайн субтитров: margin_v отсчитывается от низа (PlayResY=1920)
-      handleMarginChange(Math.round((1 - frac) * 1920));
-    },
-    [openReplyEdit, handleMarginChange],
+  const captionMarginV = edit?.captions.style.margin_v ?? 260;
+  const captionFrac = captionMarginV / 1920;
+  const captionSize = edit?.captions.style.size ?? 90;
+  const hasCaptions = replyRanges.length > 0;
+
+  // caption: box bottom-fraction → margin_v from bottom; commit clamped to slider range.
+  const onCaptionMove = useCallback(
+    (frac: number) => handleMarginChange(Math.round(frac * 1920)),
+    [handleMarginChange],
   );
-
-  // ── драг ХУКА по видео (верхний якорь): margin_v отсчитывается от ВЕРХА ──
-  const hookDragRef = useRef<boolean>(false);
-  const onHookHitPointerDown = useCallback((e: React.PointerEvent<HTMLButtonElement>) => {
-    hookDragRef.current = true;
-    e.currentTarget.setPointerCapture(e.pointerId);
-  }, []);
-  const onHookHitPointerMove = useCallback((e: React.PointerEvent<HTMLButtonElement>) => {
-    if (!hookDragRef.current) return;
-    const frac = fracFromEvent(e);
-    if (frac === null) return;
-    const g = hookGuideRef.current;
-    if (g) {
-      g.style.top = `${frac * 100}%`;
-      g.style.display = "block";
-    }
-  }, []);
-  const onHookHitPointerUp = useCallback(
-    (e: React.PointerEvent<HTMLButtonElement>) => {
-      const wasDragging = hookDragRef.current;
-      hookDragRef.current = false;
-      const g = hookGuideRef.current;
-      if (g) g.style.display = "none";
-      if (!wasDragging) return;
-      const frac = fracFromEvent(e);
-      if (frac === null) return;
-      // верхний якорь: margin_v = доля сверху × PlayResY, кламп в диапазон слайдера хука
-      const mv = Math.min(900, Math.max(40, Math.round(frac * 1920)));
-      handleHookChange({ margin_v: mv });
-    },
+  const onCaptionResize = useCallback(
+    (size: number) => handleStyleChange({ size }),
+    [handleStyleChange],
+  );
+  // hook: box top-fraction → margin_v from top; clamp to the hook slider range.
+  const onHookMove = useCallback(
+    (frac: number) =>
+      handleHookChange({ margin_v: Math.min(900, Math.max(40, Math.round(frac * 1920))) }),
+    [handleHookChange],
+  );
+  const onHookResize = useCallback(
+    (size: number) => handleHookChange({ size }),
     [handleHookChange],
   );
 
@@ -1024,51 +979,40 @@ export default function ClipEditorScreen({
                     </span>
                   )}
 
-                  {/* хит-зона: клик = правка активной реплики, драг по Y = позиция */}
-                  {useLibass && edit && replyRanges.length > 0 && editingReply === null && (
-                    <button
-                      type="button"
-                      aria-label="Captions: click to edit text, drag to reposition"
-                      onPointerDown={onHitPointerDown}
-                      onPointerMove={onHitPointerMove}
-                      onPointerUp={onHitPointerUp}
-                      className="absolute inset-x-0 bottom-0 z-20 h-[30%] w-full cursor-grab touch-none bg-transparent active:cursor-grabbing"
+                  {/* CapCut-style selection box — captions (bottom-anchored): grab the box
+                      to drag vertically, drag the corner to resize the font. Tapping
+                      without dragging opens inline text edit. Shown whenever captions
+                      exist (any tab). */}
+                  {useLibass && edit && hasCaptions && editingReply === null && (
+                    <OverlaySelectionBox
+                      key={`caption-${captionMarginV}-${captionSize}`}
+                      anchor="bottom"
+                      frac={captionFrac}
+                      size={captionSize}
+                      sizeMin={CAPTION_SIZE_MIN}
+                      sizeMax={CAPTION_SIZE_MAX}
+                      label="Captions"
+                      onMoveCommit={onCaptionMove}
+                      onResizeCommit={onCaptionResize}
+                      onTap={openReplyEdit}
                     />
                   )}
 
-                  {/* гайд-линия при драге позиции субтитров — всегда смонтирована (display:none
-                      по умолчанию), драг показывает/двигает её ИМПЕРАТИВНО по ref (без ререндера) */}
-                  <div
-                    ref={captionGuideRef}
-                    className="pointer-events-none absolute inset-x-0 z-40 hidden"
-                  >
-                    <div className="h-px w-full bg-accent shadow-[0_0_8px_rgba(255,90,61,0.9)]" />
-                    <span className="absolute right-2 top-1 rounded bg-accent px-1.5 py-0.5 font-mono text-[10px] text-white">
-                      caption position
-                    </span>
-                  </div>
-
-                  {/* хит-зона ХУКА (таб «Хук», хук включён): драг по Y = позиция сверху */}
-                  {useLibass && edit?.captions.hook?.enabled && tab === "hook" && (
-                    <button
-                      type="button"
-                      aria-label="Hook: drag to reposition"
-                      onPointerDown={onHookHitPointerDown}
-                      onPointerMove={onHookHitPointerMove}
-                      onPointerUp={onHookHitPointerUp}
-                      className="absolute inset-x-0 top-0 z-20 h-[22%] w-full cursor-grab touch-none bg-transparent active:cursor-grabbing"
+                  {/* CapCut-style selection box — hook (top-anchored). Shown whenever the
+                      hook is enabled, on ANY tab (was previously gated to the Hook tab). */}
+                  {useLibass && hookEnabled && editingReply === null && (
+                    <OverlaySelectionBox
+                      key={`hook-${hook?.margin_v ?? 150}-${hookSize}`}
+                      anchor="top"
+                      frac={hookFrac}
+                      size={hookSize}
+                      sizeMin={HOOK_SIZE_MIN}
+                      sizeMax={HOOK_SIZE_MAX}
+                      label="Hook"
+                      onMoveCommit={onHookMove}
+                      onResizeCommit={onHookResize}
                     />
                   )}
-                  {/* гайд-линия драга хука — тоже императивная (см. caption guide выше) */}
-                  <div
-                    ref={hookGuideRef}
-                    className="pointer-events-none absolute inset-x-0 z-40 hidden"
-                  >
-                    <div className="h-px w-full bg-accent shadow-[0_0_8px_rgba(255,90,61,0.9)]" />
-                    <span className="absolute right-2 top-1 rounded bg-accent px-1.5 py-0.5 font-mono text-[10px] text-white">
-                      hook position
-                    </span>
-                  </div>
 
                   {/* inline-textarea правки активной реплики НА ВИДЕО */}
                   {useLibass && editingReply !== null && (
