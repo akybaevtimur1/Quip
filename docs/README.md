@@ -25,12 +25,23 @@
   транскод source→720p) снят с критического пути — отдельная `preview_job` строит его ПАРАЛЛЕЛЬНО
   с клипами (редактор фолбэчит на source, пока не готов). Локально (dev) — старый цикл + inline
   preview. Не трогает stage3/stage5 (инвариант кадровой сетки цел). См. JOURNAL 2026-06-17.
-- **State:** Supabase Postgres project **`qiagetbnsssvbiowuxpp`**, migrations **0001–0005 applied**
-  (billing, credits, usage-idempotency, feedback, promo codes). Clips in **Cloudflare R2**
+- **State:** Supabase Postgres project **`qiagetbnsssvbiowuxpp`**, migrations **0001–0008 applied**
+  (billing, credits, usage-idempotency, feedback, promo codes, job-cancel, agent-runs, **video-map**). Clips in **Cloudflare R2**
   (`cdn.quip.ink`).
 - **Billing is ON** (`BILLING_ENABLED`). Payments via **Polar** (NOT Lemon Squeezy). Webhook live
-  and verified. Pricing = **credit model** (Free $0 / 2 · Starter $10 / 10 · Pro $25 / 30 · PAYG $2);
+  and verified. Pricing = **credit model** (Free $0 / 2 · Starter $15 / 10 · Pro $35 / 30 · PAYG $3);
   source of truth = `services/worker/app/billing.py`, mirrored by `apps/web/lib/plans.ts`.
+- **AI-модели:** транскрипция — Deepgram **`nova-3`**; отбор/хуки/агент — **Gemini** (прод
+  `gemini-flash-latest` через Modal-секрет `LLM_MODEL`; код-дефолт `gemini-2.5-flash`, fallback
+  `-flash-lite`). Видео в LLM не уходит — только индексированный текст транскрипта.
+- **Объяснимость + Карта видео (2026-06-18, LIVE — дифференциатор):** после select воркер фоном строит
+  **VideoMap** (Gemini: связный нарратив + главы + цветные «моменты» tension/quote/emotional/insight/funny
+  + привязка к клипам). Хранится в `job_artifacts.video_map` (jsonb, кросс-контейнерно — Postgres-first
+  read). Эндпоинт `GET /jobs/{id}/video-map` (?retry). Фронт: **«Карта видео»** над гридом на странице
+  результатов (`VideoMap.tsx`) + **строка тем** в редакторе (`TopicStrip.tsx`, «Подвинуть клип сюда»,
+  ≥20с). Агент знает контекст всего видео (тул `get_video_map`). **Мин. длина клипа = 20с** (везде).
+  «Сделать новый клип» из карты — ОТЛОЖЕНО (нет endpoint create-clip; пока только «подвинуть»). Источник
+  правды генерации: `app/editor/video_map.py` + `prompts/video_map.v1.txt`.
 - **Auth:** Supabase (Google OAuth + email). The `(app)` route group is gated.
 - **Uploads = direct browser→R2** (presigned PUT), NOT through the worker. `POST /jobs/upload-url`
   → browser PUTs straight to R2 → `POST /jobs/{id}/upload-complete` spawns processing. Needs an R2
@@ -59,7 +70,7 @@
   button shows only while `Job.cancellable` (flag flips false at the paid boundary). Closing the tab does
   NOT cancel (job runs on in Modal; shows in recent). Migration `0006` applied (`cancellable`/`function_call_id`).
 
-### Shipped (this is "all of it" up to 2026-06-17)
+### Shipped (this is "all of it" up to 2026-06-18)
 Phase 0 pipeline → Editor v3 → production shell (landing/auth/dashboard/pricing) → Modal deploy →
 night-audit bug sweep → **billing live** (Polar signature fix, PAYG decrement, usage idempotency)
 → **subscription cancel** (`/account`) → **feedback widget** (floating, → Supabase `feedback`) →
@@ -75,7 +86,10 @@ tail-pad, реальный max в промпт) → **emotion-driven styled hook
 `hook_style`) → **hook regeneration for re-cut clips** (W4: `/hook/regenerate`, узкий Gemini-вызов)
 → **no charge on our errors** (биллинг: ошибка/0 клипов → минуты НЕ списываются) → **agent clip
 editor** (W3: чат-агент правит интервал/хук тулзами, Gemini function-calling, фон+Stop, $0;
-НЕ трогает субтитры/кадр). Founder account = Pro + 1000 credits (for testing).
+НЕ трогает субтитры/кадр) → **объяснимость + карта видео + умная нарезка** (2026-06-18: VideoMap
+нарратив/главы/моменты на результатах + строка тем в редакторе с клик-обрезкой, агент с контекстом
+всего видео, мин. длина клипа 20с; миграция 0008; боевой тест на реальном видео пройден).
+Founder account = Pro + 1000 credits (for testing).
 
 > 2026-06-15 detail → `docs/JOURNAL.md` (last two entries). ⚠️ The upload architecture changed this
 > session — read the "Upload ПЕРЕПИСАН на direct→R2" journal entry before touching the upload path.
@@ -142,7 +156,7 @@ Pick [X] by task:
 |-------|-------|----------------|-----------|
 | Frontend (`apps/web`) | Vercel **`quip-app`** | **auto on push to `main`** | vercel.com/timurkas-projects/quip-app |
 | Worker (`services/worker`) | Modal **`quip-worker`** | `modal deploy deploy/modal/worker.py` | modal.com (workspace akybaevtimur7) |
-| State / auth / billing data | Supabase **`qiagetbnsssvbiowuxpp`** | SQL Editor / migrations `0001–0005` | supabase.com dashboard |
+| State / auth / billing data | Supabase **`qiagetbnsssvbiowuxpp`** | SQL Editor / migrations `0001–0008` | supabase.com dashboard |
 | Clip storage | Cloudflare **R2** (`cdn.quip.ink`) | n/a | Cloudflare dashboard |
 | Payments | **Polar** (production) | products + webhook configured | polar.sh dashboard |
 
