@@ -804,11 +804,27 @@ export default function ClipEditorScreen({
   const hookEnabled = !!hook?.enabled;
   const hookFrac = (hook?.margin_v ?? 150) / 1920;
   const hookSize = hook?.size ?? 66;
+  const hookText = hook?.text ?? "";
+  const hookFont = hook?.font ?? "Unbounded";
+  const hookUppercase = hook?.uppercase ?? true;
 
-  const captionMarginV = edit?.captions.style.margin_v ?? 260;
+  const captionStyle = edit?.captions.style;
+  const captionMarginV = captionStyle?.margin_v ?? 260;
   const captionFrac = captionMarginV / 1920;
-  const captionSize = edit?.captions.style.size ?? 90;
+  const captionSize = captionStyle?.size ?? 90;
+  const captionFont = captionStyle?.font ?? "Montserrat";
+  const captionUppercase = captionStyle?.uppercase ?? true;
   const hasCaptions = replyRanges.length > 0;
+
+  // Text of the caption line visible at the CURRENT time → tight selection-box hug.
+  // Uses the active reply (same index the inline editor opens via openReplyEdit):
+  // its text_override if set, else the original words. Empty → caption box hides.
+  const activeCaptionText = useMemo(() => {
+    if (!edit || activeReplyIndex === null) return "";
+    const replies = edit.captions.replies ?? [];
+    const reply = replies[activeReplyIndex];
+    return (reply?.text_override ?? originalReplyText(replies, words, activeReplyIndex)) ?? "";
+  }, [edit, activeReplyIndex, words]);
 
   // caption: box bottom-fraction → margin_v from bottom; commit clamped to slider range.
   const onCaptionMove = useCallback(
@@ -983,24 +999,32 @@ export default function ClipEditorScreen({
                       to drag vertically, drag the corner to resize the font. Tapping
                       without dragging opens inline text edit. Shown whenever captions
                       exist (any tab). */}
-                  {useLibass && edit && hasCaptions && editingReply === null && (
-                    <OverlaySelectionBox
-                      key={`caption-${captionMarginV}-${captionSize}`}
-                      anchor="bottom"
-                      frac={captionFrac}
-                      size={captionSize}
-                      sizeMin={CAPTION_SIZE_MIN}
-                      sizeMax={CAPTION_SIZE_MAX}
-                      label="Captions"
-                      onMoveCommit={onCaptionMove}
-                      onResizeCommit={onCaptionResize}
-                      onTap={openReplyEdit}
-                    />
-                  )}
+                  {useLibass &&
+                    edit &&
+                    hasCaptions &&
+                    activeCaptionText.trim() &&
+                    editingReply === null && (
+                      <OverlaySelectionBox
+                        key={`caption-${captionMarginV}-${captionSize}`}
+                        anchor="bottom"
+                        frac={captionFrac}
+                        size={captionSize}
+                        sizeMin={CAPTION_SIZE_MIN}
+                        sizeMax={CAPTION_SIZE_MAX}
+                        label="Captions"
+                        text={activeCaptionText}
+                        font={captionFont}
+                        marginLR={40}
+                        uppercase={captionUppercase}
+                        onMoveCommit={onCaptionMove}
+                        onResizeCommit={onCaptionResize}
+                        onTap={openReplyEdit}
+                      />
+                    )}
 
                   {/* CapCut-style selection box — hook (top-anchored). Shown whenever the
                       hook is enabled, on ANY tab (was previously gated to the Hook tab). */}
-                  {useLibass && hookEnabled && editingReply === null && (
+                  {useLibass && hookEnabled && hookText.trim() && editingReply === null && (
                     <OverlaySelectionBox
                       key={`hook-${hook?.margin_v ?? 150}-${hookSize}`}
                       anchor="top"
@@ -1009,6 +1033,10 @@ export default function ClipEditorScreen({
                       sizeMin={HOOK_SIZE_MIN}
                       sizeMax={HOOK_SIZE_MAX}
                       label="Hook"
+                      text={hookText}
+                      font={hookFont}
+                      marginLR={60}
+                      uppercase={hookUppercase}
                       onMoveCommit={onHookMove}
                       onResizeCommit={onHookResize}
                     />
