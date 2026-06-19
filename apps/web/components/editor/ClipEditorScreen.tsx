@@ -41,6 +41,7 @@ import { FitTimeline } from "./FitTimeline";
 import { FrameTab } from "./FrameTab";
 import { HookTab } from "./HookTab";
 import { OverlaySelectionBox } from "./OverlaySelectionBox";
+import type { SubRects } from "@/lib/overlayBox";
 import { type FrameState, PreviewPlayer } from "./PreviewPlayer";
 import { buildReplyRanges, clampMargin, originalReplyText } from "./replyUtils";
 import { StyleTab } from "./StyleTab";
@@ -802,29 +803,39 @@ export default function ClipEditorScreen({
 
   const hook = edit?.captions.hook ?? null;
   const hookEnabled = !!hook?.enabled;
-  const hookFrac = (hook?.margin_v ?? 150) / 1920;
   const hookSize = hook?.size ?? 66;
   const hookText = hook?.text ?? "";
-  const hookFont = hook?.font ?? "Unbounded";
-  const hookUppercase = hook?.uppercase ?? true;
 
   const captionStyle = edit?.captions.style;
-  const captionMarginV = captionStyle?.margin_v ?? 260;
-  const captionFrac = captionMarginV / 1920;
   const captionSize = captionStyle?.size ?? 90;
-  const captionFont = captionStyle?.font ?? "Montserrat";
-  const captionUppercase = captionStyle?.uppercase ?? true;
   const hasCaptions = replyRanges.length > 0;
 
-  // Text of the caption line visible at the CURRENT time → tight selection-box hug.
-  // Uses the active reply (same index the inline editor opens via openReplyEdit):
-  // its text_override if set, else the original words. Empty → caption box hides.
-  const activeCaptionText = useMemo(() => {
-    if (!edit || activeReplyIndex === null) return "";
-    const replies = edit.captions.replies ?? [];
-    const reply = replies[activeReplyIndex];
-    return (reply?.text_override ?? originalReplyText(replies, words, activeReplyIndex)) ?? "";
-  }, [edit, activeReplyIndex, words]);
+  // ── libass's REAL rendered rects (hook / caption) → CapCut selection box ──
+  // LibassLayer surfaces the worker's per-frame fused bbox of each element as render-box
+  // fractions. We keep the LATEST in a ref (updated every frame, no re-render) and mirror
+  // it to light state at most ~once per rAF — so the heavy editor tree re-renders at frame
+  // cadence (not per worker message) and the boxes hug the real text exactly.
+  const subRectsRef = useRef<SubRects>({ hook: null, caption: null });
+  const [subRects, setSubRects] = useState<SubRects>({ hook: null, caption: null });
+  const subRectsRaf = useRef(0);
+  const handleSubRects = useCallback((rects: SubRects) => {
+    subRectsRef.current = rects;
+    if (subRectsRaf.current) return; // coalesce bursts of worker messages to one rAF
+    subRectsRaf.current = requestAnimationFrame(() => {
+      subRectsRaf.current = 0;
+      setSubRects(subRectsRef.current);
+    });
+  }, []);
+  useEffect(
+    () => () => {
+      if (subRectsRaf.current) cancelAnimationFrame(subRectsRaf.current);
+    },
+    [],
+  );
+  // Remount the libass instances when hook/caption presence toggles: instances are created
+  // per-part at mount (we don't spin up an instance for an absent track), so enabling the
+  // hook (or first captions) from nothing needs a fresh instance for that slot.
+  const libassKey = `${hookEnabled && hookText.trim() ? 1 : 0}-${hasCaptions ? 1 : 0}`;
 
   // caption: box bottom-fraction → margin_v from bottom; commit clamped to slider range.
   const onCaptionMove = useCallback(
@@ -966,10 +977,12 @@ export default function ClipEditorScreen({
                   {/* субтитры: libass (пиксель-в-пиксель как экспорт) ИЛИ CSS-фолбэк */}
                   {useLibass ? (
                     <LibassLayer
+                      key={libassKey}
                       videoRef={videoRef}
                       assText={assText}
                       sourceStart={outerStart}
                       onError={() => setLibassFailed(true)}
+                      onSubRects={handleSubRects}
                     />
                   ) : (
                     words.length > 0 &&
@@ -1002,20 +1015,15 @@ export default function ClipEditorScreen({
                   {useLibass &&
                     edit &&
                     hasCaptions &&
-                    activeCaptionText.trim() &&
+                    subRects.caption &&
                     editingReply === null && (
                       <OverlaySelectionBox
-                        key={`caption-${captionMarginV}-${captionSize}`}
                         anchor="bottom"
-                        frac={captionFrac}
+                        rect={subRects.caption}
                         size={captionSize}
                         sizeMin={CAPTION_SIZE_MIN}
                         sizeMax={CAPTION_SIZE_MAX}
                         label="Captions"
-                        text={activeCaptionText}
-                        font={captionFont}
-                        marginLR={40}
-                        uppercase={captionUppercase}
                         onMoveCommit={onCaptionMove}
                         onResizeCommit={onCaptionResize}
                         onTap={openReplyEdit}
@@ -1024,23 +1032,22 @@ export default function ClipEditorScreen({
 
                   {/* CapCut-style selection box — hook (top-anchored). Shown whenever the
                       hook is enabled, on ANY tab (was previously gated to the Hook tab). */}
-                  {useLibass && hookEnabled && hookText.trim() && editingReply === null && (
-                    <OverlaySelectionBox
-                      key={`hook-${hook?.margin_v ?? 150}-${hookSize}`}
-                      anchor="top"
-                      frac={hookFrac}
-                      size={hookSize}
-                      sizeMin={HOOK_SIZE_MIN}
-                      sizeMax={HOOK_SIZE_MAX}
-                      label="Hook"
-                      text={hookText}
-                      font={hookFont}
-                      marginLR={60}
-                      uppercase={hookUppercase}
-                      onMoveCommit={onHookMove}
-                      onResizeCommit={onHookResize}
-                    />
-                  )}
+                  {useLibass &&
+                    hookEnabled &&
+                    hookText.trim() &&
+                    subRects.hook &&
+                    editingReply === null && (
+                      <OverlaySelectionBox
+                        anchor="top"
+                        rect={subRects.hook}
+                        size={hookSize}
+                        sizeMin={HOOK_SIZE_MIN}
+                        sizeMax={HOOK_SIZE_MAX}
+                        label="Hook"
+                        onMoveCommit={onHookMove}
+                        onResizeCommit={onHookResize}
+                      />
+                    )}
 
                   {/* inline-textarea правки активной реплики НА ВИДЕО */}
                   {useLibass && editingReply !== null && (

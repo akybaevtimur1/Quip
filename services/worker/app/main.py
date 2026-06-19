@@ -335,9 +335,14 @@ def create_upload_url(
     Локально (нет R2) → {"local": true} → фронт шлёт обычный multipart POST /jobs/upload (dev ок).
     Квота гейтится ЗДЕСЬ (до загрузки). Джоб в БД создаётся в upload-complete (после PUT) —
     отменённая загрузка не оставляет «queued»-сироту.
+
+    PERF: identity-гейт (verified email / disposable — несколько раунд-трипов в Supabase, вкл.
+    Admin API) тут НЕ зовём — он висел на горячем пути и задерживал старт загрузки (presigned-URL
+    сам по себе локальный). Защита НЕ ослаблена: identity отрабатывает в upload-complete (строка
+    ниже) ДО spawn'а платной джобы — без подтверждённого email обработка не запустится, а presigned
+    PUT отдаём мгновенно (байты в R2 пошли сразу). Квоту оставляем тут (fail-fast до заливки).
     """
     user_id = _resolve_user(authorization, x_user_id)
-    _enforce_free_identity(authorization, user_id)
     _enforce_quota(user_id)
     if get_settings().storage_backend != "r2":
         return {"local": True}

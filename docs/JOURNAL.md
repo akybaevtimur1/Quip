@@ -1222,3 +1222,40 @@ email/password-аккаунты создаются сразу confirmed → ге
 
 **Верификация:** 756 unit зелёные (новые `test_disposable_email.py`, `test_email_verification.py`);
 ruff+mypy clean (worker); tsc+eslint clean (web).
+
+## 2026-06-19 — CapCut-рамка от РЕАЛЬНОГО rect libass (а не DOM-зеркало)
+
+**Проблема:** `OverlaySelectionBox` мерил скрытое DOM-«зеркало текста» чтобы задать размер рамки, но
+DOM-движок НЕ воспроизводит box-model libass (BorderStyle=3 плашка-паддинг, leading, balanced
+WrapStyle=0) → рамка мис-сайз/мис-позиция относительно реального текста (1 строка получала рамку в 2
+строки высотой).
+
+**Фикс — гнать рамку от СОБСТВЕННОГО отрендеренного прямоугольника libass:**
+- Воркер libass-wasm (`subtitles-octopus-worker.js`) в дефолтном `wasm-blend` каждый кадр постит
+  `{target:"canvas", op:"renderCanvas", canvases:[{x,y,w,h,buffer}]}` (device px) = union-bbox всего
+  нарисованного. Главный поток (`subtitles-octopus.js`) это РИСУЕТ; мы лишь ДОБАВЛЯЕМ слушатель на
+  `instance.worker` — рендер не трогаем (read-only x/y/w/h, buffer не касаемся).
+- **Hook vs caption раздельно:** хук (\an8 сверху) и субтитры (\an2 снизу) рисуем ДВУМЯ инстансами,
+  по одному ASS на каждый (`splitHookCaptionAss` режет Dialogue по полю Style: `Hook` vs `Default`) →
+  fused-rect каждого инстанса = ТОЧНЫЙ bbox своего элемента (без дробления union'а). Два канваса
+  `absolute inset-0`, пиксели идентичны единому ASS (элементы не пересекаются).
+- `LibassLayer` отдаёт `onSubRects({hook,caption})` в долях рендер-бокса, троттл на rAF.
+  `OverlaySelectionBox` переписан: презентационный прямоугольник на реальном rect, удалены
+  `useTextBox`/`measureBox`/FontFace/мирор-математика и props text/font/marginLR/uppercase.
+  `overlayBox.ts` — только `rectToFractions` + `splitHookCaptionAss`.
+- **Grab-offset фикс (#3):** на pointerdown `grabOffset = cursorFrac − anchoredEdgeFrac`; на move
+  `edge = cursorFrac − grabOffset` → рамка едет за курсором 1:1, не выпрыгивает.
+
+**Верификация:** tsc+eslint clean (web) + **визуально через харнесс с РЕАЛЬНЫМ LibassLayer**
+(playwright-скрин: рамка плотно облегает хук+субтитры по настоящему bbox libass). Прошлые подходы
+(DOM-зеркало) проваливались именно на визуале — теперь верифицируем глазами на реальном libass.
+
+## 2026-06-19 — Perf: загрузка стартует сразу (identity-гейт убран с горячего пути upload-url)
+
+Фидбек: «нажимаю загрузить — стартует не сразу». Корень: `POST /jobs/upload-url` (зовётся при клике,
+ДО старта байтов) делал 1–2 синхронных раунд-трипа в Supabase ПЕРЕД выдачей presigned-URL —
+`_enforce_quota` + `_enforce_free_identity` (анти-абьюз: профиль + для free ещё Admin API
+`email_confirmed_at`). Сама presigned-ссылка локальна (мгновенна). Фикс: убрал identity-гейт с
+upload-url (`main.py`) — он отрабатывает в `upload-complete` ДО spawn'а платной джобы (защита НЕ
+ослаблена: без verified email обработка не стартует; одноразовые домены ловит и клиент). Квоту
+оставил на upload-url (fail-fast). Воркер задеплоен; 756 тестов зелёные.
