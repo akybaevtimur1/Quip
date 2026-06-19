@@ -219,10 +219,13 @@ export function OverlaySelectionBox({
     if (!w || !node) return;
     e.stopPropagation();
     const box = renderBoxRect(node);
+    // compute the committed width BEFORE clearing widthRef — halfFromEvent reads widthRef,
+    // so nulling it first would make it return 0 → degenerate wrap_width=0 (wraps every word).
+    if (box) {
+      const half = halfFromEvent(e.clientX, box);
+      onWidthCommit(clamp01((2 * half) / box.width));
+    }
     widthRef.current = null;
-    if (!box) return;
-    const half = halfFromEvent(e.clientX, box);
-    onWidthCommit(clamp01((2 * half) / box.width));
   };
 
   if (!rect) return null;
