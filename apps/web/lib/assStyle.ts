@@ -42,6 +42,23 @@ const H = {
   margin_v: 150,
 };
 
+// Шрифты БЕЗ реального bold-начертания (single-weight TTF) → Bold=0 в ASS-Style, иначе
+// libass подменяет семейство (fake-bold). Зеркало SINGLE_WEIGHT_FONTS в captions_v2.py.
+const SINGLE_WEIGHT_FONTS = new Set([
+  "Unbounded",
+  "Anton",
+  "Archivo Black",
+  "Bebas Neue",
+  "Luckiest Guy",
+  "Poppins",
+  "Russo One",
+]);
+
+/** ASS Bold-флаг: 0 для single-weight шрифтов (без fake-bold), иначе -1. Зеркало `_ass_bold_flag`. */
+function assBoldFlag(font: string): number {
+  return SINGLE_WEIGHT_FONTS.has(font) ? 0 : -1;
+}
+
 /** #RRGGBB → ASS &HAABBGGRR (alphaByte: 0=непрозр., 255=прозр.). Зеркало `_ass_color`. */
 export function assColor(hex: string, alphaByte = 0): string {
   const h = hex.replace(/^#/, "");
@@ -73,8 +90,8 @@ export function buildDefaultStyleLine(
   }
   return (
     `Style: Default,${style.font ?? S.font},${style.size ?? S.size},${primary},${secondary},` +
-    // Bold=0 для шрифтов без bold-начертания (Unbounded) — иначе прожиг подменит семейство (зеркало captions_v2).
-    `${outline},${back},${(style.font ?? S.font) === "Unbounded" ? 0 : -1},0,0,0,100,100,0,0,${borderStyle},${style.outline_w ?? S.outline_w},` +
+    // Bold=0 для single-weight шрифтов — иначе прожиг подменит семейство (зеркало captions_v2).
+    `${outline},${back},${assBoldFlag(style.font ?? S.font)},0,0,0,100,100,0,0,${borderStyle},${style.outline_w ?? S.outline_w},` +
     `${style.shadow ?? S.shadow},${style.alignment ?? S.alignment},40,40,${style.margin_v ?? S.margin_v},1`
   );
 }
@@ -101,7 +118,7 @@ export function buildHookStyleLine(hook: HookOverlay): string {
   }
   return (
     `Style: Hook,${hook.font ?? H.font},${hook.size ?? H.size},${primary},${primary},` +
-    `${outline},${back},${(hook.font ?? H.font) === "Unbounded" ? 0 : -1},0,0,0,100,100,0,0,${borderStyle},${outlineW},${hook.shadow ?? H.shadow},` +
+    `${outline},${back},${assBoldFlag(hook.font ?? H.font)},0,0,0,100,100,0,0,${borderStyle},${outlineW},${hook.shadow ?? H.shadow},` +
     `8,60,60,${hook.margin_v ?? H.margin_v},1`
   );
 }

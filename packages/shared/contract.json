@@ -625,7 +625,12 @@
             "fade",
             "spring",
             "blur_in",
-            "color_sweep"
+            "color_sweep",
+            "drop_in",
+            "glow_pulse",
+            "shake",
+            "slide_up",
+            "flash"
           ],
           "type": "string"
         },

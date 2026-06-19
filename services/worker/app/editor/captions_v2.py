@@ -28,6 +28,52 @@ def _ass_color_tag(hex_color: str) -> str:
     return f"&H{h[4:6]}{h[2:4]}{h[0:2]}&".upper()
 
 
+# Шрифты БЕЗ реального bold-начертания (single-weight TTF): для них Bold=0 в ASS-Style,
+# иначе libass подменяет СЕМЕЙСТВО (берёт чужой реальный Bold) → прожиг ≠ превью. Зеркалится
+# во фронте (assStyle.ts). См. build_hook_event / compile_ass.
+SINGLE_WEIGHT_FONTS = frozenset(
+    {
+        "Unbounded",
+        "Anton",
+        "Archivo Black",
+        "Bebas Neue",
+        "Luckiest Guy",
+        "Poppins",
+        "Russo One",
+    }
+)
+
+# Шрифты БЕЗ кириллических глифов (Latin-only): на кириллице → tofu. Russo One кириллицу
+# покрывает, поэтому в наборе его НЕТ. См. resolve_font_for_text.
+LATIN_ONLY_FONTS = frozenset({"Anton", "Archivo Black", "Bebas Neue", "Luckiest Guy", "Poppins"})
+
+# Шрифт-фолбэк для кириллицы (покрывает U+0400–U+04FF, есть в обоих fonts-каталогах).
+_CYRILLIC_FALLBACK_FONT = "Montserrat"
+
+
+def _ass_bold_flag(font: str) -> int:
+    """ASS Bold-флаг для шрифта: 0 (single-weight, без fake-bold/подмены) иначе -1. PURE."""
+    return 0 if font in SINGLE_WEIGHT_FONTS else -1
+
+
+def _has_cyrillic(text: str) -> bool:
+    """True если в тексте есть символ из кириллического блока U+0400–U+04FF. PURE."""
+    return any("Ѐ" <= ch <= "ӿ" for ch in text)
+
+
+def resolve_font_for_text(font: str, text: str) -> str:
+    """Подобрать шрифт под текст: Latin-only шрифт + кириллица → кириллический фолбэк. PURE.
+
+    Это НЕ молчаливый фолбэк-проглот ошибки, а ОСОЗНАННОЕ render-решение: Latin-only TTF
+    (Anton/Bebas/…) на кириллице даёт tofu (□□□). Если выбранный шрифт без кириллицы И в
+    тексте есть кириллица — рендерим кириллице-способным Montserrat; во всех остальных
+    случаях шрифт не трогаем (Latin-текст, кириллице-способный шрифт, Russo One и т.д.).
+    """
+    if font in LATIN_ONLY_FONTS and _has_cyrillic(text):
+        return _CYRILLIC_FALLBACK_FONT
+    return font
+
+
 # Длинные служебные/филлер-слова (короткие отсекает min_len) — НЕ ключевые (RU+EN).
 _KEYWORD_STOPWORDS = frozenset(
     {
@@ -100,20 +146,22 @@ def build_hook_event(hook: HookOverlay, clip_duration: float) -> tuple[str, str]
         back = "&H64000000"
         border_style = 1
         outline_w = hook.outline_w
-    # Bold=0 для шрифтов БЕЗ реального bold-начертания (Unbounded ttf = только Regular): иначе на
-    # воркере libass подменяет СЕМЕЙСТВО (берёт чужой реальный Bold, напр. Montserrat) → хук
-    # рендерится не тем шрифтом, что в превью. Bold=0 = точное family+weight совпадение, без
-    # подмены. Правило зеркалится во фронте (assStyle.ts) → WYSIWYG (превью == прожиг).
-    bold = 0 if hook.font == "Unbounded" else -1
-    style = (
-        f"Style: Hook,{hook.font},{hook.size},{primary},{primary},{outline},{back},"
-        f"{bold},0,0,0,100,100,0,0,{border_style},{outline_w},{hook.shadow},"
-        f"8,60,60,{hook.margin_v},1"
-    )
     window = clip_duration if hook.full_clip else min(hook.duration_sec, clip_duration)
     text = hook.text.replace("\n", " ").strip()
     if hook.uppercase:
         text = text.upper()
+    # Latin-only шрифт + кириллица в хук-тексте → кириллице-способный фолбэк (без tofu).
+    font = resolve_font_for_text(hook.font, text)
+    # Bold=0 для single-weight шрифтов (без реального bold-начертания): иначе на воркере libass
+    # подменяет СЕМЕЙСТВО (берёт чужой реальный Bold, напр. Montserrat) → хук рендерится не тем
+    # шрифтом, что в превью. Bold=0 = точное family+weight совпадение. Зеркалится во фронте
+    # (assStyle.ts) → WYSIWYG (превью == прожиг).
+    bold = _ass_bold_flag(font)
+    style = (
+        f"Style: Hook,{font},{hook.size},{primary},{primary},{outline},{back},"
+        f"{bold},0,0,0,100,100,0,0,{border_style},{outline_w},{hook.shadow},"
+        f"8,60,60,{hook.margin_v},1"
+    )
     text = escape_ass_text(text)  # {/\ в тексте хука → tag-инъекция libass (см. escape_ass_text)
     # Анимация входа: override-блок {…} ПЕРЕД экранированным текстом (его настоящие скобки
     # НЕ прогоняем через escape_ass_text — иначе \{…\} перестанет быть тегом). \t от 0 (старт
@@ -175,6 +223,30 @@ def word_animation_tags(animation: str, offset_ms: int, *, accent: str = "", bas
         if not (accent and base):
             return ""
         return f"\\1c{accent}\\t({o},{o + 260},\\1c{base})"
+    if animation == "drop_in":
+        # слово «роняется» сверху: уменьшенная высота+прозрачность → оседает (\fscy/\alpha,
+        # без \fscx → ширина стабильна, реврапа нет).
+        return (
+            f"\\fscy130\\alpha&HFF&\\t({o},{o + 90},\\fscy96\\alpha&H00&)"
+            f"\\t({o + 90},{o + 170},\\fscy100)"
+        )
+    if animation == "glow_pulse":
+        # мягкая пульсация свечения (\blur пост-растровый → раскладка не трогается).
+        return f"\\blur0\\t({o},{o + 120},\\blur6)\\t({o + 120},{o + 260},\\blur0)"
+    if animation == "shake":
+        # лёгкая тряска поворотом (\frz — вращение, ширину строки не меняет → без реврапа).
+        return (
+            f"\\frz0\\t({o},{o + 60},\\frz4)\\t({o + 60},{o + 120},\\frz-4)"
+            f"\\t({o + 120},{o + 180},\\frz0)"
+        )
+    if animation == "slide_up":
+        # «выезд» снизу: приплюснут+притушён → разворачивается (\fscy/\alpha, без \fscx).
+        return f"\\fscy70\\alpha&H80&\\t({o},{o + 160},\\fscy100\\alpha&H00&)"
+    if animation == "flash":
+        # вспышка белым → возврат в accent (как color_sweep, но фикс-белый старт).
+        if not accent:
+            return ""
+        return f"\\1c&HFFFFFF&\\t({o},{o + 120},\\1c{accent})"
     return ""
 
 
@@ -295,6 +367,18 @@ def compile_ass(
     аспект ≠ кадр-аспект). Превью (libass.wasm) и экспорт (ffmpeg) берут ОДИН ASS → WYSIWYG.
     """
     st = track.style
+    # Latin-only шрифт + кириллица в субтитрах → кириллице-способный фолбэк (без tofu). Style
+    # один на все реплики → проверяем кириллицу по СОВОКУПНОМУ тексту видимых реплик (+ override).
+    caption_text = " ".join(
+        (
+            r.text_override
+            if r.text_override is not None
+            else " ".join(words[i].text for i in r.word_refs)
+        )
+        for r in (track.replies if track.burn else [])
+        if not r.hidden and r.word_refs
+    )
+    font = resolve_font_for_text(st.font, caption_text)
     # animation="none" = статичная фраза: караоке выключается ЦЕЛИКОМ (без \k вся
     # строка рисуется PrimaryColour → он обязан остаться цветом текста, не подсветки).
     hl = track.highlight if (track.highlight and track.highlight.animation != "none") else None
@@ -321,9 +405,9 @@ def compile_ass(
         "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, "
         "BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, "
         "BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n"
-        f"Style: Default,{st.font},{st.size},{primary},{secondary},{outline},{back},"
-        # Bold=0 для шрифтов без bold-начертания (Unbounded) — без подмены (см. build_hook_event).
-        f"{0 if st.font == 'Unbounded' else -1},0,0,0,100,100,0,0,{border_style},{st.outline_w},"
+        f"Style: Default,{font},{st.size},{primary},{secondary},{outline},{back},"
+        # Bold=0 для single-weight шрифтов — без fake-bold/подмены (см. build_hook_event).
+        f"{_ass_bold_flag(font)},0,0,0,100,100,0,0,{border_style},{st.outline_w},"
         f"{st.shadow},{st.alignment},40,40,{st.margin_v},1\n"
     )
     # Топ-текст (хук): отдельный ASS-стиль + событие с верхним якорем. Компилится в

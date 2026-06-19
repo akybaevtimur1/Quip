@@ -1279,3 +1279,23 @@ upload-url (`main.py`) — он отрабатывает в `upload-complete` Д
 - **Верификация:** `just check` зелёный (762 unit-теста, +6 TDD на set_clips_pending/set_clip_ready);
   прогрессивная сетка проверена **визуально** (playwright-харнесс с rendering-джобом «1 из 2 готов» —
   готовая карточка + скелетон + «1 of 2 ready»). Миграция 0010 применена в прод Supabase.
+
+## 2026-06-19 — Трендовые субтитры: +6 открытых шрифтов, +8 пресетов, +5 анимаций
+
+Фидбек: «больше трендовых стилей субтитров/хуков как у OpusClip/Vizard». Реализовано на ОТКРЫТЫХ
+лицензионных шрифтах (OFL/Apache, Google Fonts) + наши параметры — техники индустриально-стандартные,
+рендерятся одинаково в превью (libass) и экспорте (ffmpeg, тот же движок).
+- **6 шрифтов** (TTF в `services/worker/fonts/` И `apps/web/public/libass/fonts/`, зарегистрированы в
+  `LibassLayer.fonts[]` + `StyleTab.CAPTION_FONTS`): Anton, Archivo Black, Bebas Neue, Poppins (Black),
+  Russo One, Luckiest Guy. Family-имена сверены fontTools (libass матчит по family, не по файлу).
+  Только Russo One (+ существующие Montserrat/Rubik/Unbounded) имеет кириллицу; остальные Latin-only.
+- **Bold=0 для одновесных** (`SINGLE_WEIGHT_FONTS`/`_ass_bold_flag`, зеркало в `assStyle.ts`) — иначе
+  libass фейк-болдит/подменяет семейство. **Кириллический фолбэк** (`resolve_font_for_text`, PURE+TDD):
+  Latin-only шрифт + кириллица в тексте → Montserrat (рендер-решение, не тихий фолбэк ошибки).
+- **8 пресетов** `preset_n..preset_u` (Anton Bold, Beasty Yellow, Bold Pop White, Bebas Condensed,
+  Karaoke Fill, Highlight Box, Sticker Round, Gamer Tech) — server-driven через `GET /presets`
+  (`seed_presets()`), фронт-зеркала нет. **5 анимаций** слова (`drop_in/glow_pulse/shake/slide_up/flash`,
+  layout-neutral: только `\fscy`/`\alpha`/`\blur`/`\frz`/`\1c`) в `word_animation_tags` + пикер `StyleTab`.
+- **Верификация:** `just check` зелёный (773 unit-теста); 6 шрифтов проверены **визуально** на реальном
+  LibassLayer (playwright — каждый своим начертанием, без подмены; кириллица Russo One видна). Контракт
+  обновлён codegen (`HighlightStyle.animation` +5 значений). Воркер задеплоен (шрифты в образе рендера).

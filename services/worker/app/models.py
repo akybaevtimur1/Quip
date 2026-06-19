@@ -218,6 +218,11 @@ class HighlightStyle(BaseModel):
         "spring",
         "blur_in",
         "color_sweep",
+        "drop_in",
+        "glow_pulse",
+        "shake",
+        "slide_up",
+        "flash",
     ] = "karaoke_fill"
 
 

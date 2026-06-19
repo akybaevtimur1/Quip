@@ -13,7 +13,17 @@ import { ColorField, DebouncedSlider } from "./StyleControls";
 // Шрифты, доступные ОДНОВРЕМЕННО в libass-превью (public/libass/fonts) и в
 // ffmpeg-экспорте (services/worker/fonts, subtitles=:fontsdir=). Добавляя
 // шрифт — положи TTF в ОБА места, иначе превью разойдётся с экспортом.
-export const CAPTION_FONTS = ["Montserrat", "Unbounded", "Rubik"];
+export const CAPTION_FONTS = [
+  "Montserrat",
+  "Unbounded",
+  "Rubik",
+  "Anton",
+  "Poppins",
+  "Bebas Neue",
+  "Archivo Black",
+  "Russo One",
+  "Luckiest Guy",
+];
 
 const ANIMATIONS: { value: NonNullable<HighlightStyle["animation"]>; label: string }[] = [
   { value: "karaoke_fill", label: "Karaoke (fill)" },
@@ -24,6 +34,11 @@ const ANIMATIONS: { value: NonNullable<HighlightStyle["animation"]>; label: stri
   { value: "punch", label: "Punch (hard hit)" },
   { value: "bounce", label: "Bounce" },
   { value: "fade", label: "Fade (words appear)" },
+  { value: "drop_in", label: "Drop in (from above)" },
+  { value: "glow_pulse", label: "Glow pulse" },
+  { value: "shake", label: "Shake" },
+  { value: "slide_up", label: "Slide up" },
+  { value: "flash", label: "Flash (white to accent)" },
   { value: "none", label: "No animation" },
 ];
 

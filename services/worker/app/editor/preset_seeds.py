@@ -135,4 +135,82 @@ def seed_presets() -> list[CaptionPreset]:
             ),
             highlight=None,
         ),
+        CaptionPreset(
+            id="preset_n",
+            name="Anton Bold",
+            style=CaptionStyle(
+                font="Anton", size=120, color="#FFFFFF", outline_color="#000000", outline_w=12
+            ),
+            highlight=HighlightStyle(color="#34E36B", scale=1.15, box=False, animation="drop_in"),
+        ),
+        CaptionPreset(
+            id="preset_o",
+            name="Beasty Yellow",
+            style=CaptionStyle(
+                font="Archivo Black",
+                size=110,
+                color="#FFE000",
+                outline_color="#000000",
+                outline_w=9,
+            ),
+            highlight=HighlightStyle(color="#FF3B30", scale=1.1, box=False, animation="punch"),
+        ),
+        CaptionPreset(
+            id="preset_p",
+            name="Bold Pop White",
+            style=CaptionStyle(
+                font="Poppins", size=116, color="#FFFFFF", outline_color="#000000", outline_w=9
+            ),
+            highlight=HighlightStyle(color="#FFFFFF", scale=1.18, box=False, animation="bounce"),
+        ),
+        CaptionPreset(
+            id="preset_q",
+            name="Bebas Condensed",
+            style=CaptionStyle(
+                font="Bebas Neue", size=130, color="#FFFFFF", outline_color="#000000", outline_w=8
+            ),
+            highlight=HighlightStyle(color="#FFD23D", scale=1.0, box=False, animation="pop"),
+        ),
+        CaptionPreset(
+            id="preset_r",
+            name="Karaoke Fill",
+            style=CaptionStyle(
+                font="Montserrat", size=88, color="#FFFFFF", outline_color="#000000", outline_w=7
+            ),
+            highlight=HighlightStyle(
+                color="#FFE000", scale=1.0, box=False, animation="karaoke_fill"
+            ),
+        ),
+        CaptionPreset(
+            id="preset_s",
+            name="Highlight Box",
+            style=CaptionStyle(
+                font="Montserrat",
+                size=84,
+                color="#FFFFFF",
+                outline_color="#000000",
+                outline_w=0,
+                box_color="#34E36B",
+                box_opacity=1.0,
+            ),
+            highlight=HighlightStyle(
+                color="#000000", scale=1.0, box=False, animation="karaoke_fill"
+            ),
+        ),
+        CaptionPreset(
+            id="preset_t",
+            name="Sticker Round",
+            style=CaptionStyle(
+                font="Luckiest Guy", size=108, color="#FFFFFF", outline_color="#000000", outline_w=9
+            ),
+            highlight=HighlightStyle(color="#FFD23D", scale=1.1, box=False, animation="spring"),
+        ),
+        CaptionPreset(
+            id="preset_u",
+            name="Gamer Tech",
+            style=CaptionStyle(
+                font="Russo One", size=92, color="#FFFFFF", outline_color="#00E5FF", outline_w=5
+            ),
+            highlight=HighlightStyle(color="#00E5FF", scale=1.0, box=False, animation="glow_pulse"),
+        ),
     ]

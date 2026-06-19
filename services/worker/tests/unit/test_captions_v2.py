@@ -1,4 +1,12 @@
-from app.editor.captions_v2 import _ass_color, compile_ass, word_animation_tags
+from app.editor.captions_v2 import (
+    LATIN_ONLY_FONTS,
+    SINGLE_WEIGHT_FONTS,
+    _ass_bold_flag,
+    _ass_color,
+    compile_ass,
+    resolve_font_for_text,
+    word_animation_tags,
+)
 from app.editor.timemap import ClipTimeMap
 from app.models import (
     CaptionReply,
@@ -303,3 +311,99 @@ def test_compile_ass_box_sets_border_style_3():
     style_line = next(ln for ln in ass.splitlines() if ln.startswith("Style: Default,"))
     fields = style_line.split(",")
     assert fields[15] == "3"
+
+
+# ───────────────── Bold=0 single-weight set ─────────────────
+
+
+def test_ass_bold_flag_single_weight_fonts():
+    expected = {
+        "Unbounded",
+        "Anton",
+        "Archivo Black",
+        "Bebas Neue",
+        "Luckiest Guy",
+        "Poppins",
+        "Russo One",
+    }
+    for f in expected:
+        assert _ass_bold_flag(f) == 0, f
+    assert SINGLE_WEIGHT_FONTS == expected
+
+
+def test_ass_bold_flag_multi_weight_fonts():
+    assert _ass_bold_flag("Montserrat") == -1
+    assert _ass_bold_flag("Rubik") == -1
+
+
+def test_compile_ass_default_style_bold0_for_anton():
+    words = [_w("a", 0.0, 0.4)]
+    track = CaptionTrack(
+        style=CaptionStyle(font="Anton"), highlight=None, replies=[CaptionReply(word_refs=[0])]
+    )
+    style_line = next(
+        ln
+        for ln in compile_ass(track, words, _cmap()).splitlines()
+        if ln.startswith("Style: Default,")
+    )
+    fields = style_line.split(",")
+    assert fields[1] == "Anton"  # Fontname
+    assert fields[7] == "0"  # Bold
+
+
+# ───────────────── Cyrillic font fallback ─────────────────
+
+
+def test_resolve_font_latin_font_cyrillic_text_falls_back():
+    assert resolve_font_for_text("Anton", "Привет") == "Montserrat"
+    assert resolve_font_for_text("Bebas Neue", "Тест") == "Montserrat"
+
+
+def test_resolve_font_latin_font_latin_text_unchanged():
+    assert resolve_font_for_text("Anton", "Hello world") == "Anton"
+
+
+def test_resolve_font_russo_one_cyrillic_unchanged():
+    # Russo One покрывает кириллицу → НЕ в Latin-only set → не подменяем
+    assert "Russo One" not in LATIN_ONLY_FONTS
+    assert resolve_font_for_text("Russo One", "Привет") == "Russo One"
+
+
+def test_resolve_font_montserrat_always_unchanged():
+    assert resolve_font_for_text("Montserrat", "Привет") == "Montserrat"
+    assert resolve_font_for_text("Montserrat", "Hello") == "Montserrat"
+
+
+def test_compile_ass_cyrillic_text_swaps_latin_only_font():
+    words = [_w("Привет", 0.0, 0.4)]
+    track = CaptionTrack(
+        style=CaptionStyle(font="Anton"), highlight=None, replies=[CaptionReply(word_refs=[0])]
+    )
+    style_line = next(
+        ln
+        for ln in compile_ass(track, words, _cmap()).splitlines()
+        if ln.startswith("Style: Default,")
+    )
+    assert style_line.split(",")[1] == "Montserrat"
+
+
+# ───────────────── new word animations ─────────────────
+
+
+def test_new_word_animations_layout_neutral():
+    # все 5 новых: без \fscx/\fsp (которые меняют ширину → реврап)
+    for anim in ["drop_in", "glow_pulse", "shake", "slide_up"]:
+        tags = word_animation_tags(anim, 100)
+        assert tags, anim
+        assert "\fscx" not in tags and "\fsp" not in tags, anim
+
+
+def test_flash_animation_uses_accent():
+    assert word_animation_tags("flash", 0) == ""  # без accent — пусто
+    out = word_animation_tags("flash", 50, accent="&H00FF00&")
+    assert r"\1c&HFFFFFF&" in out and "&H00FF00&" in out
+
+
+def test_drop_in_offsets():
+    out = word_animation_tags("drop_in", 200)
+    assert r"\t(200,290," in out and r"\t(290,370," in out

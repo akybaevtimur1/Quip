@@ -155,6 +155,12 @@ export function LibassLayer({
               "/libass/fonts/Montserrat.ttf",
               "/libass/fonts/Unbounded.ttf",
               "/libass/fonts/Rubik.ttf",
+              "/libass/fonts/Anton.ttf",
+              "/libass/fonts/PoppinsBlack.ttf",
+              "/libass/fonts/BebasNeue.ttf",
+              "/libass/fonts/ArchivoBlack.ttf",
+              "/libass/fonts/RussoOne.ttf",
+              "/libass/fonts/LuckiestGuy.ttf",
             ],
             // дефолтный fallback = default.woff2 РЯДОМ С ВОРКЕРОМ — мы его не хостим,
             // воркер падал «Loading data file default.woff2 failed». Наш fallback —
