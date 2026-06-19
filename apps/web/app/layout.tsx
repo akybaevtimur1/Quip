@@ -1,4 +1,5 @@
 import { Analytics } from "@vercel/analytics/next";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 import type { Metadata } from "next";
 import { IBM_Plex_Mono, Onest } from "next/font/google";
 import { YandexMetrika } from "@/components/analytics/YandexMetrika";
@@ -88,6 +89,9 @@ export default function RootLayout({
             (смотреть на дашборде проекта, вкладка Analytics). На Vercel надо один раз включить
             Analytics в настройках проекта; в локальном dev — no-op. */}
         <Analytics />
+        {/* Vercel Speed Insights — измеряет производительность страниц на реальных устройствах
+            пользователей (Core Web Vitals). Включается в настройках проекта на Vercel; в dev — no-op. */}
+        <SpeedInsights />
         {/* Yandex.Metrica — поведенческие факторы для ранжирования в Яндексе (Вебвизор). */}
         <YandexMetrika />
       </body>
