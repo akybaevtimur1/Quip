@@ -183,9 +183,15 @@ export default function ClipEditorScreen({
   // dropping the stale one loses nothing. (A primitive counter — NOT reading editRef into a
   // state setter — keeps the React Compiler immutability rule happy.)
   const optGenRef = useRef(0);
-  const refreshAss = useCallback(async () => {
+  // refreshAss skips setAssText if a NEWER optimistic edit landed after `gen` — otherwise a
+  // refresh in flight (or queued behind a slow PATCH in the mutation chain) resolves with
+  // PRE-EDIT server ASS and visibly reverts the change ("font snaps back, change it again").
+  // `gen` MUST be the generation of the edit being reconciled (captured at flush time, tied to
+  // the flushed captions) — NOT optGenRef read here, which runs AFTER the PATCH and could
+  // already include a newer edit (→ it would then wrongly apply the stale ASS). Authoritative
+  // callers (preset/agent/aspect) pass no gen → default to current → always apply.
+  const refreshAss = useCallback(async (gen: number = optGenRef.current) => {
     const seq = ++assSeq.current;
-    const gen = optGenRef.current;
     try {
       const ass = await getClipAss(jobId, clipId);
       if (seq !== assSeq.current) return; // a newer refreshAss superseded this one
@@ -340,6 +346,11 @@ export default function ClipEditorScreen({
   // остаётся источником правды (refreshAss реконсилит ASS; экспорт всегда из Python-ASS).
   // pendingCaptionsRef = последнее желаемое captions; flushTimerRef = таймер дебаунса.
   const pendingCaptionsRef = useRef<ClipEdit["captions"] | null>(null);
+  // Поколение оптимистичной правки, ПРИВЯЗАННОЕ к pendingCaptionsRef (ставится в editCaptions).
+  // Захватываем его на момент flush'а и передаём в refreshAss → реконсиляция этой правки
+  // пропускается, если после неё пришла более новая (анти-отскок #5, не зависит от тайминга
+  // PATCH/очереди мутаций).
+  const pendingGenRef = useRef(0);
   const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Отправить накопленные captions на сервер (через очередь мутаций) + реконсиляция ASS.
@@ -350,6 +361,7 @@ export default function ClipEditorScreen({
       flushTimerRef.current = null;
     }
     const captions = pendingCaptionsRef.current;
+    const gen = pendingGenRef.current; // поколение ЭТИХ captions (для анти-отскока)
     if (captions !== null) {
       pendingCaptionsRef.current = null;
       patchChain.current = patchChain.current.then(async () => {
@@ -365,10 +377,11 @@ export default function ClipEditorScreen({
           };
           setEdit((prev) => (prev ? { ...newEdit, captions: prev.captions } : newEdit));
           setDirty(true);
-          // Нет более свежей правки → авторитетный ASS (реконсиляция) + «Сохранено».
+          // Нет более свежей правки → авторитетный ASS (реконсиляция) + «Сохранено». gen этой
+          // правки → refreshAss НЕ перетрёт более новую (даже если PATCH/очередь затянулись).
           if (pendingCaptionsRef.current === null) {
             setUnsaved(false);
-            await refreshAss();
+            await refreshAss(gen);
           }
         } catch (e) {
           failOr409(e);
@@ -397,7 +410,9 @@ export default function ClipEditorScreen({
       // instant: переписать Style-строки локально (цвет/размер/шрифт/контур/плашка/позиция).
       // Правки Dialogue-тегов (анимация/текст/uppercase) добьёт реконсиляция через ~300мс.
       setAssText((prev) => patchAssStyles(prev, next.style, next.highlight, next.hook));
-      optGenRef.current++; // новый оптимистичный патч → in-flight refreshAss не должен его перетереть (#5)
+      // новый оптимистичный патч → его поколение; in-flight refreshAss с прежним gen не перетрёт (#5)
+      optGenRef.current++;
+      pendingGenRef.current = optGenRef.current;
       setDirty(true);
       setUnsaved(true);
       pendingCaptionsRef.current = next;
