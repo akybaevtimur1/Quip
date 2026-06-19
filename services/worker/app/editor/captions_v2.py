@@ -106,6 +106,54 @@ def pick_keyword_positions(texts: list[str], *, max_emph: int = 2, min_len: int 
     return sorted(i for i, _ in top)
 
 
+# Дефолт-маржины Style-строк (легаси): субтитры 40/40, хук 60/60. Когда wrap_width=None —
+# оставляем именно их (байт-в-байт старый вывод). См. _wrap_margins / compile_ass.
+_CAPTION_DEFAULT_MARGIN = 40
+_HOOK_DEFAULT_MARGIN = 60
+
+
+def _wrap_margins(wrap_width: float | None, play_w: int, default: int) -> tuple[int, int]:
+    """(MarginL, MarginR) для ограничения ширины блока libass-переноса. PURE.
+
+    libass переносит строку в доступную ширину PlayResX − MarginL − MarginR (WrapStyle 0 =
+    smart-wrap). Уже ширину → меньше слов в строке → текст реврапится на БОЛЬШЕ строк БЕЗ
+    смены кегля (ровно то, что хочет фаундер от боковой ручки). wrap_width=None → легаси-
+    маржины (default,default) → байт-в-байт старый вывод. Симметрично: L=R=round((play_w−w)/2),
+    где w = round(wrap_width*play_w). Зеркалится во фронте (assStyle.ts) → WYSIWYG.
+    """
+    if wrap_width is None:
+        return default, default
+    block_w = round(wrap_width * play_w)
+    side = round((play_w - block_w) / 2)
+    return side, side
+
+
+def _pos_override(
+    pos_x: float | None,
+    pos_y: float | None,
+    *,
+    play_w: int,
+    play_h: int,
+    an: int,
+    legacy_y: int,
+) -> str:
+    """Ведущий ASS-override `\\pos(x,y)\\anN` для свободного якоря. PURE. "" если pos не задан.
+
+    \\pos ставит ЯКОРЬ события в (x,y); \\anN фиксирует, КАКАЯ точка блока садится на якорь
+    (субтитры — \\an2 нижний-центр, хук — \\an8 верхний-центр) → перенос остаётся симметричным
+    вокруг x. Задана ХОТЯ БЫ одна координата → эмитим \\pos, недостающую берём из легаси:
+    x по центру (0.5·play_w), y из margin_v-семантики (legacy_y — уже вычислен вызывающим).
+    libass-тонкость: при \\pos ширина переноса ВСЁ РАВНО управляется MarginL/MarginR (НЕ авто-
+    центрируется по x) — подтверждено спайком; поэтому wrap_width и pos компонуются независимо.
+    Зеркалится во фронте (assStyle.ts) → WYSIWYG (превью libass.wasm == прожиг ffmpeg).
+    """
+    if pos_x is None and pos_y is None:
+        return ""
+    x = round((pos_x if pos_x is not None else 0.5) * play_w)
+    y = round(pos_y * play_h) if pos_y is not None else legacy_y
+    return f"\\pos({x},{y})\\an{an}"
+
+
 def _hook_entrance_tags(animation: str) -> str:
     """ASS override-теги ВХОДА всего заголовка хука (одиночный блок, не пословно). PURE.
 
@@ -157,18 +205,27 @@ def build_hook_event(hook: HookOverlay, clip_duration: float) -> tuple[str, str]
     # шрифтом, что в превью. Bold=0 = точное family+weight совпадение. Зеркалится во фронте
     # (assStyle.ts) → WYSIWYG (превью == прожиг).
     bold = _ass_bold_flag(font)
+    # wrap_width → симметричные маржины ширины блока (None → легаси 60/60 = байт-в-байт).
+    play_w, play_h = 1080, 1920
+    margin_l, margin_r = _wrap_margins(hook.wrap_width, play_w, _HOOK_DEFAULT_MARGIN)
     style = (
         f"Style: Hook,{font},{hook.size},{primary},{primary},{outline},{back},"
         f"{bold},0,0,0,100,100,0,0,{border_style},{outline_w},{hook.shadow},"
-        f"8,60,60,{hook.margin_v},1"
+        f"8,{margin_l},{margin_r},{hook.margin_v},1"
     )
     text = escape_ass_text(text)  # {/\ в тексте хука → tag-инъекция libass (см. escape_ass_text)
-    # Анимация входа: override-блок {…} ПЕРЕД экранированным текстом (его настоящие скобки
-    # НЕ прогоняем через escape_ass_text — иначе \{…\} перестанет быть тегом). \t от 0 (старт
-    # окна). animation="none" → блока нет → байт-в-байт старый вывод (кэш хуков валиден).
+    # Свободный якорь (\pos) + анимация входа в ОДНОМ ведущем override-блоке {…} ПЕРЕД
+    # экранированным текстом (его настоящие скобки НЕ прогоняем через escape_ass_text — иначе
+    # \{…\} перестанет быть тегом). \t от 0 (старт окна). Хук = верхний якорь → \an8, легаси-y
+    # для top-alignment = margin_v (отступ от верха). pos=None + animation="none" → блока нет →
+    # байт-в-байт старый вывод (кэш хуков валиден).
+    pos = _pos_override(
+        hook.pos_x, hook.pos_y, play_w=play_w, play_h=play_h, an=8, legacy_y=hook.margin_v
+    )
     entrance = _hook_entrance_tags(hook.animation)
-    if entrance:
-        text = f"{{{entrance}}}{text}"
+    lead = pos + entrance
+    if lead:
+        text = f"{{{lead}}}{text}"
     dialogue = f"Dialogue: 0,{format_ass_time(0.0)},{format_ass_time(window)},Hook,,0,0,,{text}"
     return style, dialogue
 
@@ -400,6 +457,8 @@ def compile_ass(
         f"[Script Info]\nScriptType: v4.00+\nPlayResX: {play_w}\nPlayResY: {play_h}\n"
         "WrapStyle: 0\nScaledBorderAndShadow: yes\n"
     )
+    # wrap_width → симметричные маржины ширины блока (None → легаси 40/40 = байт-в-байт).
+    margin_l, margin_r = _wrap_margins(st.wrap_width, play_w, _CAPTION_DEFAULT_MARGIN)
     styles = (
         "[V4+ Styles]\n"
         "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, "
@@ -408,7 +467,14 @@ def compile_ass(
         f"Style: Default,{font},{st.size},{primary},{secondary},{outline},{back},"
         # Bold=0 для single-weight шрифтов — без fake-bold/подмены (см. build_hook_event).
         f"{_ass_bold_flag(font)},0,0,0,100,100,0,0,{border_style},{st.outline_w},"
-        f"{st.shadow},{st.alignment},40,40,{st.margin_v},1\n"
+        f"{st.shadow},{st.alignment},{margin_l},{margin_r},{st.margin_v},1\n"
+    )
+    # Свободный якорь субтитра: ведущий {\pos(x,y)\an2} перед текстом КАЖДОЙ реплики (нижний
+    # якорь — \an2 — сохраняет семантику margin_v: y по умолчанию = низ кадра − margin_v).
+    # pos=None → "" → байт-в-байт старый вывод. Ширина переноса при \pos управляется MarginL/R
+    # (libass-тонкость, спайк) → wrap_width и pos компонуются независимо.
+    caption_pos = _pos_override(
+        st.pos_x, st.pos_y, play_w=play_w, play_h=play_h, an=2, legacy_y=play_h - st.margin_v
     )
     # Топ-текст (хук): отдельный ASS-стиль + событие с верхним якорем. Компилится в
     # ТОТ ЖЕ файл → libass-превью и ffmpeg-экспорт показывают хук пиксель-в-пиксель.
@@ -454,6 +520,10 @@ def compile_ass(
             accent=primary_tag,
             base=base_tag,
         )
+        # Ведущий {\pos...\an2}-блок ПЕРЕД пословными {\k...}-блоками (его настоящие скобки НЕ
+        # экранируем — это override-теги, а не текст). pos=None → caption_pos="" → префикса нет.
+        if caption_pos:
+            text = f"{{{caption_pos}}}{text}"
         lines.append(
             f"Dialogue: 0,{format_ass_time(start_c)},{format_ass_time(end_c)},Default,,0,0,,{text}"
         )

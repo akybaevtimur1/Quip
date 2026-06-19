@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { getPresets } from "@/lib/api";
 import type { CaptionPreset } from "@/lib/types";
+import { useWheelHscroll } from "@/lib/useWheelHscroll";
 
 // ────────────────────────────────────────────────────────────────────────────
 // PresetStrip — горизонтальная галерея пресетов субтитров (A–L). Каждый пресет —
@@ -24,6 +25,7 @@ export function PresetStrip({ activePresetId, onApply, onError }: PresetStripPro
   const [presets, setPresets] = useState<CaptionPreset[]>([]);
   const [loading, setLoading] = useState(true);
   const [applyingId, setApplyingId] = useState<string | null>(null);
+  const scrollRef = useWheelHscroll<HTMLDivElement>(); // #6: колесо мыши → горизонталь
 
   useEffect(() => {
     let cancelled = false;
@@ -72,7 +74,10 @@ export function PresetStrip({ activePresetId, onApply, onError }: PresetStripPro
   }
 
   return (
-    <div className="no-scrollbar flex snap-x snap-mandatory gap-2 overflow-x-auto py-2">
+    <div
+      ref={scrollRef}
+      className="no-scrollbar flex snap-x snap-mandatory gap-2 overflow-x-auto py-2"
+    >
       {presets.map((preset) => {
         const isActive = preset.id === active;
         const isApplying = applyingId === preset.id;

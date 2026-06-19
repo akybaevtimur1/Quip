@@ -69,10 +69,41 @@ export function assColor(hex: string, alphaByte = 0): string {
   return `&H${aa}${bb}${gg}${rr}`.toUpperCase();
 }
 
-/** Строка `Style: Default,…` из style+highlight. Зеркало compile_ass (без \n). */
+// Ширина блока (wrap_width, доля PlayResX) → симметричные MarginL=MarginR. libass переносит
+// текст внутри `PlayResX - L - R` → блок сужается, шрифт не меняется (#2). None = дефолт.
+// Зеркало `_wrap_margins` (captions_v2.py): side = round((play_w - round(wrap*play_w))/2).
+function wrapMargins(
+  wrapWidth: number | null | undefined,
+  playW: number,
+  def: number,
+): [number, number] {
+  if (wrapWidth == null) return [def, def];
+  const side = Math.round((playW - Math.round(wrapWidth * playW)) / 2);
+  return [side, side];
+}
+
+// Свободная позиция X/Y → ведущий override-блок `\pos(x,y)\anN` на Dialogue (#3). Зеркало
+// `_pos_override`: x = round((pos_x ?? 0.5)·play_w); y = pos_y задан ? round(pos_y·play_h) :
+// legacyY (caption: play_h − margin_v под \an2; hook: margin_v под \an8). Пусто если оба None.
+function posOverride(
+  posX: number | null | undefined,
+  posY: number | null | undefined,
+  anchor: 2 | 8,
+  playW: number,
+  playH: number,
+  legacyY: number,
+): string {
+  if (posX == null && posY == null) return "";
+  const x = Math.round((posX ?? 0.5) * playW);
+  const y = posY != null ? Math.round(posY * playH) : legacyY;
+  return `\\pos(${x},${y})\\an${anchor}`;
+}
+
+/** Строка `Style: Default,…` из style+highlight (+wrap_width). Зеркало compile_ass (без \n). */
 export function buildDefaultStyleLine(
   style: CaptionStyle,
   highlight: HighlightStyle | null | undefined,
+  playW = 1080,
 ): string {
   // animation="none" → караоке выключено целиком → primary = цвет текста (как в Python).
   const hl = highlight && highlight.animation !== "none" ? highlight : null;
@@ -88,16 +119,17 @@ export function buildDefaultStyleLine(
     back = "&H64000000";
     borderStyle = 1;
   }
+  const [ml, mr] = wrapMargins(style.wrap_width, playW, 40);
   return (
     `Style: Default,${style.font ?? S.font},${style.size ?? S.size},${primary},${secondary},` +
     // Bold=0 для single-weight шрифтов — иначе прожиг подменит семейство (зеркало captions_v2).
     `${outline},${back},${assBoldFlag(style.font ?? S.font)},0,0,0,100,100,0,0,${borderStyle},${style.outline_w ?? S.outline_w},` +
-    `${style.shadow ?? S.shadow},${style.alignment ?? S.alignment},40,40,${style.margin_v ?? S.margin_v},1`
+    `${style.shadow ?? S.shadow},${style.alignment ?? S.alignment},${ml},${mr},${style.margin_v ?? S.margin_v},1`
   );
 }
 
-/** Строка `Style: Hook,…` из hook. Зеркало build_hook_event style-строки (без \n). */
-export function buildHookStyleLine(hook: HookOverlay): string {
+/** Строка `Style: Hook,…` из hook (+wrap_width). Зеркало build_hook_event style-строки (без \n). */
+export function buildHookStyleLine(hook: HookOverlay, playW = 1080): string {
   const primary = assColor(hook.color ?? H.color);
   let outline: string;
   let back: string;
@@ -116,21 +148,64 @@ export function buildHookStyleLine(hook: HookOverlay): string {
     borderStyle = 1;
     outlineW = hook.outline_w ?? H.outline_w;
   }
+  const [ml, mr] = wrapMargins(hook.wrap_width, playW, 60);
   return (
     `Style: Hook,${hook.font ?? H.font},${hook.size ?? H.size},${primary},${primary},` +
     `${outline},${back},${assBoldFlag(hook.font ?? H.font)},0,0,0,100,100,0,0,${borderStyle},${outlineW},${hook.shadow ?? H.shadow},` +
-    `8,60,60,${hook.margin_v ?? H.margin_v},1`
+    `8,${ml},${mr},${hook.margin_v ?? H.margin_v},1`
   );
 }
 
+/** Целое из `PlayResX:`/`PlayResY:` в ASS (дефолт 9:16 1080×1920). */
+function playRes(ass: string): [number, number] {
+  const w = Number.parseInt(ass.match(/PlayResX:\s*(\d+)/)?.[1] ?? "1080", 10);
+  const h = Number.parseInt(ass.match(/PlayResY:\s*(\d+)/)?.[1] ?? "1920", 10);
+  return [w, h];
+}
+
+/** Имя стиля Dialogue-строки (4-е поле) или "". */
+function dialogueStyle(line: string): string {
+  // Dialogue: Layer,Start,End,Style,Name,MarginL,MarginR,Effect,Text
+  return line.split(",", 4)[3] ?? "";
+}
+
+/** Вписать наш ведущий `\pos`-блок в Text Dialogue-строки (caption \an2 / hook \an8). */
+function applyPosToDialogue(line: string, pos: string): string {
+  // отделяем 8 полей-префикс (до Text) от самого Text (Text может содержать запятые)
+  const m = line.match(/^(Dialogue:(?:[^,]*,){8})([\s\S]*)$/);
+  if (!m) return line;
+  const prefix = m[1];
+  let text = m[2];
+  const isHook = dialogueStyle(line) === "Hook";
+  if (isHook) {
+    // у хука ведущий блок может уже нести entrance-анимацию (\fscy/\t…) И/ИЛИ наш \pos.
+    // Снимаем ТОЛЬКО свой \pos\an, сохраняя entrance, потом дописываем новый \pos впереди.
+    const bm = text.match(/^\{([^}]*)\}([\s\S]*)$/);
+    let entrance = "";
+    let rest = text;
+    if (bm) {
+      entrance = bm[1].replace(/^\\pos\([^)]*\)/, "").replace(/^\\an\d/, "");
+      rest = bm[2];
+    }
+    const content = (pos ? pos : "") + entrance;
+    text = content ? `{${content}}${rest}` : rest;
+  } else {
+    // caption: первый блок — пословный {\k…}; наш \pos идёт ОТДЕЛЬНЫМ блоком впереди него.
+    text = text.replace(/^\{\\pos\([^)]*\)\\an\d\}/, ""); // снять прежнюю нашу инъекцию
+    if (pos) text = `{${pos}}${text}`;
+  }
+  return prefix + text;
+}
+
 /**
- * Переписать `Style: Default,…` (и `Style: Hook,…`, если присутствует) в ASS-тексте
- * из текущих style/highlight/hook — для МГНОВЕННОГО libass-превью.
+ * Переписать `Style: Default,…`/`Style: Hook,…` И ведущие `\pos`-блоки Dialogue-строк в
+ * ASS-тексте из текущих style/highlight/hook — для МГНОВЕННОГО libass-превью (WYSIWYG).
  *
- * Заменяет ТОЛЬКО уже существующие Style-строки (по префиксу). Если хук только что
- * включили и Hook-строки в серверном ASS ещё нет — НЕ синтезируем её здесь (нужны
- * Dialogue+окно): этот кейс добирает дебаунс-PATCH (это тогл, не драг). Возвращает
- * новый ASS; если совпадений нет — исходный (без падений).
+ * Покрывает Style-строку (шрифт/размер/цвет/контур/плашка/позиция/ШИРИНА блока via margins)
+ * И свободную позицию X/Y (через `\pos` на Dialogue). Заменяет ТОЛЬКО уже существующие
+ * Style-строки/Dialogue. Если хук только что включили и Hook-строки в серверном ASS ещё нет —
+ * НЕ синтезируем (нужны Dialogue+окно): добирает дебаунс-PATCH. Сервер остаётся источником
+ * правды (экспорт ВСЕГДА из Python-ASS → дрейфа на экспорте нет). Идемпотентно.
  */
 export function patchAssStyles(
   ass: string,
@@ -139,10 +214,27 @@ export function patchAssStyles(
   hook: HookOverlay | null | undefined,
 ): string {
   if (!ass) return ass;
-  const defaultLine = buildDefaultStyleLine(style, highlight);
+  const [playW, playH] = playRes(ass);
+  const defaultLine = buildDefaultStyleLine(style, highlight, playW);
+  const capPos = posOverride(
+    style.pos_x,
+    style.pos_y,
+    2,
+    playW,
+    playH,
+    playH - (style.margin_v ?? S.margin_v),
+  );
+  const hookPos = hook
+    ? posOverride(hook.pos_x, hook.pos_y, 8, playW, playH, hook.margin_v ?? H.margin_v)
+    : "";
   const lines = ass.split("\n").map((line) => {
     if (line.startsWith("Style: Default,")) return defaultLine;
-    if (hook && line.startsWith("Style: Hook,")) return buildHookStyleLine(hook);
+    if (hook && line.startsWith("Style: Hook,")) return buildHookStyleLine(hook, playW);
+    if (line.startsWith("Dialogue:")) {
+      const st = dialogueStyle(line);
+      if (st === "Default") return applyPosToDialogue(line, capPos);
+      if (hook && st === "Hook") return applyPosToDialogue(line, hookPos);
+    }
     return line;
   });
   return lines.join("\n");

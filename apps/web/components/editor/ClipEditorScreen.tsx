@@ -174,11 +174,23 @@ export default function ClipEditorScreen({
   }, [jobId, clipId]);
 
   const assSeq = useRef(0);
+  // Optimistic-edit generation: bumped on every editCaptions (instant local patchAssStyles).
+  // refreshAss captures it BEFORE its fetch and skips setAssText if a NEWER optimistic edit
+  // landed meanwhile — otherwise a refresh that was already in flight when the user changed
+  // the font/style resolves with PRE-EDIT server ASS and visibly reverts the change ("font
+  // snaps back, have to change it again" — reproduced live: a stale /ass clobbered a newer
+  // optimistic font). The next debounced flush issues its own refreshAss and reconciles, so
+  // dropping the stale one loses nothing. (A primitive counter — NOT reading editRef into a
+  // state setter — keeps the React Compiler immutability rule happy.)
+  const optGenRef = useRef(0);
   const refreshAss = useCallback(async () => {
     const seq = ++assSeq.current;
+    const gen = optGenRef.current;
     try {
       const ass = await getClipAss(jobId, clipId);
-      if (seq === assSeq.current) setAssText(ass);
+      if (seq !== assSeq.current) return; // a newer refreshAss superseded this one
+      if (gen !== optGenRef.current) return; // a newer optimistic edit happened → don't clobber
+      setAssText(ass);
     } catch (e) {
       if (seq === assSeq.current)
         setError(`Couldn’t refresh caption preview: ${String(e)}`);
@@ -385,6 +397,7 @@ export default function ClipEditorScreen({
       // instant: переписать Style-строки локально (цвет/размер/шрифт/контур/плашка/позиция).
       // Правки Dialogue-тегов (анимация/текст/uppercase) добьёт реконсиляция через ~300мс.
       setAssText((prev) => patchAssStyles(prev, next.style, next.highlight, next.hook));
+      optGenRef.current++; // новый оптимистичный патч → in-flight refreshAss не должен его перетереть (#5)
       setDirty(true);
       setUnsaved(true);
       pendingCaptionsRef.current = next;
@@ -837,23 +850,30 @@ export default function ClipEditorScreen({
   // hook (or first captions) from nothing needs a fresh instance for that slot.
   const libassKey = `${hookEnabled && hookText.trim() ? 1 : 0}-${hasCaptions ? 1 : 0}`;
 
-  // caption: box bottom-fraction → margin_v from bottom; commit clamped to slider range.
+  // caption: free move → pos_x (center) + pos_y (bottom edge, \an2); corner → size; side → width.
   const onCaptionMove = useCallback(
-    (frac: number) => handleMarginChange(Math.round(frac * 1920)),
-    [handleMarginChange],
+    (xFrac: number, yFrac: number) => handleStyleChange({ pos_x: xFrac, pos_y: yFrac }),
+    [handleStyleChange],
   );
   const onCaptionResize = useCallback(
     (size: number) => handleStyleChange({ size }),
     [handleStyleChange],
   );
-  // hook: box top-fraction → margin_v from top; clamp to the hook slider range.
+  const onCaptionWidth = useCallback(
+    (wrap_width: number) => handleStyleChange({ wrap_width }),
+    [handleStyleChange],
+  );
+  // hook: free move → pos_x (center) + pos_y (top edge, \an8); corner → size; side → width.
   const onHookMove = useCallback(
-    (frac: number) =>
-      handleHookChange({ margin_v: Math.min(900, Math.max(40, Math.round(frac * 1920))) }),
+    (xFrac: number, yFrac: number) => handleHookChange({ pos_x: xFrac, pos_y: yFrac }),
     [handleHookChange],
   );
   const onHookResize = useCallback(
     (size: number) => handleHookChange({ size }),
+    [handleHookChange],
+  );
+  const onHookWidth = useCallback(
+    (wrap_width: number) => handleHookChange({ wrap_width }),
     [handleHookChange],
   );
 
@@ -1026,6 +1046,7 @@ export default function ClipEditorScreen({
                         label="Captions"
                         onMoveCommit={onCaptionMove}
                         onResizeCommit={onCaptionResize}
+                        onWidthCommit={onCaptionWidth}
                         onTap={openReplyEdit}
                       />
                     )}
@@ -1046,6 +1067,7 @@ export default function ClipEditorScreen({
                         label="Hook"
                         onMoveCommit={onHookMove}
                         onResizeCommit={onHookResize}
+                        onWidthCommit={onHookWidth}
                       />
                     )}
 

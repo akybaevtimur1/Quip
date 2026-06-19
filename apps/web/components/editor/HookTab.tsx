@@ -7,6 +7,7 @@ import { Checkbox } from "@/components/ui/Checkbox";
 import { Select } from "@/components/ui/Select";
 import { HOOK_PRESETS } from "@/lib/hookPresets";
 import type { ClipEdit, HookOverlay } from "@/lib/types";
+import { useWheelHscroll } from "@/lib/useWheelHscroll";
 import { CAPTION_FONTS } from "./StyleTab";
 import { ColorField, DebouncedSlider } from "./StyleControls";
 
@@ -58,6 +59,7 @@ export function HookTab({
   // box_color: undefined в патче ≠ null. Модельный дефолт = коралл-плашка.
   const boxColor = hook?.box_color === undefined ? HOOK_DEFAULTS.box_color : hook.box_color;
   const hasPlaque = boxColor !== null;
+  const presetScrollRef = useWheelHscroll<HTMLDivElement>(); // #6: колесо мыши → горизонталь
 
   // локальный текст: печать не должна слать PATCH на каждый символ (как ColorField).
   // Коммит — на blur / Enter-pause (debounce). Синк с пропом — adjust-during-render.
@@ -147,7 +149,10 @@ export function HookTab({
       {/* ── пресеты хука (галерея look'ов) ── */}
       <section className="space-y-2">
         <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">Presets</p>
-        <div className="no-scrollbar flex snap-x snap-mandatory gap-2 overflow-x-auto py-1">
+        <div
+          ref={presetScrollRef}
+          className="no-scrollbar flex snap-x snap-mandatory gap-2 overflow-x-auto py-1"
+        >
           {HOOK_PRESETS.map((preset) => (
             <button
               key={preset.id}
@@ -303,7 +308,8 @@ export function HookTab({
           max={900}
           value={hook?.margin_v ?? HOOK_DEFAULTS.margin_v}
           disabled={busy}
-          onCommit={(v) => onHookChange({ margin_v: v })}
+          // clear pos_y so the slider regains vertical control after a free drag; keep pos_x.
+          onCommit={(v) => onHookChange({ margin_v: v, pos_y: null })}
           hint="Or just drag the hook on the video"
         />
 

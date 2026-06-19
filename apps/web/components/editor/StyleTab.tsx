@@ -128,7 +128,9 @@ export function StyleTab({
           max={1200}
           value={st.margin_v ?? 260}
           disabled={busy}
-          onCommit={(v) => onStyleChange({ margin_v: v })}
+          // clear pos_y so the slider regains vertical control after a free drag; keep pos_x
+          // (horizontal offset) — composes with the worker's "y from margin_v when pos_y null".
+          onCommit={(v) => onStyleChange({ margin_v: v, pos_y: null })}
           hint="Or just drag the captions on the video"
         />
 

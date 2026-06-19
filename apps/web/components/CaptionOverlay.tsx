@@ -35,6 +35,11 @@ const DEFAULT_STYLE: Required<CaptionStyle> = {
   uppercase: true,
   emphasis_color: null,
   emphasis_auto: true,
+  // свободная позиция/ширина блока — None = центр + дефолтная ширина (CSS-фолбэк их не рендерит,
+  // libass-превью/экспорт делают это через \pos + MarginL/R; тут только для полноты типа).
+  pos_x: null,
+  pos_y: null,
+  wrap_width: null,
 };
 
 function resolveStyle(style?: CaptionStyle | null): Required<CaptionStyle> {

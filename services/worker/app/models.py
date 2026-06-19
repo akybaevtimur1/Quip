@@ -200,6 +200,13 @@ class CaptionStyle(BaseModel):
         None  # цвет «ударных» слов (None = не красим); см. CaptionReply.emphasis_refs
     )
     emphasis_auto: bool = True  # авто-выбор ключевых слов реплики, если нет явных emphasis_refs
+    # Свободное позиционирование + ширина блока (libass \pos + MarginL/R). Все None = легаси
+    # (центр-низ по alignment+margin_v, дефолт-перенос). См. captions_v2.compile_ass.
+    # pos_x: доля PlayResX центра блока (None=центр). pos_y: доля PlayResY НИЖНЕГО края \an2
+    # (None=margin_v). wrap_width: доля PlayResX ширины блока (None=дефолт-перенос).
+    pos_x: float | None = Field(default=None, ge=0.0, le=1.0)
+    pos_y: float | None = Field(default=None, ge=0.0, le=1.0)
+    wrap_width: float | None = Field(default=None, ge=0.0, le=1.0)
 
 
 class HighlightStyle(BaseModel):
@@ -251,6 +258,13 @@ class HookOverlay(BaseModel):
     # \fscy/\alpha-теги (без \fscx/\move → нет реврапа/координат). none = без анимации
     # (дефолт → старый кэш хуков валиден). Компилится в build_hook_event тем же ASS.
     animation: Literal["none", "pop", "fade", "bounce"] = "none"
+    # Свободное позиционирование + ширина блока (libass \pos + MarginL/R). Все None = легаси
+    # (верх-центр по alignment 8 + margin_v, дефолт-перенос). См. captions_v2.build_hook_event.
+    # pos_x: доля PlayResX центра блока (None=центр). pos_y: доля PlayResY ВЕРХНЕГО края \an8
+    # (None=margin_v). wrap_width: доля PlayResX ширины блока (None=дефолт-перенос).
+    pos_x: float | None = Field(default=None, ge=0.0, le=1.0)
+    pos_y: float | None = Field(default=None, ge=0.0, le=1.0)
+    wrap_width: float | None = Field(default=None, ge=0.0, le=1.0)
 
 
 class CaptionReply(BaseModel):

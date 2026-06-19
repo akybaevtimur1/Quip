@@ -135,9 +135,12 @@ export interface CaptionStyle {
   margin_v?: number;
   outline_color?: string;
   outline_w?: number;
+  pos_x?: number | null;
+  pos_y?: number | null;
   shadow?: number;
   size?: number;
   uppercase?: boolean;
+  wrap_width?: number | null;
 }
 /**
  * Одна реплика субтитра (чанк 3–5 слов).
@@ -176,10 +179,13 @@ export interface HookOverlay {
   margin_v?: number;
   outline_color?: string;
   outline_w?: number;
+  pos_x?: number | null;
+  pos_y?: number | null;
   shadow?: number;
   size?: number;
   text?: string;
   uppercase?: boolean;
+  wrap_width?: number | null;
 }
 /**
  * Глава AI-карты видео (источник-время, секунды). Главы покрывают видео непрерывно.
