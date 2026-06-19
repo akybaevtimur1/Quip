@@ -26,13 +26,22 @@
   Теперь один тёплый контейнер тянет сотни параллельных upload-url/status/upload-complete.
   Pipeline-функции (`run_job`/`render_job`/…) ОСТАЮТСЯ scale-to-zero (warm там дорого — тяжёлый
   образ torch/mediapipe). Цена: 1 лёгкий web-контейнер 24/7. Источник: `deploy/modal/worker.py`.
+- **Клипы стримятся по готовности (UX, 2026-06-19).** После Select воркер сразу персистит ВСЕ
+  клипы с метаданными (хук/причина/скор), но ПУСТЫМ `video_url`, статус `rendering`; каждый
+  параллельный фан-аут-контейнер атомарно вписывает свой `video_url` по готовности (Postgres-RPC
+  `set_clip_video_url` = server-side `jsonb_set`, миграция **0010**, без гонок). `GET /jobs/{id}`
+  отдаёт готовые клипы, пока статус ещё `rendering`. Фронт показывает клипы по одному: готовые сразу
+  играбельны/редактируемы, ещё рендерящиеся — со скелетоном «Rendering…» + строка «N of M ready»
+  (`ClipGrid`/`ClipCard`). Контракт не менялся: пустой `video_url` = «ещё рендерится». Источник:
+  `run.py` (`set_clips_pending`/`set_clip_ready`) + `db.py`/`cloud_state.py`.
 - **Рендер клипов = параллельный фан-аут (perf, 2026-06-17).** `run_job` делает import→
   transcribe→select, грузит source в R2, затем фанит per-clip reframe+render по контейнерам
   `reframe_render_clip` (`starmap`) вместо последовательного цикла. **preview-прокси** (полный
   транскод source→720p) снят с критического пути — отдельная `preview_job` строит его ПАРАЛЛЕЛЬНО
   с клипами (редактор фолбэчит на source, пока не готов). Локально (dev) — старый цикл + inline
   preview. Не трогает stage3/stage5 (инвариант кадровой сетки цел). См. JOURNAL 2026-06-17.
-- **State:** Supabase Postgres project **`qiagetbnsssvbiowuxpp`**, migrations **0001–0008 applied**
+- **State:** Supabase Postgres project **`qiagetbnsssvbiowuxpp`**, migrations **0001–0010 applied**
+  (0009 = RLS на agent_runs; 0010 = RPC `set_clip_video_url` для incremental-выдачи клипов)
   (billing, credits, usage-idempotency, feedback, promo codes, job-cancel, agent-runs, **video-map**). Clips in **Cloudflare R2**
   (`cdn.quip.ink`).
 - **Billing is ON** (`BILLING_ENABLED`). Payments via **Polar** (NOT Lemon Squeezy). Webhook live
@@ -179,7 +188,7 @@ Pick [X] by task:
 |-------|-------|----------------|-----------|
 | Frontend (`apps/web`) | Vercel **`quip-app`** | **auto on push to `main`** | vercel.com/timurkas-projects/quip-app |
 | Worker (`services/worker`) | Modal **`quip-worker`** | `modal deploy deploy/modal/worker.py` | modal.com (workspace akybaevtimur7) |
-| State / auth / billing data | Supabase **`qiagetbnsssvbiowuxpp`** | SQL Editor / migrations `0001–0008` | supabase.com dashboard |
+| State / auth / billing data | Supabase **`qiagetbnsssvbiowuxpp`** | SQL Editor / migrations `0001–0010` | supabase.com dashboard |
 | Clip storage | Cloudflare **R2** (`cdn.quip.ink`) | n/a | Cloudflare dashboard |
 | Payments | **Polar** (production) | products + webhook configured | polar.sh dashboard |
 

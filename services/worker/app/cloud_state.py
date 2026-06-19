@@ -121,6 +121,45 @@ def set_done(
     r.raise_for_status()
 
 
+def set_clips_pending(job_id: str, clips: list[dict[str, Any]], progress: int = 80) -> None:
+    """Записать ВСЕ клипы со статусом "rendering" и пустым video_url СРАЗУ после Select.
+
+    Та же колонка ``clips`` (jsonb), что пишет ``set_done`` — но status остаётся "rendering",
+    а каждый клип несёт ``video_url=""`` (pending). Параллельные фан-аут-контейнеры затем
+    проставляют свой video_url через ``set_clip_ready`` (атомарный jsonb_set). Так GET /jobs
+    отдаёт уже готовые клипы по мере рендера, пока ``set_done`` не флипнет в "done".
+    """
+    r = httpx.patch(
+        f"{_base()}/jobs",
+        params={"id": f"eq.{job_id}"},
+        headers=_headers({"Prefer": "return=minimal"}),
+        json={"status": "rendering", "stage": "rendering", "progress": progress, "clips": clips},
+        timeout=_TIMEOUT,
+    )
+    r.raise_for_status()
+
+
+def set_clip_ready(job_id: str, idx: int, url: str) -> None:
+    """Атомарно проставить ``clips[idx].video_url`` ОДНОГО клипа (per-clip контейнер закончил).
+
+    Вызывает Postgres-RPC ``set_clip_video_url`` (migrations/0010): jsonb_set внутри ОДНОГО
+    серверного UPDATE атомарен (Postgres сериализует UPDATE'ы строки), поэтому параллельные
+    контейнеры, пишущие РАЗНЫЕ индексы, не теряют запись друг друга — в отличие от PATCH целой
+    колонки (read-modify-write → гонка). ``idx`` 0-based (позиция в массиве). RPC возвращает
+    число обновлённых строк; 0 → джоба/индекса нет (логируем, не глотаем — правило №8).
+    """
+    r = httpx.post(
+        f"{_base()}/rpc/set_clip_video_url",
+        headers=_headers(),
+        json={"p_job_id": job_id, "p_idx": idx, "p_url": url},
+        timeout=_TIMEOUT,
+    )
+    r.raise_for_status()
+    updated = r.json()
+    if not updated:
+        print(f"[set_clip_ready] WARN: no row updated for job={job_id} idx={idx}")
+
+
 def set_failed(job_id: str, error: str) -> None:
     r = httpx.patch(
         f"{_base()}/jobs",

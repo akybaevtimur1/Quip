@@ -148,6 +148,119 @@ def test_get_job_re_presigns_r2_key_ref_on_read(monkeypatch, tmp_path) -> None:
     assert calls == ["r2://job_q/clip_01.mp4"]  # маркер прошёл через ре-подпись
 
 
+# ─────────────────── Инкрементальная выдача клипов (SQLite-режим) ───────────────────
+
+
+def _insert_queued_job(job_id: str) -> None:
+    db.insert_job(job_id, "youtube", "https://x")
+
+
+def _pending_clip(clip_id: str) -> dict:
+    return {
+        "id": clip_id,
+        "start": 1.0,
+        "end": 5.0,
+        "duration": 4.0,
+        "reason": "r",
+        "type": "hook",
+        "score": 0.9,
+        "video_url": "",
+        "thumbnail_url": None,
+        "transcript": "...",
+        "words": [],
+    }
+
+
+def test_set_clips_pending_writes_empty_video_urls(monkeypatch, tmp_path) -> None:
+    # После Select персистим ВСЕ клипы с пустым video_url + status='rendering'.
+    monkeypatch.setattr(db, "_DB_PATH", tmp_path / "j.db")
+    db.init_db()
+    _insert_queued_job("job_inc")
+    clips = [_pending_clip("clip_01"), _pending_clip("clip_02")]
+    db.set_clips_pending("job_inc", clips, progress=80)
+
+    wire = db.get_job("job_inc")
+    assert wire is not None
+    assert wire["status"] == "rendering"
+    assert wire["progress"] == 80
+    assert len(wire["clips"]) == 2
+    # Пустой video_url остаётся пустым (НЕ префиксится media/) — клип "pending".
+    assert [c["video_url"] for c in wire["clips"]] == ["", ""]
+    assert wire["metrics"] is None  # ещё не done
+
+
+def test_set_clip_ready_fills_only_target_index(monkeypatch, tmp_path) -> None:
+    # Каждый клип-контейнер атомарно заполняет СВОЙ индекс; остальные остаются pending.
+    monkeypatch.setattr(db, "_DB_PATH", tmp_path / "j.db")
+    db.init_db()
+    _insert_queued_job("job_inc")
+    db.set_clips_pending(
+        "job_inc", [_pending_clip("clip_01"), _pending_clip("clip_02")], progress=80
+    )
+    # clip_index 1-based → пишем второй клип (idx 1).
+    db.set_clip_ready("job_inc", 2, "https://cdn/clip_02.mp4")
+
+    wire = db.get_job("job_inc")
+    assert wire is not None
+    assert wire["clips"][0]["video_url"] == ""  # первый ещё pending
+    assert wire["clips"][1]["video_url"] == "https://cdn/clip_02.mp4"  # только цель заполнена
+    assert wire["status"] == "rendering"  # set_clip_ready НЕ флипает в done
+
+
+def test_set_clip_ready_all_clips_then_consistent_with_set_done(monkeypatch, tmp_path) -> None:
+    # Заполняем оба клипа по одному → строка несёт обе ссылки ещё ДО set_done.
+    monkeypatch.setattr(db, "_DB_PATH", tmp_path / "j.db")
+    db.init_db()
+    _insert_queued_job("job_inc")
+    db.set_clips_pending(
+        "job_inc", [_pending_clip("clip_01"), _pending_clip("clip_02")], progress=80
+    )
+    db.set_clip_ready("job_inc", 1, "https://cdn/clip_01.mp4")
+    db.set_clip_ready("job_inc", 2, "https://cdn/clip_02.mp4")
+
+    wire = db.get_job("job_inc")
+    assert wire is not None
+    assert [c["video_url"] for c in wire["clips"]] == [
+        "https://cdn/clip_01.mp4",
+        "https://cdn/clip_02.mp4",
+    ]
+
+
+def test_set_clip_ready_out_of_range_raises(monkeypatch, tmp_path) -> None:
+    # idx за пределами массива клипов — реальный баг, не глушим (правило №8).
+    from app.errors import JobError
+
+    monkeypatch.setattr(db, "_DB_PATH", tmp_path / "j.db")
+    db.init_db()
+    _insert_queued_job("job_inc")
+    db.set_clips_pending("job_inc", [_pending_clip("clip_01")], progress=80)
+    try:
+        db.set_clip_ready("job_inc", 5, "https://cdn/x.mp4")
+        raise AssertionError("expected JobError for out-of-range clip_index")
+    except JobError:
+        pass
+
+
+def test_set_clip_ready_invalid_clip_index_raises(monkeypatch, tmp_path) -> None:
+    # clip_index 0-based по ошибке → 1-based инвариант нарушен, явный ValueError.
+    monkeypatch.setattr(db, "_DB_PATH", tmp_path / "j.db")
+    db.init_db()
+    _insert_queued_job("job_inc")
+    db.set_clips_pending("job_inc", [_pending_clip("clip_01")], progress=80)
+    try:
+        db.set_clip_ready("job_inc", 0, "https://cdn/x.mp4")
+        raise AssertionError("expected ValueError for clip_index < 1")
+    except ValueError:
+        pass
+
+
+def test_set_clip_ready_no_row_is_cli_dev_noop(monkeypatch, tmp_path) -> None:
+    # Bare-CLI dev (нет строки в SQLite) → пропуск без падения (job.json-only режим).
+    monkeypatch.setattr(db, "_DB_PATH", tmp_path / "j.db")
+    db.init_db()
+    db.set_clip_ready("ghost_job", 1, "https://cdn/x.mp4")  # не должно бросать
+
+
 # ─────────────────────────── T6: usage-адаптер (SQLite-режим) ───────────────────────────
 
 

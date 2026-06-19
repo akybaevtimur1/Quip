@@ -161,6 +161,10 @@ def render_one_clip(
         engine=s.reframe_engine, out_w=out_w, out_h=out_h, watermark=policy.watermark,
     )  # fmt: skip
     video_url = storage.upload_clip(out / "clips" / f"{clip_id}.mp4", out.name, clip_id)
+    # Инкрементальная выдача: атомарно проставляем video_url ЭТОГО клипа в строку джоба сразу
+    # после заливки → GET /jobs отдаёт его готовым, пока остальные ещё рендерятся (status
+    # остаётся "rendering" до set_done). out.name == job_id (на фан-аут-контейнере и локально).
+    db.set_clip_ready(out.name, clip_index, video_url)
     n_fit = sum(1 for r in regions if r.mode == "fit")
     print(
         f"  {clip_id}: {seg.start:.1f}-{seg.end:.1f} face={face_found} "
@@ -354,9 +358,19 @@ def run_pipeline(
     if dispatch.modal_spawn_enabled():
         dispatch.spawn("generate_video_map_job", job_id)
 
+    # ── Инкрементальная выдача: персистим ВСЕ клипы (метаданные + ПУСТОЙ video_url) в строку
+    #    джоба СРАЗУ, status='rendering'. Каждый per-clip контейнер затем атомарно проставит свой
+    #    video_url (db.set_clip_ready) по мере готовности → GET /jobs отдаёт клипы по одному, а не
+    #    разом в конце. clip_id 1-based (clip_{i:02d}) совпадает с порядком массива. ──
+    emit(JobStatus.rendering, 80)
+    pending_clips: list[ClipOut] = [
+        build_clip_out(f"clip_{i:02d}", seg, transcript.words, "")
+        for i, seg in enumerate(segments, start=1)
+    ]
+    db.set_clips_pending(job_id, pending_clips, progress=80)
+
     # ── Stages 3–5: #1 фан-аут per-clip по контейнерам Modal (параллельно) ЛИБО последовательный
     #    цикл локально. Результаты приходят в порядке сегментов → стабильный ClipOut. ──
-    emit(JobStatus.rendering, 80)
     results = _render_all_clips(job_id, out, "source.mp4", segments, meta, user_id)
     results.sort(key=lambda r: r["clip_index"])
     clips: list[ClipOut] = [

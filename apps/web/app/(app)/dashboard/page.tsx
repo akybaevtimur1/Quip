@@ -161,6 +161,12 @@ function DashboardInner() {
   // Opening an existing project via deep-link, before the first poll populates `job`: show a neutral
   // loader (not the JobProgress stepper, which implies "still processing" for an already-done clip).
   const openingProject = !!jobParam && !job && !submitting;
+  // Progressive results: the worker populates job.clips (metadata for ALL clips) while still
+  // rendering — clips with a video_url are ready, the rest carry empty video_url. The moment any
+  // clip exists we swap the bare stepper for the grid so the user can read hooks/reasons and start
+  // editing ready clips while the rest finish. Early phases (queued…selecting) have no clips yet →
+  // the stepper still shows.
+  const showProgressiveGrid = phase === "tracking" && !openingProject && (job?.clips?.length ?? 0) > 0;
 
   return (
     <div className="min-h-dvh">
@@ -198,6 +204,10 @@ function DashboardInner() {
           <div className="flex justify-center py-8">
             <UploadProgress pct={uploadPct} />
           </div>
+        ) : showProgressiveGrid && job ? (
+          // Progressive grid: clips render in as they finish. Same <ClipGrid key={job.id}> as the
+          // done branch → flipping to "done" doesn't remount (no flicker, selection preserved).
+          <ClipGrid key={job.id} job={job} />
         ) : phase === "tracking" ? (
           <div className="flex justify-center py-8">
             {openingProject ? (

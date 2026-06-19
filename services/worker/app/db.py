@@ -15,6 +15,7 @@ from typing import Any
 from app import cloud_state as cs
 from app import supa
 from app.billing import credits_per_video
+from app.errors import JobError
 from app.models import Job
 
 _DB_PATH = Path(__file__).resolve().parents[1] / "tmp" / "jobs.db"
@@ -150,6 +151,62 @@ def set_done(job_id: str, job: Job) -> None:
                 time.time(),
                 job_id,
             ),
+        )
+
+
+def set_clips_pending(job_id: str, clips: list[Any], progress: int = 80) -> None:
+    """Записать ВСЕ клипы (метаданные, video_url="") + status='rendering' СРАЗУ после Select.
+
+    Инкрементальная выдача: строка джоба несёт полный список клипов как "pending" (пустой
+    video_url), а каждый отрендеренный клип позже атомарно заполняет свой video_url через
+    ``set_clip_ready``. GET /jobs отдаёт готовые клипы по мере рендера. ``clips`` — список
+    ``ClipOut`` (или уже ``model_dump``-нутых dict'ов). Cloud пишет jsonb ``clips`` (та же
+    колонка, что set_done); локальный SQLite — ``clips_json``.
+    """
+    payload = [c.model_dump() if hasattr(c, "model_dump") else c for c in clips]
+    if cs.cloud_enabled():
+        cs.set_clips_pending(job_id, payload, progress)
+        return
+    clips_json = json.dumps(payload, ensure_ascii=False)
+    with _conn() as c:
+        c.execute(
+            "UPDATE jobs SET status='rendering', stage='rendering', progress=?, clips_json=?,"
+            " updated_at=? WHERE id=?",
+            (progress, clips_json, time.time(), job_id),
+        )
+
+
+def set_clip_ready(job_id: str, clip_index: int, video_url: str) -> None:
+    """Атомарно проставить ``video_url`` ОДНОГО клипа (per-clip рендер закончил, залит в R2).
+
+    ``clip_index`` 1-based (как ``clip_id``); массив 0-based → пишем индекс ``clip_index-1``.
+    Cloud: серверный jsonb_set внутри одного UPDATE (RPC set_clip_video_url) — атомарен против
+    параллельных контейнеров, обновляющих РАЗНЫЕ индексы (Postgres сериализует UPDATE строки).
+    Локальный SQLite: read-modify-write clips_json (последовательный цикл dev → гонки нет).
+    """
+    idx = clip_index - 1
+    if idx < 0:
+        raise ValueError(f"clip_index must be >= 1, got {clip_index}")
+    if cs.cloud_enabled():
+        cs.set_clip_ready(job_id, idx, video_url)
+        return
+    with _conn() as c:
+        row = c.execute("SELECT clips_json FROM jobs WHERE id=?", (job_id,)).fetchone()
+        if row is None:
+            # Bare-CLI dev (`python -m app.run`) пишет только job.json, без строки в SQLite —
+            # инкрементальной выдачи там нет. Это легитимный режим, НЕ ошибка состояния. Серверный
+            # путь (run_pipeline_job) всегда insert_job ДО запуска → строка есть.
+            print(f"[set_clip_ready] no SQLite job row {job_id} (CLI dev) — skip per-clip persist")
+            return
+        clips = json.loads(row["clips_json"]) if row["clips_json"] else []
+        if not 0 <= idx < len(clips):
+            raise JobError(
+                "persist", f"set_clip_ready: idx {idx} out of range (clips={len(clips)})"
+            )
+        clips[idx]["video_url"] = video_url
+        c.execute(
+            "UPDATE jobs SET clips_json=?, updated_at=? WHERE id=?",
+            (json.dumps(clips, ensure_ascii=False), time.time(), job_id),
         )
 
 

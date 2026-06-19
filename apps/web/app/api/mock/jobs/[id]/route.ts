@@ -12,13 +12,20 @@ function mockWords(text: string, startSec: number, endSec: number): Word[] {
   }));
 }
 
-// Прогресс по времени с момента создания (id кодирует старт в base36).
-const STAGES: { until: number; status: JobStatus; progress: number }[] = [
-  { until: 2, status: "queued", progress: 5 },
-  { until: 6, status: "downloading", progress: 20 },
-  { until: 11, status: "transcribing", progress: 45 },
-  { until: 16, status: "selecting", progress: 70 },
-  { until: 22, status: "rendering", progress: 90 },
+// Прогресс по времени с момента создания (id кодирует старт в base36). The early stages
+// (queued…selecting) carry NO clips — the rendering stages below carry clip metadata so the
+// progressive grid can be exercised. `ready` = how many clips have a real video_url in that window.
+const STAGES: { until: number; status: JobStatus; progress: number; ready: number }[] = [
+  { until: 2, status: "queued", progress: 5, ready: 0 },
+  { until: 6, status: "downloading", progress: 20, ready: 0 },
+  { until: 11, status: "transcribing", progress: 45, ready: 0 },
+  { until: 16, status: "selecting", progress: 70, ready: 0 },
+  // Rendering split into windows so the progressive UI is screenshot-testable:
+  //   16–19s: status "rendering", BOTH clips pending  → "0 of 2 clips ready" (two skeletons)
+  //   19–24s: status "rendering", clip_01 ready, clip_05 pending → "1 of 2 clips ready" (PARTIAL)
+  //   24s+ : status "done", both clips ready (full grid + metrics) — unchanged final state
+  { until: 19, status: "rendering", progress: 85, ready: 0 },
+  { until: 24, status: "rendering", progress: 93, ready: 1 },
 ];
 
 const MOCK_CLIPS: ClipOut[] = [
@@ -74,6 +81,13 @@ export async function GET(
 
   const stage = STAGES.find((s) => elapsed < s.until);
   if (stage) {
+    // During rendering the worker already populates ALL clips' metadata; a clip that hasn't
+    // finished rendering carries an empty video_url ("") until its file is ready. We expose the
+    // first `stage.ready` clips (source order) with their real video_url and blank the rest, so
+    // the progressive grid shows ready cards next to "Rendering…" skeletons + "N of M clips ready".
+    const clips: ClipOut[] = MOCK_CLIPS.map((c, i) =>
+      i < stage.ready ? c : { ...c, video_url: "" },
+    );
     const job: Job = {
       id,
       status: stage.status,
@@ -81,7 +95,8 @@ export async function GET(
       progress: stage.progress,
       source_kind: "youtube",
       error: null,
-      clips: [],
+      // Early stages (queued…selecting) have no clips yet; rendering stages carry them.
+      clips: stage.status === "rendering" ? clips : [],
       metrics: null,
     };
     return Response.json(job);
