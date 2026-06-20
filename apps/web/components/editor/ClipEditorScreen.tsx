@@ -1095,7 +1095,7 @@ export default function ClipEditorScreen({
         </div>
       ) : (
         <main
-          className="relative grid min-h-0 grid-cols-1 gap-4 overflow-hidden p-4 lg:grid-cols-[auto_minmax(0,1fr)_var(--inspector-w)]"
+          className="relative grid min-h-0 grid-cols-1 gap-4 overflow-y-auto lg:overflow-hidden p-4 lg:grid-cols-[auto_minmax(0,1fr)_var(--inspector-w)]"
           style={{ "--inspector-w": "360px" } as React.CSSProperties}
         >
           {/* ── ЛЕВО: icon-rail (Fixed-Studio shell). Заменяет верхний таб-бар. ── */}
