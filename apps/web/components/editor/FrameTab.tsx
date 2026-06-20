@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import type { Aspect } from "@/lib/api";
 import type { ClipEdit } from "@/lib/types";
@@ -16,8 +16,8 @@ const ASPECTS: { value: Aspect; label: string; hint: string }[] = [
 // Auto = решает ИИ (per-shot: лицо→тайт, пейзаж→широко, 2 спикера→split).
 // Вручную: широко (fit, блюр-рамки) / тайт (fill, кроп на центре) /
 // split (два человека: верх/низ, как в OpusClip). Применяется на ВЕСЬ клип
-// (override на интервал) → POST /edit/crop. Превью-кроп приблизительный
-// (Approach A) — точный кадр виден после рендера.
+// (override на интервал) → POST /edit/crop. Изменения применяются live с
+// debounce 250ms — как остальные контролы редактора.
 
 type FrameMode = "auto" | "fill" | "fit" | "split";
 
@@ -27,6 +27,8 @@ const MODES: { value: FrameMode; title: string; desc: string }[] = [
   { value: "fit", title: "Wide", desc: "Full frame + blurred bars (landscape look)" },
   { value: "split", title: "Split (2 speakers)", desc: "Screen split: one on top, one below" },
 ];
+
+const DEBOUNCE_MS = 250;
 
 export function FrameTab({
   edit,
@@ -55,23 +57,61 @@ export function FrameTab({
   const [mode, setMode] = useState<FrameMode>((current?.mode as FrameMode) ?? "auto");
   const [center, setCenter] = useState(current?.center ?? 0.3);
   const [centerB, setCenterB] = useState(current?.center_b ?? 0.7);
-  const [applying, setApplying] = useState(false);
-  const [applied, setApplied] = useState(false);
 
-  const apply = async () => {
-    setApplying(true);
-    setApplied(false);
-    try {
-      await onApply(
-        mode,
-        mode === "fill" || mode === "split" ? center : null,
-        mode === "split" ? centerB : null,
-      );
-      setApplied(true);
-      setTimeout(() => setApplied(false), 3000);
-    } finally {
-      setApplying(false);
-    }
+  // touched guard — only apply on user-initiated changes, not initial mount
+  const touchedRef = useRef(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Clear debounce on unmount
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current !== null) {
+        clearTimeout(debounceRef.current);
+      }
+    };
+  }, []);
+
+  // Schedule a debounced apply with the given values (captured at call time from handlers)
+  const scheduleApply = useCallback(
+    (m: FrameMode, c: number, cb: number) => {
+      if (debounceRef.current !== null) {
+        clearTimeout(debounceRef.current);
+      }
+      debounceRef.current = setTimeout(() => {
+        debounceRef.current = null;
+        void onApply(
+          m,
+          m === "fill" || m === "split" ? c : null,
+          m === "split" ? cb : null,
+        );
+      }, DEBOUNCE_MS);
+    },
+    [onApply],
+  );
+
+  const handleModeChange = (m: FrameMode) => {
+    setMode(m);
+    touchedRef.current = true;
+    // Use current center/centerB state values alongside the new mode
+    scheduleApply(m, center, centerB);
+  };
+
+  const handleCenterChange = (v: number) => {
+    setCenter(v);
+    touchedRef.current = true;
+    scheduleApply(mode, v, centerB);
+  };
+
+  const handleCenterBChange = (v: number) => {
+    setCenterB(v);
+    touchedRef.current = true;
+    scheduleApply(mode, center, v);
+  };
+
+  const handleResetToAuto = () => {
+    setMode("auto");
+    touchedRef.current = true;
+    scheduleApply("auto", center, centerB);
   };
 
   return (
@@ -120,8 +160,8 @@ export function FrameTab({
                 type="radio"
                 name="frame-mode"
                 checked={mode === m.value}
-                disabled={busy || applying}
-                onChange={() => setMode(m.value)}
+                disabled={busy}
+                onChange={() => handleModeChange(m.value)}
                 className="mt-0.5 size-3.5 accent-accent"
               />
               <span>
@@ -138,40 +178,35 @@ export function FrameTab({
           <CenterSlider
             label={mode === "split" ? "Top speaker (position in frame)" : "Crop center"}
             value={center}
-            disabled={busy || applying}
-            onChange={setCenter}
+            disabled={busy}
+            onChange={handleCenterChange}
           />
           {mode === "split" && (
             <CenterSlider
               label="Bottom speaker (position in frame)"
               value={centerB}
-              disabled={busy || applying}
-              onChange={setCenterB}
+              disabled={busy}
+              onChange={handleCenterBChange}
             />
           )}
         </section>
       )}
 
-      <Button
-        type="button"
-        variant="accent"
-        size="md"
-        className="w-full"
-        loading={applying}
-        disabled={busy || applying}
-        onClick={apply}
-      >
-        {applying ? "Applying…" : "Apply to clip"}
-      </Button>
-
-      {applied && (
-        <p className="rounded-lg border border-warn/40 bg-warn/10 px-3 py-2 text-xs text-warn">
-          Mode saved. Exact framing after render (preview shows an approximate crop).
+      <div className="flex items-start justify-between gap-3">
+        <p className="text-[11px] leading-snug text-muted">
+          Framing updates live. Auto restores the AI&apos;s per-shot decision.
         </p>
-      )}
-      <p className="text-[11px] leading-snug text-muted">
-        Framing applies to the whole clip. “Auto” restores the AI per-shot decision.
-      </p>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          disabled={busy || mode === "auto"}
+          onClick={handleResetToAuto}
+          className="shrink-0 text-[11px]"
+        >
+          Reset to Auto
+        </Button>
+      </div>
     </div>
   );
 }
