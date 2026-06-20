@@ -23,6 +23,7 @@ import {
   trimClip,
 } from "@/lib/api";
 import { patchAssStyles } from "@/lib/assStyle";
+import { type ClipCache, createClipCache } from "@/lib/clipCache";
 import type {
   CaptionReply,
   CaptionStyle,
@@ -73,6 +74,14 @@ interface RawRegion {
   points_b?: { t: number; cx: number | null }[];
 }
 
+/** Per-clip data warmed into the neighbor-prefetch cache (instant paint on switch). */
+interface ClipData {
+  edit: ClipEdit;
+  words: Word[];
+  ass: string;
+  regions: RawRegion[] | null;
+}
+
 function cxAt(points: { t: number; cx: number | null }[] | undefined, clipT: number): number {
   if (!points || points.length === 0) return 0.5;
   const first = points[0];
@@ -96,11 +105,14 @@ function cxAt(points: { t: number; cx: number | null }[] | undefined, clipT: num
 
 export default function ClipEditorScreen({
   jobId,
-  clipId,
+  initialClipId,
 }: {
   jobId: string;
-  clipId: string;
+  initialClipId: string;
 }) {
+  // clipId is STATE — switching clips re-runs the load effect (keyed on clipId)
+  // WITHOUT a route remount. The route only provides the initial clip (deep-link/F5).
+  const [clipId, setActiveClipId] = useState(initialClipId);
   const [phase, setPhase] = useState<Phase>("loading");
   const [error, setError] = useState<string | null>(null);
   const [edit, setEdit] = useState<ClipEdit | null>(null);
@@ -113,6 +125,12 @@ export default function ClipEditorScreen({
 
   const [timeline, setTimeline] = useState<TimelineData | null>(null);
   const [clipIds, setClipIds] = useState<string[]>([]);
+  // Mirror clipIds in a ref so prefetch/switch helpers can read the current order WITHOUT
+  // closing over clipIds (which would re-identify them and re-run the keyed load effect).
+  const clipIdsRef = useRef<string[]>([]);
+  useEffect(() => {
+    clipIdsRef.current = clipIds;
+  }, [clipIds]);
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
   const [activePresetId, setActivePresetId] = useState<string | null>(null);
   // reframe-план для честного превью кадра (D2: от эндпоинта /reframe = единый путь рендера;
@@ -176,6 +194,55 @@ export default function ClipEditorScreen({
     }
   }, [jobId, clipId]);
 
+  // ── neighbor-prefetch cache (Task 7): warm ±1 clips so switching paints instantly ──
+  // LRU(3): current clip + both neighbors. On switch, a cache HIT paints synchronously
+  // (no "Loading editor…" flash) and the load effect revalidates in the background.
+  const clipCacheRef = useRef<ClipCache<ClipData> | null>(null);
+  if (clipCacheRef.current === null) clipCacheRef.current = createClipCache<ClipData>(3);
+  // Records the clip we just instant-painted from cache → the load effect for that clip
+  // SKIPS the loading flash (it still revalidates in the background under the same guards).
+  const paintedClipRef = useRef<string | null>(null);
+
+  // Idle-prefetch the ±1 neighbors of `centerId` into the cache (best-effort). Logs
+  // failures — NO silent swallow (a warming miss just falls back to the loading path).
+  const prefetchNeighbors = useCallback(
+    (centerId: string) => {
+      const ids = clipIdsRef.current;
+      const i = ids.indexOf(centerId);
+      if (i < 0) return;
+      const neighbors = [ids[i - 1], ids[i + 1]].filter(
+        (id): id is string => !!id && !clipCacheRef.current?.has(id),
+      );
+      const warm = (id: string) => {
+        void Promise.all([
+          getClipEdit(jobId, id),
+          getClipAnalysis(jobId, id),
+          getClipAss(jobId, id).catch(() => ""),
+          getClipReframe(jobId, id).then(
+            (d) => (d.regions as RawRegion[]) ?? null,
+            () => null,
+          ),
+        ])
+          .then(([edit, analysis, ass, regions]) => {
+            clipCacheRef.current?.set(id, { edit, words: analysis.words, ass, regions });
+          })
+          .catch((e) => {
+            console.warn(`[editor] neighbor prefetch failed for ${id}:`, e);
+          });
+      };
+      const run = () => neighbors.forEach(warm);
+      // requestIdleCallback isn't in all browsers (Safari) → fall back to a short timeout.
+      if (typeof window !== "undefined" && "requestIdleCallback" in window) {
+        (window as Window & { requestIdleCallback: (cb: () => void) => void }).requestIdleCallback(
+          run,
+        );
+      } else {
+        setTimeout(run, 200);
+      }
+    },
+    [jobId],
+  );
+
   const assSeq = useRef(0);
   // Optimistic-edit generation: bumped on every editCaptions (instant local patchAssStyles).
   // refreshAss captures it BEFORE its fetch and skips setAssText if a NEWER optimistic edit
@@ -221,14 +288,23 @@ export default function ClipEditorScreen({
   // ── загрузка: edit + analysis + ASS (фатально), timeline/job (нефатально) ──
   useEffect(() => {
     let cancelled = false;
+    // Instant-paint: onSwitchClip already painted this clip from cache + reset the
+    // mutation queue. Skip the "Loading editor…" flash and the per-clip visual reset —
+    // we still fetch below to REVALIDATE in the background (safe: just switched, no edits
+    // yet; assSeq/optGenRef guards remain intact). Consume the flag so a later loadKey
+    // reload of the same clip shows the normal loading path.
+    const painted = paintedClipRef.current === clipId;
+    paintedClipRef.current = null;
     async function fetchData() {
-      setPhase("loading");
-      setError(null);
-      setActivePresetId(null);
-      setLibassFailed(false);
-      setEditingReply(null);
-      setRenderState({ kind: "idle" });
-      setRawRegions(null);
+      if (!painted) {
+        setPhase("loading");
+        setError(null);
+        setActivePresetId(null);
+        setLibassFailed(false);
+        setEditingReply(null);
+        setRenderState({ kind: "idle" });
+        setRawRegions(null);
+      }
       // Авто-ретрай с backoff: воркер мог ещё подниматься (cold start torch/MediaPipe)
       // или сетевой блип на первом запросе → не показываем ошибку сразу, тихо повторяем.
       const MAX_ATTEMPTS = 4;
@@ -264,8 +340,30 @@ export default function ClipEditorScreen({
               // downloadUrl остаётся null до рендера → ExportMenu рендерит captioned на лету.
             })
             .catch(() => !cancelled && setClipIds([clipId]));
-          // D2: план кадра от эндпоинта /reframe (единый путь рендера, работает и на облаке)
-          if (!cancelled) void loadReframe();
+          // D2: план кадра от эндпоинта /reframe (единый путь рендера, работает и на облаке).
+          // Fetch inline (not loadReframe) so the SAME regions feed both the preview AND the
+          // prefetch cache without a duplicate request.
+          if (!cancelled) {
+            void getClipReframe(jobId, clipId)
+              .then((data) => {
+                const regions = (data.regions as RawRegion[]) ?? null;
+                if (!cancelled) setRawRegions(regions);
+                // Cache the fully-loaded current clip, then warm ±1 neighbors.
+                clipCacheRef.current?.set(clipId, {
+                  edit: editData,
+                  words: analysisData.words,
+                  ass,
+                  regions,
+                });
+                void prefetchNeighbors(clipId);
+              })
+              .catch(() => {
+                if (!cancelled) setRawRegions(null);
+                // Couldn't load the frame plan → don't cache (would paint a center-crop
+                // preview on next switch); still warm neighbors so their fetch is fast.
+                void prefetchNeighbors(clipId);
+              });
+          }
           return; // успех
         } catch (e) {
           if (cancelled) return;
@@ -284,7 +382,7 @@ export default function ClipEditorScreen({
       cancelled = true;
       stopPoll();
     };
-  }, [jobId, clipId, loadKey, stopPoll, loadReframe]);
+  }, [jobId, clipId, loadKey, stopPoll, prefetchNeighbors]);
 
   const handleConflict = useCallback(() => {
     setError("Data changed — reloading the editor…");
@@ -428,6 +526,59 @@ export default function ClipEditorScreen({
   // или ухода со страницы — чтобы накопленные правки субтитров не потерялись (B-#5).
   // Алиас (не useCallback) — flushCaptions уже мемоизирован, обёртка лишь мешала бы React Compiler.
   const flushPending = flushCaptions;
+
+  // ── in-page clip switch (Task 7): NO remount, queue-isolated, durable, shallow URL ──
+  // Correctness bar: no in-flight PATCH or stale ASS from the OUTGOING clip may apply to
+  // the INCOMING one, and pending caption edits must never be lost.
+  //   1. flushPending() FIRST → persist the outgoing clip's pending edits (durability).
+  //   2. Drop the outgoing mutation chain + pending captions + debounce timer.
+  //   3. Bump assSeq/optGenRef → any in-flight /ass or optimistic reconcile is invalidated
+  //      (their seq/gen no longer match → setAssText is skipped).
+  //   4. If the target is warm in the cache → PAINT it synchronously (no loading flash) and
+  //      mark it painted so the keyed load effect revalidates WITHOUT resetting to loading.
+  //   5. setActiveClipId → the load effect re-runs (resets per-clip state on a cache miss,
+  //      revalidates on a hit) and the keepalive effect's clipId-change cleanup also flushes.
+  //   6. Shallow URL sync via window.history.replaceState — the Next 16 documented way to
+  //      change the URL without a navigation/remount (integrates with the App Router).
+  const onSwitchClip = useCallback(
+    (nextId: string) => {
+      if (nextId === clipId) return;
+      void flushPending(); // persist outgoing edits FIRST (durability)
+      patchChain.current = Promise.resolve(); // drop outgoing clip's mutation chain
+      pendingCaptionsRef.current = null;
+      if (flushTimerRef.current) {
+        clearTimeout(flushTimerRef.current);
+        flushTimerRef.current = null;
+      }
+      assSeq.current++; // invalidate any in-flight /ass for the outgoing clip
+      optGenRef.current++; // invalidate any in-flight optimistic reconcile
+      const cached = clipCacheRef.current?.get(nextId);
+      if (cached) {
+        // Instant paint: the user just switched and hasn't edited, so painting cached data
+        // then revalidating in the background is safe (assSeq/optGenRef guards still hold).
+        editRef.current = cached.edit;
+        setEdit(cached.edit);
+        setWords(cached.words);
+        setAssText(cached.ass);
+        setRawRegions(cached.regions);
+        setEditingReply(null);
+        setActivePresetId(null);
+        setLibassFailed(false);
+        setRenderState({ kind: "idle" });
+        setError(null);
+        setPhase("ready");
+        paintedClipRef.current = nextId; // load effect skips the loading flash, still revalidates
+      }
+      setActiveClipId(nextId); // load effect re-runs → resets (miss) or revalidates (hit)
+      try {
+        window.history.replaceState(null, "", `/edit/${jobId}/${nextId}`);
+      } catch (e) {
+        // Best-effort URL sync — a failure must NOT break the in-page switch (state already moved).
+        console.warn("[editor] shallow URL sync failed:", e);
+      }
+    },
+    [clipId, jobId, flushPending],
+  );
 
   // ── ДОЛГОВЕЧНОСТЬ (B-#5): дожать pending-правки при уходе со страницы ──
   // pagehide/beforeunload (закрытие/refresh), visibilitychange→hidden (свернул вкладку),
@@ -756,8 +907,7 @@ export default function ClipEditorScreen({
   }, [edit, jobId, clipId, stopPoll]);
 
   // ── keyboard shortcuts (Task 5): Space play/pause · R render · 1-5 rail · Esc close ──
-  // Pure layout/dispatch only — no mutation/flush/ASS logic. prevClip/nextClip are no-ops
-  // this task (wired in Task 7 with in-page clip switching).
+  // prevClip/nextClip → in-page clip switch (Task 7). Compute neighbors from clipIds.
   const dispatchShortcut = useCallback(
     (a: EditorAction) => {
       if (a === "playPause") {
@@ -772,6 +922,11 @@ export default function ClipEditorScreen({
       } else if (a === "closeOverlay") {
         setEditingReply(null);
         setInspectorOpen(false);
+      } else if (a === "prevClip" || a === "nextClip") {
+        const i = clipIds.indexOf(clipId);
+        if (i < 0) return;
+        const target = a === "prevClip" ? clipIds[i - 1] : clipIds[i + 1];
+        if (target) onSwitchClip(target);
       } else if (typeof a === "object" && "tab" in a) {
         const t = TABS[a.tab - 1];
         if (t) {
@@ -779,9 +934,8 @@ export default function ClipEditorScreen({
           setInspectorOpen(true);
         }
       }
-      // "prevClip"/"nextClip": no-op this task — wired in Task 7.
     },
-    [busy, handleRender],
+    [busy, handleRender, clipIds, clipId, onSwitchClip],
   );
   useEditorShortcuts(dispatchShortcut);
 
@@ -1071,6 +1225,7 @@ export default function ClipEditorScreen({
         dirty={dirty}
         saving={unsaved}
         onBeforeLeave={flushPending}
+        onSwitchClip={onSwitchClip}
         onRender={handleRender}
       />
 
