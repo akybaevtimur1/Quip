@@ -22,6 +22,7 @@ from app import billing, db, dispatch, storage
 from app.config import get_settings
 from app.errors import JobError
 from app.models import ClipOut, Job, JobStatus, Metrics, Segment, Transcript, Word
+from app.pipeline.preview_moments import detect_preview_moments
 from app.pipeline.stage0_import import SourceMeta, build_preview_proxy, import_youtube
 from app.pipeline.stage1_transcribe import DEEPGRAM_NOVA_USD_PER_MIN, transcribe_to_file
 from app.pipeline.stage2_select import select_segments
@@ -313,6 +314,11 @@ def run_pipeline(
                 )
     stages["transcription"] = round(time.perf_counter() - t0, 2)
     db.set_progress_detail(job_id, transcript_words=len(transcript.words))  # live narration
+    # Косметические co-watch-маркеры из транскрипта (Part 4). ⚠️ ИНВАРИАНТ: НЕ передаём в
+    # select_segments ниже — LLM-отбор от них НЕ зависит (качество нарезки не меняется). Только
+    # визуал ожидания; upsert в job_artifacts → /jobs/{id}/preview-moments отдаёт фронту.
+    _preview_moments = [m.model_dump() for m in detect_preview_moments(transcript.words)]
+    db.put_job_artifact(job_id, "preview_moments", _preview_moments)
 
     # ── Stage 2: Select (кэш по segments.json) ──
     emit(JobStatus.selecting, 60)

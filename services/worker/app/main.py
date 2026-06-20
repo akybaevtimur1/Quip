@@ -673,6 +673,17 @@ def get_video_map(job_id: str, bg: BackgroundTasks, retry: bool = False) -> dict
     return pending.model_dump()
 
 
+@app.get("/jobs/{job_id}/preview-moments")
+def get_preview_moments(job_id: str) -> dict[str, Any]:
+    """Косметические co-watch-маркеры (Part 4): список {t,kind,intensity} из job_artifacts.
+
+    ⚠️ ЧИСТО ВИЗУАЛЬНО — НЕ влияет на отбор клипов (LLM-отбор от них не зависит). Пусто, пока
+    transcribe не закончил, на старых джобах, или в локальном dev (артефакты — только в облаке).
+    """
+    moments = db.get_job_artifact(job_id, "preview_moments")
+    return {"moments": moments or []}
+
+
 # ──────────────────────────── Editor endpoints ────────────────────────────
 
 
