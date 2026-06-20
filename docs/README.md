@@ -5,7 +5,7 @@
 > history, and what you must NOT break. If a doc contradicts this file, **this file wins** for
 > "current reality"; the older doc is kept only for the *why*/history.
 >
-> Last reality check: **2026-06-17.**
+> Last reality check: **2026-06-20.**
 
 ---
 
@@ -45,15 +45,28 @@
   для всех: серверная `RenderPolicy` несёт `video_crf/video_preset` (free 20/veryfast, платные
   **18/medium** — чётче на 1080). Протянут через `render_clip`+`render_timeline`. Только энкод,
   кадровая сетка Δ=0 цела. Источник: `billing.py` + `stage5_render._video_out_args`.
+- **Co-watch / live moment discovery (UX, 2026-06-20, LIVE).** Во время обработки загруженное видео
+  играет СРАЗУ из локального File (object URL — без раунд-трипа/CORS), а найденные «моменты» всплывают
+  как чипы-цитаты ПОВЕРХ видео (реальная фраза + тег), затем — graceful handoff на грид клипов. ⚠️
+  **ЧИСТО КОСМЕТИЧЕСКИ:** маркеры из отдельной pure-эвристики (`pipeline/preview_moments.py`:
+  транскрипт-сигналы + аудио-энергия) и **НИКОГДА не идут в `select_segments`** → качество AI-нарезки
+  не меняется. Персист в `job_artifacts.preview_moments` (миграция **0012**), эндпоинт
+  `GET /jobs/{id}/preview-moments`. Фронт: `CoWatch.tsx`/`CoWatchPanel.tsx` (+ `/dev/cowatch` харнесс).
+- **Фикс: правки хука/субтитров не применялись на ре-рендере (2026-06-20).** НЕ ASS-слой — **CDN
+  edge-cache**: `upload_clip` перезаписывал ТОТ ЖЕ R2-ключ, а `cdn.quip.ink` (Cloudflare) кэшировал mp4
+  без `Cache-Control` → Download тянул старый рендер (било ЛЮБУЮ правку после первого рендера). Фикс:
+  `Cache-Control: no-cache` на заливке + cache-buster `?v=<clip_edit.version>` на render-URL
+  (`storage.clip_upload_extra_args` + `storage.with_cache_bust` в `get_render`). Только экспорт/кэш.
 - **Рендер клипов = параллельный фан-аут (perf, 2026-06-17).** `run_job` делает import→
   transcribe→select, грузит source в R2, затем фанит per-clip reframe+render по контейнерам
   `reframe_render_clip` (`starmap`) вместо последовательного цикла. **preview-прокси** (полный
   транскод source→720p) снят с критического пути — отдельная `preview_job` строит его ПАРАЛЛЕЛЬНО
   с клипами (редактор фолбэчит на source, пока не готов). Локально (dev) — старый цикл + inline
   preview. Не трогает stage3/stage5 (инвариант кадровой сетки цел). См. JOURNAL 2026-06-17.
-- **State:** Supabase Postgres project **`qiagetbnsssvbiowuxpp`**, migrations **0001–0011 applied**
+- **State:** Supabase Postgres project **`qiagetbnsssvbiowuxpp`**, migrations **0001–0012 applied**
   (0009 = RLS на agent_runs; 0010 = RPC `set_clip_video_url` для incremental-выдачи клипов;
-  0011 = `jobs.source_minutes/transcript_words/moments_found` для live-narration счётчиков)
+  0011 = `jobs.source_minutes/transcript_words/moments_found` для live-narration счётчиков;
+  0012 = `job_artifacts.preview_moments` для co-watch-маркеров)
   (billing, credits, usage-idempotency, feedback, promo codes, job-cancel, agent-runs, **video-map**). Clips in **Cloudflare R2**
   (`cdn.quip.ink`).
 - **Billing is ON** (`BILLING_ENABLED`). Payments via **Polar** (NOT Lemon Squeezy). Webhook live
@@ -155,7 +168,12 @@ Founder account = Pro + 1000 credits (for testing).
 
 On demand: `DESIGN.md` (UI work) · `apps/web/AGENTS.md` (Next 16 caveat — read before web code) ·
 `docs/BENCHMARKS.md` (cost/latency) · the matching `docs/superpowers/specs/*` (only when re-touching
-that exact feature) · `docs/ADMIN_PANEL_RESEARCH.md` (monitoring spend/usage).
+that exact feature) · `docs/ADMIN_PANEL_RESEARCH.md` (monitoring spend/usage) ·
+`docs/SESSION_2026-06-20.md` (the most recent big session: editor overhaul, render quality, Live Clip
+Feed, co-watch, hook-cache fix — read if touching any of those).
+
+> **Starting a new session? Paste `docs/NEXT_SESSION_BOOTSTRAP.md` as your first message** — it tells
+> the agent exactly what to read (this file → CLAUDE.md → task-specific docs) before doing anything.
 
 ---
 
@@ -200,7 +218,7 @@ Pick [X] by task:
 |-------|-------|----------------|-----------|
 | Frontend (`apps/web`) | Vercel **`quip-app`** | **auto on push to `main`** | vercel.com/timurkas-projects/quip-app |
 | Worker (`services/worker`) | Modal **`quip-worker`** | `modal deploy deploy/modal/worker.py` | modal.com (workspace akybaevtimur7) |
-| State / auth / billing data | Supabase **`qiagetbnsssvbiowuxpp`** | SQL Editor / migrations `0001–0011` | supabase.com dashboard |
+| State / auth / billing data | Supabase **`qiagetbnsssvbiowuxpp`** | SQL Editor / migrations `0001–0012` | supabase.com dashboard |
 | Clip storage | Cloudflare **R2** (`cdn.quip.ink`) | n/a | Cloudflare dashboard |
 | Payments | **Polar** (production) | products + webhook configured | polar.sh dashboard |
 
