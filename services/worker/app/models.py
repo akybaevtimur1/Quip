@@ -273,6 +273,19 @@ class HookOverlay(BaseModel):
     wrap_width: float | None = Field(default=None, ge=0.0, le=1.0)
 
 
+class PreviewMoment(BaseModel):
+    """Косметический «момент-кандидат» для co-watch во время обработки (Part 4).
+
+    ⚠️ ЧИСТО ВИЗУАЛЬНЫЙ: показывается юзеру, пока идёт обработка, но НИКОГДА не передаётся в
+    `select_segments` (LLM — единственный источник правды по клипам). Не влияет на качество отбора.
+    `t` — секунды от начала source; `kind` — тип сигнала (цвет маркера); `intensity` 0..1 — сила.
+    """
+
+    t: float
+    kind: Literal["question", "stat", "emphasis", "beat"]
+    intensity: float = Field(ge=0.0, le=1.0)
+
+
 class CaptionReply(BaseModel):
     """Одна реплика субтитра (чанк 3–5 слов)."""
 
