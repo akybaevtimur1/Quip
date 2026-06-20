@@ -1,6 +1,6 @@
 "use client";
 
-import { Loader2, RefreshCw, Sparkles, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Loader2, RefreshCw, Sparkles } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Checkbox } from "@/components/ui/Checkbox";
@@ -65,6 +65,8 @@ export function HookTab({
   // Коммит — на blur / Enter-pause (debounce). Синк с пропом — adjust-during-render.
   const [text, setText] = useState(hook?.text ?? "");
   const [prevText, setPrevText] = useState(hook?.text ?? "");
+  // Style section: collapsed by default so common actions are immediately visible.
+  const [styleOpen, setStyleOpen] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   if ((hook?.text ?? "") !== prevText) {
     setPrevText(hook?.text ?? "");
@@ -85,21 +87,33 @@ export function HookTab({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto pr-1">
-      {/* ── текст + показ ── */}
+      {/* ── PRIMARY: текст + показ + регенерация + тайминг + Remove ── */}
       <section className="space-y-2">
         <div className="flex items-center justify-between">
           <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">
             Top text (hook)
           </p>
-          <Checkbox
-            label="Show"
-            className="text-xs"
-            checked={enabled}
-            disabled={busy}
-            onChange={(e) =>
-              onHookChange(e.target.checked ? { enabled: true } : { enabled: false })
-            }
-          />
+          <div className="flex items-center gap-2">
+            {hook && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => onHookChange(null)}
+                className="text-[11px] font-medium text-bad/70 transition hover:text-bad disabled:opacity-50"
+              >
+                Remove
+              </button>
+            )}
+            <Checkbox
+              label="Show"
+              className="text-xs"
+              checked={enabled}
+              disabled={busy}
+              onChange={(e) =>
+                onHookChange(e.target.checked ? { enabled: true } : { enabled: false })
+              }
+            />
+          </div>
         </div>
 
         <textarea
@@ -139,33 +153,11 @@ export function HookTab({
               {regenerating ? "Writing a new hook…" : "Regenerate for current clip"}
             </Button>
             <p className="text-[11px] leading-snug text-muted">
-              The hook doesn’t auto-update when you move or trim the clip. Regenerate it for the
-              new moment, or just edit the text above.
+              The hook doesn&apos;t auto-update when you move or trim the clip. Regenerate it for
+              the new moment, or just edit the text above.
             </p>
           </div>
         )}
-      </section>
-
-      {/* ── пресеты хука (галерея look'ов) ── */}
-      <section className="space-y-2">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">Presets</p>
-        <div
-          ref={presetScrollRef}
-          className="no-scrollbar flex snap-x snap-mandatory gap-2 overflow-x-auto py-1"
-        >
-          {HOOK_PRESETS.map((preset) => (
-            <button
-              key={preset.id}
-              type="button"
-              disabled={busy}
-              onClick={() => onHookChange({ ...preset.values, enabled: true })}
-              className="flex shrink-0 snap-start flex-col items-stretch gap-1 rounded-lg border border-line bg-surface-2 p-1.5 transition hover:border-line-strong focus:outline-none focus:ring-2 focus:ring-accent/50 disabled:opacity-50"
-            >
-              <HookPresetThumb preset={preset.values} />
-              <span className="text-center text-[10px] font-semibold text-muted">{preset.name}</span>
-            </button>
-          ))}
-        </div>
       </section>
 
       {/* ── когда показывать ── */}
@@ -220,138 +212,166 @@ export function HookTab({
         )}
       </section>
 
-      {/* ── стиль (паритет с субтитрами) ── */}
-      <section className="space-y-3">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">Style</p>
+      {/* ── SECONDARY: collapsible Style section (default collapsed) ── */}
+      <section>
+        <button
+          type="button"
+          onClick={() => setStyleOpen((o) => !o)}
+          className="flex w-full items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted transition hover:text-ink"
+        >
+          {styleOpen ? (
+            <ChevronDown className="size-3.5 shrink-0" />
+          ) : (
+            <ChevronRight className="size-3.5 shrink-0" />
+          )}
+          Style
+        </button>
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <ColorField
-            label="Text color"
-            value={hook?.color ?? HOOK_DEFAULTS.color}
-            disabled={busy}
-            onChange={(v) => onHookChange({ color: v })}
-          />
-          <label className="flex flex-col gap-1.5 text-xs text-muted">
-            Font
-            <Select
-              value={hook?.font ?? HOOK_DEFAULTS.font}
-              disabled={busy}
-              onChange={(e) => onHookChange({ font: e.target.value })}
-            >
-              {CAPTION_FONTS.map((f) => (
-                <option key={f} value={f}>
-                  {f}
-                </option>
-              ))}
-            </Select>
-          </label>
-        </div>
+        {styleOpen && (
+          <div className="mt-3 space-y-3">
+            {/* ── пресеты хука (галерея look'ов) ── */}
+            <div className="space-y-2">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">
+                Presets
+              </p>
+              <div
+                ref={presetScrollRef}
+                className="no-scrollbar flex snap-x snap-mandatory gap-2 overflow-x-auto py-1"
+              >
+                {HOOK_PRESETS.map((preset) => (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    disabled={busy}
+                    onClick={() => onHookChange({ ...preset.values, enabled: true })}
+                    className="flex shrink-0 snap-start flex-col items-stretch gap-1 rounded-lg border border-line bg-surface-2 p-1.5 transition hover:border-line-strong focus:outline-none focus:ring-2 focus:ring-accent/50 disabled:opacity-50"
+                  >
+                    <HookPresetThumb preset={preset.values} />
+                    <span className="text-center text-[10px] font-semibold text-muted">
+                      {preset.name}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
 
-        {/* плашка vs контур */}
-        <Checkbox
-          checked={hasPlaque}
-          disabled={busy}
-          onChange={(e) =>
-            onHookChange({ box_color: e.target.checked ? (boxColor ?? "#FF5A3D") : null })
-          }
-          label="Background plaque"
-          className="text-xs"
-        />
-        {hasPlaque ? (
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <ColorField
-              label="Plaque color"
-              value={boxColor ?? "#FF5A3D"}
+            {/* ── стиль (паритет с субтитрами) ── */}
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <ColorField
+                label="Text color"
+                value={hook?.color ?? HOOK_DEFAULTS.color}
+                disabled={busy}
+                onChange={(v) => onHookChange({ color: v })}
+              />
+              <label className="flex flex-col gap-1.5 text-xs text-muted">
+                Font
+                <Select
+                  value={hook?.font ?? HOOK_DEFAULTS.font}
+                  disabled={busy}
+                  onChange={(e) => onHookChange({ font: e.target.value })}
+                >
+                  {CAPTION_FONTS.map((f) => (
+                    <option key={f} value={f}>
+                      {f}
+                    </option>
+                  ))}
+                </Select>
+              </label>
+            </div>
+
+            {/* плашка vs контур */}
+            <Checkbox
+              checked={hasPlaque}
               disabled={busy}
-              onChange={(v) => onHookChange({ box_color: v })}
+              onChange={(e) =>
+                onHookChange({ box_color: e.target.checked ? (boxColor ?? "#FF5A3D") : null })
+              }
+              label="Background plaque"
+              className="text-xs"
             />
+            {hasPlaque ? (
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <ColorField
+                  label="Plaque color"
+                  value={boxColor ?? "#FF5A3D"}
+                  disabled={busy}
+                  onChange={(v) => onHookChange({ box_color: v })}
+                />
+                <DebouncedSlider
+                  label="Plaque opacity"
+                  min={0}
+                  max={100}
+                  value={Math.round((hook?.box_opacity ?? HOOK_DEFAULTS.box_opacity) * 100)}
+                  disabled={busy}
+                  onCommit={(v) => onHookChange({ box_opacity: v / 100 })}
+                />
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <ColorField
+                  label="Outline"
+                  value={hook?.outline_color ?? HOOK_DEFAULTS.outline_color}
+                  disabled={busy}
+                  onChange={(v) => onHookChange({ outline_color: v })}
+                />
+                <DebouncedSlider
+                  label="Outline width"
+                  min={0}
+                  max={16}
+                  value={hook?.outline_w ?? HOOK_DEFAULTS.outline_w}
+                  disabled={busy}
+                  onCommit={(v) => onHookChange({ outline_w: v })}
+                />
+              </div>
+            )}
+
             <DebouncedSlider
-              label="Plaque opacity"
-              min={0}
-              max={100}
-              value={Math.round((hook?.box_opacity ?? HOOK_DEFAULTS.box_opacity) * 100)}
+              label="Size"
+              min={36}
+              max={120}
+              value={hook?.size ?? HOOK_DEFAULTS.size}
               disabled={busy}
-              onCommit={(v) => onHookChange({ box_opacity: v / 100 })}
+              onCommit={(v) => onHookChange({ size: v })}
             />
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <ColorField
-              label="Outline"
-              value={hook?.outline_color ?? HOOK_DEFAULTS.outline_color}
-              disabled={busy}
-              onChange={(v) => onHookChange({ outline_color: v })}
-            />
+
             <DebouncedSlider
-              label="Outline width"
-              min={0}
-              max={16}
-              value={hook?.outline_w ?? HOOK_DEFAULTS.outline_w}
+              label="Position (from top)"
+              min={40}
+              max={900}
+              value={hook?.margin_v ?? HOOK_DEFAULTS.margin_v}
               disabled={busy}
-              onCommit={(v) => onHookChange({ outline_w: v })}
+              // clear pos_y so the slider regains vertical control after a free drag; keep pos_x.
+              onCommit={(v) => onHookChange({ margin_v: v, pos_y: null })}
+              hint="Or just drag the hook on the video"
+            />
+
+            <label className="flex flex-col gap-1.5 text-xs text-muted">
+              Entrance animation
+              <Select
+                value={hook?.animation ?? HOOK_DEFAULTS.animation}
+                disabled={busy}
+                onChange={(e) =>
+                  onHookChange({ animation: e.target.value as HookOverlay["animation"] })
+                }
+              >
+                {HOOK_ANIMATIONS.map((a) => (
+                  <option key={a.value} value={a.value}>
+                    {a.label}
+                  </option>
+                ))}
+              </Select>
+            </label>
+
+            <Checkbox
+              checked={hook?.uppercase ?? HOOK_DEFAULTS.uppercase}
+              disabled={busy}
+              onChange={(e) => onHookChange({ uppercase: e.target.checked })}
+              label="UPPERCASE"
+              className="text-xs"
             />
           </div>
         )}
-
-        <DebouncedSlider
-          label="Size"
-          min={36}
-          max={120}
-          value={hook?.size ?? HOOK_DEFAULTS.size}
-          disabled={busy}
-          onCommit={(v) => onHookChange({ size: v })}
-        />
-
-        <DebouncedSlider
-          label="Position (from top)"
-          min={40}
-          max={900}
-          value={hook?.margin_v ?? HOOK_DEFAULTS.margin_v}
-          disabled={busy}
-          // clear pos_y so the slider regains vertical control after a free drag; keep pos_x.
-          onCommit={(v) => onHookChange({ margin_v: v, pos_y: null })}
-          hint="Or just drag the hook on the video"
-        />
-
-        <label className="flex flex-col gap-1.5 text-xs text-muted">
-          Entrance animation
-          <Select
-            value={hook?.animation ?? HOOK_DEFAULTS.animation}
-            disabled={busy}
-            onChange={(e) =>
-              onHookChange({ animation: e.target.value as HookOverlay["animation"] })
-            }
-          >
-            {HOOK_ANIMATIONS.map((a) => (
-              <option key={a.value} value={a.value}>
-                {a.label}
-              </option>
-            ))}
-          </Select>
-        </label>
-
-        <Checkbox
-          checked={hook?.uppercase ?? HOOK_DEFAULTS.uppercase}
-          disabled={busy}
-          onChange={(e) => onHookChange({ uppercase: e.target.checked })}
-          label="UPPERCASE"
-          className="text-xs"
-        />
       </section>
-
-      {hook && (
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          disabled={busy}
-          onClick={() => onHookChange(null)}
-          className="self-start text-bad hover:bg-bad/10 hover:text-bad"
-        >
-          <Trash2 className="size-3.5" />
-          Remove hook
-        </Button>
-      )}
     </div>
   );
 }
