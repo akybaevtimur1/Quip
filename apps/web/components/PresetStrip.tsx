@@ -3,20 +3,22 @@
 import { useEffect, useState } from "react";
 import { getPresets } from "@/lib/api";
 import type { CaptionPreset } from "@/lib/types";
-import { useWheelHscroll } from "@/lib/useWheelHscroll";
 
 // ────────────────────────────────────────────────────────────────────────────
-// PresetStrip — горизонтальная галерея пресетов субтитров (A–L). Каждый пресет —
-// мини-превью (как слово выглядит в этом стиле). Клик → onApply (родитель
-// исполняет в ОЧЕРЕДИ мутаций: правки на ходу не плодят 409). Дефолт = preset_a.
+// PresetStrip — wrapping grid gallery of caption presets (A–L). Each preset is
+// a mini-preview (how a word looks in that style). Click → onApply (parent
+// executes via mutation queue: no 409s from concurrent edits). Default = preset_a.
+//
+// Changed from horizontal-scroll strip to a wrapping grid so all presets are
+// visible without any horizontal-scroll fight in the ~360 px inspector.
 // ────────────────────────────────────────────────────────────────────────────
 
 const DEFAULT_PRESET_ID = "preset_a";
 
 export interface PresetStripProps {
-  /** id текущего активного пресета (для подсветки). */
+  /** id of the currently active preset (for highlight). */
   activePresetId?: string | null;
-  /** Применить пресет; родитель сам обновляет edit-state/ASS (через очередь мутаций). */
+  /** Apply a preset; parent updates edit-state/ASS (via mutation queue). */
   onApply: (presetId: string) => Promise<void>;
   onError?: (message: string) => void;
 }
@@ -25,7 +27,6 @@ export function PresetStrip({ activePresetId, onApply, onError }: PresetStripPro
   const [presets, setPresets] = useState<CaptionPreset[]>([]);
   const [loading, setLoading] = useState(true);
   const [applyingId, setApplyingId] = useState<string | null>(null);
-  const scrollRef = useWheelHscroll<HTMLDivElement>(); // #6: колесо мыши → горизонталь
 
   useEffect(() => {
     let cancelled = false;
@@ -42,7 +43,7 @@ export function PresetStrip({ activePresetId, onApply, onError }: PresetStripPro
     return () => {
       cancelled = true;
     };
-    // getPresets/onError стабильны на время жизни компонента
+    // getPresets/onError are stable for the component lifetime
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -62,11 +63,11 @@ export function PresetStrip({ activePresetId, onApply, onError }: PresetStripPro
 
   if (loading) {
     return (
-      <div className="flex gap-2 overflow-x-auto py-2">
-        {[0, 1, 2, 3].map((i) => (
+      <div className="grid grid-cols-3 gap-2 py-1">
+        {[0, 1, 2, 3, 4, 5].map((i) => (
           <div
             key={i}
-            className="h-16 w-28 shrink-0 animate-pulse rounded-xl border border-line bg-surface-2"
+            className="h-16 animate-pulse rounded-xl border border-line bg-surface-2"
           />
         ))}
       </div>
@@ -74,10 +75,7 @@ export function PresetStrip({ activePresetId, onApply, onError }: PresetStripPro
   }
 
   return (
-    <div
-      ref={scrollRef}
-      className="no-scrollbar flex snap-x snap-mandatory gap-2 overflow-x-auto py-2"
-    >
+    <div className="grid grid-cols-3 gap-2 py-1">
       {presets.map((preset) => {
         const isActive = preset.id === active;
         const isApplying = applyingId === preset.id;
@@ -88,7 +86,7 @@ export function PresetStrip({ activePresetId, onApply, onError }: PresetStripPro
             disabled={!!applyingId}
             onClick={() => handleApply(preset.id)}
             aria-pressed={isActive}
-            className={`flex shrink-0 snap-start flex-col items-stretch gap-1 rounded-lg border p-1.5 transition focus:outline-none focus:ring-2 focus:ring-accent/50 ${
+            className={`flex flex-col items-stretch gap-1 rounded-lg border p-1.5 transition focus:outline-none focus:ring-2 focus:ring-accent/50 ${
               isActive
                 ? "border-accent bg-surface-3"
                 : "border-line bg-surface-2 hover:border-line-strong"
@@ -109,7 +107,7 @@ export function PresetStrip({ activePresetId, onApply, onError }: PresetStripPro
   );
 }
 
-/** Мини-превью пресета: слово «АА» в основном цвете + активное «БB» по highlight. */
+/** Mini-preview of a preset: word "АА" in the base color + active "ББ" with highlight. */
 function PresetThumb({ preset }: { preset: CaptionPreset }) {
   const s = preset.style;
   const hl = preset.highlight;
@@ -118,12 +116,12 @@ function PresetThumb({ preset }: { preset: CaptionPreset }) {
   const ow = Math.max(1, Math.min(3, (s.outline_w ?? 6) / 3));
   const shadow = buildThumbShadow(outline, ow);
 
-  // активное слово в превью
+  // active word in the preview
   const hlColor = hl?.color ?? color;
   const box = hl?.box ?? false;
 
   return (
-    <div className="flex h-12 w-28 items-center justify-center gap-1 overflow-hidden rounded-lg bg-black px-1">
+    <div className="flex h-12 w-full items-center justify-center gap-1 overflow-hidden rounded-lg bg-black px-1">
       <span
         style={{
           fontFamily: "var(--font-display), system-ui, sans-serif",

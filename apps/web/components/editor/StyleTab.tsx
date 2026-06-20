@@ -64,7 +64,8 @@ export function StyleTab({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto pr-1">
-      {/* ── пресеты ── */}
+
+      {/* ── Presets ── */}
       <section className="space-y-2">
         <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">
           Presets
@@ -72,12 +73,11 @@ export function StyleTab({
         <PresetStrip activePresetId={activePresetId} onApply={onPresetApply} onError={onError} />
       </section>
 
-      {/* ── кастомизация ── */}
+      {/* ── Colors ── */}
       <section className="space-y-3">
         <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">
-          Customize
+          Colors
         </p>
-
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <ColorField
             label="Text color"
@@ -97,6 +97,34 @@ export function StyleTab({
             disabled={busy}
             onChange={(v) => onStyleChange({ outline_color: v })}
           />
+        </div>
+
+        {/* T3: auto-highlight for keywords (numbers + long content words) */}
+        <div className="space-y-2 border-t border-line pt-3">
+          <Checkbox
+            checked={!!st.emphasis_color}
+            disabled={busy}
+            onChange={(e) => onStyleChange({ emphasis_color: e.target.checked ? "#FF5A3D" : null })}
+            label="Highlight keywords"
+            className="text-xs"
+          />
+          {st.emphasis_color && (
+            <ColorField
+              label="Keyword color"
+              value={st.emphasis_color}
+              disabled={busy}
+              onChange={(v) => onStyleChange({ emphasis_color: v })}
+            />
+          )}
+        </div>
+      </section>
+
+      {/* ── Text ── */}
+      <section className="space-y-3">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">
+          Text
+        </p>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <label className="flex flex-col gap-1.5 text-xs text-muted">
             Font
             <Select
@@ -112,7 +140,6 @@ export function StyleTab({
             </Select>
           </label>
         </div>
-
         <DebouncedSlider
           label="Size"
           min={40}
@@ -121,7 +148,20 @@ export function StyleTab({
           disabled={busy}
           onCommit={(v) => onStyleChange({ size: v })}
         />
+        <Checkbox
+          checked={st.uppercase ?? true}
+          disabled={busy}
+          onChange={(e) => onStyleChange({ uppercase: e.target.checked })}
+          label="UPPERCASE"
+          className="text-xs"
+        />
+      </section>
 
+      {/* ── Position ── */}
+      <section className="space-y-3">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">
+          Position
+        </p>
         <DebouncedSlider
           label="Position (from bottom)"
           min={40}
@@ -133,7 +173,13 @@ export function StyleTab({
           onCommit={(v) => onStyleChange({ margin_v: v, pos_y: null })}
           hint="Or just drag the captions on the video"
         />
+      </section>
 
+      {/* ── Animation ── */}
+      <section className="space-y-3">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">
+          Animation
+        </p>
         <label className="flex flex-col gap-1.5 text-xs text-muted">
           Active-word animation
           <Select
@@ -153,34 +199,8 @@ export function StyleTab({
             <option value="off">Highlight off</option>
           </Select>
         </label>
-
-        <Checkbox
-          checked={st.uppercase ?? true}
-          disabled={busy}
-          onChange={(e) => onStyleChange({ uppercase: e.target.checked })}
-          label="UPPERCASE"
-          className="text-xs"
-        />
-
-        {/* T3: авто-подсветка ключевых слов (числа + длинные контентные) */}
-        <div className="space-y-2 border-t border-line pt-3">
-          <Checkbox
-            checked={!!st.emphasis_color}
-            disabled={busy}
-            onChange={(e) => onStyleChange({ emphasis_color: e.target.checked ? "#FF5A3D" : null })}
-            label="Highlight keywords"
-            className="text-xs"
-          />
-          {st.emphasis_color && (
-            <ColorField
-              label="Keyword color"
-              value={st.emphasis_color}
-              disabled={busy}
-              onChange={(v) => onStyleChange({ emphasis_color: v })}
-            />
-          )}
-        </div>
       </section>
+
     </div>
   );
 }
