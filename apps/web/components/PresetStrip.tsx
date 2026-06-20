@@ -63,11 +63,11 @@ export function PresetStrip({ activePresetId, onApply, onError }: PresetStripPro
 
   if (loading) {
     return (
-      <div className="grid grid-cols-3 gap-2 py-1">
-        {[0, 1, 2, 3, 4, 5].map((i) => (
+      <div className="grid grid-cols-2 gap-3 py-1">
+        {[0, 1, 2, 3].map((i) => (
           <div
             key={i}
-            className="h-16 animate-pulse rounded-xl border border-line bg-surface-2"
+            className="h-24 animate-pulse rounded-xl border border-line bg-surface-2"
           />
         ))}
       </div>
@@ -75,7 +75,7 @@ export function PresetStrip({ activePresetId, onApply, onError }: PresetStripPro
   }
 
   return (
-    <div className="grid grid-cols-3 gap-2 py-1">
+    <div className="grid grid-cols-2 gap-3 py-1">
       {presets.map((preset) => {
         const isActive = preset.id === active;
         const isApplying = applyingId === preset.id;
@@ -86,7 +86,8 @@ export function PresetStrip({ activePresetId, onApply, onError }: PresetStripPro
             disabled={!!applyingId}
             onClick={() => handleApply(preset.id)}
             aria-pressed={isActive}
-            className={`flex flex-col items-stretch gap-1 rounded-lg border p-1.5 transition focus:outline-none focus:ring-2 focus:ring-accent/50 ${
+            title={preset.name}
+            className={`flex flex-col items-stretch gap-1.5 rounded-lg border p-2 transition focus:outline-none focus:ring-2 focus:ring-accent/50 ${
               isActive
                 ? "border-accent bg-surface-3"
                 : "border-line bg-surface-2 hover:border-line-strong"
@@ -94,7 +95,7 @@ export function PresetStrip({ activePresetId, onApply, onError }: PresetStripPro
           >
             <PresetThumb preset={preset} />
             <span
-              className={`text-center text-[10px] font-semibold ${
+              className={`truncate text-center text-xs font-semibold ${
                 isActive ? "text-accent" : "text-muted"
               }`}
             >
@@ -121,12 +122,12 @@ function PresetThumb({ preset }: { preset: CaptionPreset }) {
   const box = hl?.box ?? false;
 
   return (
-    <div className="flex h-12 w-full items-center justify-center gap-1 overflow-hidden rounded-lg bg-black px-1">
+    <div className="flex h-16 w-full items-center justify-center gap-1.5 overflow-hidden rounded-lg bg-black px-2">
       <span
         style={{
           fontFamily: "var(--font-display), system-ui, sans-serif",
           fontWeight: 900,
-          fontSize: "13px",
+          fontSize: "17px",
           color,
           textShadow: shadow,
         }}
@@ -139,11 +140,11 @@ function PresetThumb({ preset }: { preset: CaptionPreset }) {
             style={{
               fontFamily: "var(--font-display), system-ui, sans-serif",
               fontWeight: 900,
-              fontSize: "13px",
+              fontSize: "17px",
               color: "#000",
               background: hlColor,
-              borderRadius: "3px",
-              padding: "0 3px",
+              borderRadius: "4px",
+              padding: "0 4px",
             }}
           >
             Бб
@@ -153,7 +154,7 @@ function PresetThumb({ preset }: { preset: CaptionPreset }) {
             style={{
               fontFamily: "var(--font-display), system-ui, sans-serif",
               fontWeight: 900,
-              fontSize: "13px",
+              fontSize: "17px",
               color: hlColor,
               textShadow: shadow,
             }}
@@ -166,7 +167,7 @@ function PresetThumb({ preset }: { preset: CaptionPreset }) {
           style={{
             fontFamily: "var(--font-display), system-ui, sans-serif",
             fontWeight: 900,
-            fontSize: "13px",
+            fontSize: "17px",
             color,
             textShadow: shadow,
           }}

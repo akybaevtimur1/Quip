@@ -232,17 +232,18 @@ export function HookTab({
               <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">
                 Presets
               </p>
-              <div className="grid grid-cols-3 gap-2 py-1">
+              <div className="grid grid-cols-2 gap-3 py-1">
                 {HOOK_PRESETS.map((preset) => (
                   <button
                     key={preset.id}
                     type="button"
                     disabled={busy}
+                    title={preset.name}
                     onClick={() => onHookChange({ ...preset.values, enabled: true })}
-                    className="flex flex-col items-stretch gap-1 rounded-lg border border-line bg-surface-2 p-1.5 transition hover:border-line-strong focus:outline-none focus:ring-2 focus:ring-accent/50 disabled:opacity-50"
+                    className="flex flex-col items-stretch gap-1.5 rounded-lg border border-line bg-surface-2 p-2 transition hover:border-line-strong focus:outline-none focus:ring-2 focus:ring-accent/50 disabled:opacity-50"
                   >
                     <HookPresetThumb preset={preset.values} />
-                    <span className="text-center text-[10px] font-semibold text-muted">
+                    <span className="truncate text-center text-xs font-semibold text-muted">
                       {preset.name}
                     </span>
                   </button>
@@ -377,17 +378,17 @@ function HookPresetThumb({ preset }: { preset: Partial<HookOverlay> }) {
   const box = preset.box_color ?? null;
   const outline = preset.outline_color ?? "#000000";
   return (
-    <div className="flex h-12 w-full items-center justify-center rounded-lg bg-black px-1">
+    <div className="flex h-16 w-full items-center justify-center rounded-lg bg-black px-2">
       <span
         style={{
           fontFamily: "var(--font-display), system-ui, sans-serif",
           fontWeight: 900,
-          fontSize: "12px",
+          fontSize: "17px",
           color: box ? "#FFFFFF" : color,
           background: box ?? undefined,
-          borderRadius: box ? "3px" : undefined,
-          padding: box ? "1px 4px" : undefined,
-          textShadow: box ? undefined : `0 0 2px ${outline}, 0 0 2px ${outline}`,
+          borderRadius: box ? "4px" : undefined,
+          padding: box ? "2px 6px" : undefined,
+          textShadow: box ? undefined : `0 0 3px ${outline}, 0 0 3px ${outline}`,
         }}
       >
         HOOK
