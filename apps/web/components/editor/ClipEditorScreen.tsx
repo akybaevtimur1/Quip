@@ -1,6 +1,7 @@
 "use client";
 
-import { Captions, Crop, Loader2, Palette, Type, Wand2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
+import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   type Aspect,
@@ -22,6 +23,7 @@ import {
   trimClip,
 } from "@/lib/api";
 import { patchAssStyles } from "@/lib/assStyle";
+import { type ClipCache, createClipCache } from "@/lib/clipCache";
 import type {
   CaptionReply,
   CaptionStyle,
@@ -36,12 +38,18 @@ import { resolveUrl } from "../ClipCard";
 import { LibassLayer } from "../LibassLayer";
 import { AgentTab } from "./AgentTab";
 import { CaptionsTab } from "./CaptionsTab";
+import { EditorCanvas } from "./EditorCanvas";
 import { EditorHeader, type RenderState } from "./EditorHeader";
+import { type Tab, TABS, EditorRail } from "./EditorRail";
+import { type EditorAction } from "@/lib/editorShortcuts";
+import { useEditorShortcuts } from "./useEditorShortcuts";
 import { FitTimeline } from "./FitTimeline";
 import { FrameTab } from "./FrameTab";
 import { HookTab } from "./HookTab";
+import { Inspector } from "./Inspector";
 import { OverlaySelectionBox } from "./OverlaySelectionBox";
 import type { SubRects } from "@/lib/overlayBox";
+import { stableFrame } from "@/lib/frameIdentity";
 import { type FrameState, PreviewPlayer } from "./PreviewPlayer";
 import { buildReplyRanges, clampMargin, originalReplyText } from "./replyUtils";
 import { StyleTab } from "./StyleTab";
@@ -56,7 +64,6 @@ import TimelineV2 from "./TimelineV2";
 // ────────────────────────────────────────────────────────────────────────────
 
 type Phase = "loading" | "ready" | "saving" | "error";
-type Tab = "captions" | "hook" | "style" | "frame" | "agent";
 
 /** Регион reframe-плана пайплайна (reframe_<clip>.json), клип-время. */
 interface RawRegion {
@@ -65,6 +72,14 @@ interface RawRegion {
   mode: string;
   points: { t: number; cx: number | null }[];
   points_b?: { t: number; cx: number | null }[];
+}
+
+/** Per-clip data warmed into the neighbor-prefetch cache (instant paint on switch). */
+interface ClipData {
+  edit: ClipEdit;
+  words: Word[];
+  ass: string;
+  regions: RawRegion[] | null;
 }
 
 function cxAt(points: { t: number; cx: number | null }[] | undefined, clipT: number): number {
@@ -88,30 +103,34 @@ function cxAt(points: { t: number; cx: number | null }[] | undefined, clipT: num
   return points[points.length - 1].cx ?? 0.5;
 }
 
-const TABS: { id: Tab; label: string; icon: typeof Captions }[] = [
-  { id: "agent", label: "Agent", icon: Wand2 },
-  { id: "captions", label: "Captions", icon: Captions },
-  { id: "hook", label: "Hook", icon: Type },
-  { id: "style", label: "Style", icon: Palette },
-  { id: "frame", label: "Frame", icon: Crop },
-];
-
 export default function ClipEditorScreen({
   jobId,
-  clipId,
+  initialClipId,
 }: {
   jobId: string;
-  clipId: string;
+  initialClipId: string;
 }) {
+  // clipId is STATE — switching clips re-runs the load effect (keyed on clipId)
+  // WITHOUT a route remount. The route only provides the initial clip (deep-link/F5).
+  const [clipId, setActiveClipId] = useState(initialClipId);
   const [phase, setPhase] = useState<Phase>("loading");
   const [error, setError] = useState<string | null>(null);
   const [edit, setEdit] = useState<ClipEdit | null>(null);
   const [words, setWords] = useState<Word[]>([]);
   const [loadKey, setLoadKey] = useState(0);
   const [tab, setTab] = useState<Tab>("captions");
+  // Narrow-viewport only: the inspector opens as an overlay sheet over the canvas
+  // gutter (on lg it's always visible). Opening it must NOT resize the canvas.
+  const [inspectorOpen, setInspectorOpen] = useState(false);
 
   const [timeline, setTimeline] = useState<TimelineData | null>(null);
   const [clipIds, setClipIds] = useState<string[]>([]);
+  // Mirror clipIds in a ref so prefetch/switch helpers can read the current order WITHOUT
+  // closing over clipIds (which would re-identify them and re-run the keyed load effect).
+  const clipIdsRef = useRef<string[]>([]);
+  useEffect(() => {
+    clipIdsRef.current = clipIds;
+  }, [clipIds]);
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
   const [activePresetId, setActivePresetId] = useState<string | null>(null);
   // reframe-план для честного превью кадра (D2: от эндпоинта /reframe = единый путь рендера;
@@ -125,6 +144,8 @@ export default function ClipEditorScreen({
   // есть НЕсохранённые правки (debounce-PATCH ещё не ушёл / в полёте) — индикатор
   // «Сохраняю…/Сохранено» + гарантия flush перед уходом (B-#5, без потери данных).
   const [unsaved, setUnsaved] = useState(false);
+
+  const busy = phase === "saving" || renderState.kind === "rendering";
 
   // ── WYSIWYG-превью ──
   const [assText, setAssText] = useState("");
@@ -173,6 +194,55 @@ export default function ClipEditorScreen({
     }
   }, [jobId, clipId]);
 
+  // ── neighbor-prefetch cache (Task 7): warm ±1 clips so switching paints instantly ──
+  // LRU(3): current clip + both neighbors. On switch, a cache HIT paints synchronously
+  // (no "Loading editor…" flash) and the load effect revalidates in the background.
+  const clipCacheRef = useRef<ClipCache<ClipData> | null>(null);
+  if (clipCacheRef.current === null) clipCacheRef.current = createClipCache<ClipData>(3);
+  // Records the clip we just instant-painted from cache → the load effect for that clip
+  // SKIPS the loading flash (it still revalidates in the background under the same guards).
+  const paintedClipRef = useRef<string | null>(null);
+
+  // Idle-prefetch the ±1 neighbors of `centerId` into the cache (best-effort). Logs
+  // failures — NO silent swallow (a warming miss just falls back to the loading path).
+  const prefetchNeighbors = useCallback(
+    (centerId: string) => {
+      const ids = clipIdsRef.current;
+      const i = ids.indexOf(centerId);
+      if (i < 0) return;
+      const neighbors = [ids[i - 1], ids[i + 1]].filter(
+        (id): id is string => !!id && !clipCacheRef.current?.has(id),
+      );
+      const warm = (id: string) => {
+        void Promise.all([
+          getClipEdit(jobId, id),
+          getClipAnalysis(jobId, id),
+          getClipAss(jobId, id).catch(() => ""),
+          getClipReframe(jobId, id).then(
+            (d) => (d.regions as RawRegion[]) ?? null,
+            () => null,
+          ),
+        ])
+          .then(([edit, analysis, ass, regions]) => {
+            clipCacheRef.current?.set(id, { edit, words: analysis.words, ass, regions });
+          })
+          .catch((e) => {
+            console.warn(`[editor] neighbor prefetch failed for ${id}:`, e);
+          });
+      };
+      const run = () => neighbors.forEach(warm);
+      // requestIdleCallback isn't in all browsers (Safari) → fall back to a short timeout.
+      if (typeof window !== "undefined" && "requestIdleCallback" in window) {
+        (window as Window & { requestIdleCallback: (cb: () => void) => void }).requestIdleCallback(
+          run,
+        );
+      } else {
+        setTimeout(run, 200);
+      }
+    },
+    [jobId],
+  );
+
   const assSeq = useRef(0);
   // Optimistic-edit generation: bumped on every editCaptions (instant local patchAssStyles).
   // refreshAss captures it BEFORE its fetch and skips setAssText if a NEWER optimistic edit
@@ -215,17 +285,44 @@ export default function ClipEditorScreen({
     }
   }, [jobId, clipId, refreshAss]);
 
+  // clipIdRef = ВСЕГДА текущий активный clipId (синкается на каждый render, как editRef).
+  // Switch-race guard (Task 7): любой async-путь, выпущенный для клипа A (flushed PATCH,
+  // background revalidate), сверяет clipIdRef ПОСЛЕ await — если юзер уже переключился на B,
+  // результат для A НЕ применяется на B (иначе cross-clip clobber старой версией/стилем).
+  // Объявлен ДО load-эффекта (который читает clipIdRef): React Compiler запрещает мутировать
+  // ref в эффекте ПОСЛЕ того, как он прочитан в более раннем эффекте — поэтому sync-эффект тут.
+  const clipIdRef = useRef(clipId);
+  useEffect(() => {
+    clipIdRef.current = clipId;
+  }, [clipId]);
+
   // ── загрузка: edit + analysis + ASS (фатально), timeline/job (нефатально) ──
   useEffect(() => {
     let cancelled = false;
+    // Instant-paint: onSwitchClip already painted this clip from cache + reset the
+    // mutation queue. Skip the "Loading editor…" flash and the per-clip visual reset —
+    // we still fetch below to REVALIDATE in the background (safe: just switched, no edits
+    // yet; assSeq/optGenRef guards remain intact). Consume the flag so a later loadKey
+    // reload of the same clip shows the normal loading path.
+    const painted = paintedClipRef.current === clipId;
+    paintedClipRef.current = null;
     async function fetchData() {
-      setPhase("loading");
-      setError(null);
-      setActivePresetId(null);
-      setLibassFailed(false);
-      setEditingReply(null);
-      setRenderState({ kind: "idle" });
-      setRawRegions(null);
+      if (!painted) {
+        setPhase("loading");
+        setError(null);
+        setActivePresetId(null);
+        setLibassFailed(false);
+        setEditingReply(null);
+        setRenderState({ kind: "idle" });
+        setRawRegions(null);
+      }
+      // Switch-race guard (Task 7, IMPORTANT): on the instant-paint (cache-hit) path this
+      // fetch is a BACKGROUND revalidation — the user already sees painted state and CAN edit
+      // before it resolves. Capture the optimistic generation now; if a newer editCaptions
+      // landed in the gap (optGenRef bumped) we must NOT overwrite it with the stale server
+      // snapshot (same principle as refreshAss's gen guard). On the cache-MISS path no edit is
+      // possible before first paint, so this guard is a no-op there (gen never moves).
+      const paintGen = optGenRef.current;
       // Авто-ретрай с backoff: воркер мог ещё подниматься (cold start torch/MediaPipe)
       // или сетевой блип на первом запросе → не показываем ошибку сразу, тихо повторяем.
       const MAX_ATTEMPTS = 4;
@@ -237,9 +334,16 @@ export default function ClipEditorScreen({
             getClipAss(jobId, clipId).catch(() => ""),
           ]);
           if (cancelled) return;
-          setEdit(editData);
-          setWords(analysisData.words);
-          setAssText(ass);
+          // On the painted path, skip the snapshot if a newer optimistic edit happened
+          // (paintGen stale) or the user switched away (clipIdRef changed) — the optimistic
+          // state + next debounced flush reconcile it. Non-painted path: both checks pass.
+          const stale =
+            painted && (optGenRef.current !== paintGen || clipIdRef.current !== clipId);
+          if (!stale) {
+            setEdit(editData);
+            setWords(analysisData.words);
+            setAssText(ass);
+          }
           if (!ass) setError("Couldn’t load caption preview — showing a simplified mode.");
           setPhase("ready");
           getTimeline(jobId)
@@ -261,8 +365,30 @@ export default function ClipEditorScreen({
               // downloadUrl остаётся null до рендера → ExportMenu рендерит captioned на лету.
             })
             .catch(() => !cancelled && setClipIds([clipId]));
-          // D2: план кадра от эндпоинта /reframe (единый путь рендера, работает и на облаке)
-          if (!cancelled) void loadReframe();
+          // D2: план кадра от эндпоинта /reframe (единый путь рендера, работает и на облаке).
+          // Fetch inline (not loadReframe) so the SAME regions feed both the preview AND the
+          // prefetch cache without a duplicate request.
+          if (!cancelled) {
+            void getClipReframe(jobId, clipId)
+              .then((data) => {
+                const regions = (data.regions as RawRegion[]) ?? null;
+                if (!cancelled) setRawRegions(regions);
+                // Cache the fully-loaded current clip, then warm ±1 neighbors.
+                clipCacheRef.current?.set(clipId, {
+                  edit: editData,
+                  words: analysisData.words,
+                  ass,
+                  regions,
+                });
+                void prefetchNeighbors(clipId);
+              })
+              .catch(() => {
+                if (!cancelled) setRawRegions(null);
+                // Couldn't load the frame plan → don't cache (would paint a center-crop
+                // preview on next switch); still warm neighbors so their fetch is fast.
+                void prefetchNeighbors(clipId);
+              });
+          }
           return; // успех
         } catch (e) {
           if (cancelled) return;
@@ -281,7 +407,7 @@ export default function ClipEditorScreen({
       cancelled = true;
       stopPoll();
     };
-  }, [jobId, clipId, loadKey, stopPoll, loadReframe]);
+  }, [jobId, clipId, loadKey, stopPoll, prefetchNeighbors]);
 
   const handleConflict = useCallback(() => {
     setError("Data changed — reloading the editor…");
@@ -369,6 +495,13 @@ export default function ClipEditorScreen({
         if (!cur) return;
         try {
           const newEdit = await patchClipEdit(jobId, clipId, cur.version ?? 1, captions);
+          // Switch-race guard (Task 7, CRITICAL): этот PATCH выпущен для `clipId` из замыкания
+          // (активный клип на момент планирования flush). Если юзер переключился, пока шёл
+          // round-trip, НЕ применяем ответ старого клипа на новый — иначе editRef/setEdit
+          // перетёрли бы version/style/hook/aspect/crop НОВОГО клипа (→ старый стиль мигает +
+          // editRef.version становится старой → следующая правка 409 "Data changed").
+          // No-op на нормальном пути (без переключения): clipIdRef.current === clipId.
+          if (clipIdRef.current !== clipId) return;
           // Реконсиляция версии/полей, но СОХРАНЯЕМ свежие локальные captions: юзер мог
           // править во время раунд-трипа — нельзя откатывать его правки (баг-класс очереди).
           editRef.current = {
@@ -425,6 +558,60 @@ export default function ClipEditorScreen({
   // или ухода со страницы — чтобы накопленные правки субтитров не потерялись (B-#5).
   // Алиас (не useCallback) — flushCaptions уже мемоизирован, обёртка лишь мешала бы React Compiler.
   const flushPending = flushCaptions;
+
+  // ── in-page clip switch (Task 7): NO remount, queue-isolated, durable, shallow URL ──
+  // Correctness bar: no in-flight PATCH or stale ASS from the OUTGOING clip may apply to
+  // the INCOMING one, and pending caption edits must never be lost.
+  //   1. flushPending() FIRST → persist the outgoing clip's pending edits (durability).
+  //   2. Drop the outgoing mutation chain + pending captions + debounce timer.
+  //   3. Bump assSeq/optGenRef → any in-flight /ass or optimistic reconcile is invalidated
+  //      (their seq/gen no longer match → setAssText is skipped).
+  //   4. If the target is warm in the cache → PAINT it synchronously (no loading flash) and
+  //      mark it painted so the keyed load effect revalidates WITHOUT resetting to loading.
+  //   5. setActiveClipId → the load effect re-runs (resets per-clip state on a cache miss,
+  //      revalidates on a hit) and the keepalive effect's clipId-change cleanup also flushes.
+  //   6. Shallow URL sync via window.history.replaceState — the Next 16 documented way to
+  //      change the URL without a navigation/remount (integrates with the App Router).
+  const onSwitchClip = useCallback(
+    (nextId: string) => {
+      if (nextId === clipId) return;
+      void flushPending(); // persist outgoing edits FIRST (durability)
+      patchChain.current = Promise.resolve(); // drop outgoing clip's mutation chain
+      pendingCaptionsRef.current = null;
+      if (flushTimerRef.current) {
+        clearTimeout(flushTimerRef.current);
+        flushTimerRef.current = null;
+      }
+      assSeq.current++; // invalidate any in-flight /ass for the outgoing clip
+      optGenRef.current++; // invalidate any in-flight optimistic reconcile
+      pendingGenRef.current = optGenRef.current; // queue isolation self-evident (not just guard inequality)
+      const cached = clipCacheRef.current?.get(nextId);
+      if (cached) {
+        // Instant paint: the user just switched and hasn't edited, so painting cached data
+        // then revalidating in the background is safe (assSeq/optGenRef guards still hold).
+        editRef.current = cached.edit;
+        setEdit(cached.edit);
+        setWords(cached.words);
+        setAssText(cached.ass);
+        setRawRegions(cached.regions);
+        setEditingReply(null);
+        setActivePresetId(null);
+        setLibassFailed(false);
+        setRenderState({ kind: "idle" });
+        setError(null);
+        setPhase("ready");
+        paintedClipRef.current = nextId; // load effect skips the loading flash, still revalidates
+      }
+      setActiveClipId(nextId); // load effect re-runs → resets (miss) or revalidates (hit)
+      try {
+        window.history.replaceState(null, "", `/edit/${jobId}/${nextId}`);
+      } catch (e) {
+        // Best-effort URL sync — a failure must NOT break the in-page switch (state already moved).
+        console.warn("[editor] shallow URL sync failed:", e);
+      }
+    },
+    [clipId, jobId, flushPending],
+  );
 
   // ── ДОЛГОВЕЧНОСТЬ (B-#5): дожать pending-правки при уходе со страницы ──
   // pagehide/beforeunload (закрытие/refresh), visibilitychange→hidden (свернул вкладку),
@@ -752,6 +939,40 @@ export default function ClipEditorScreen({
     }, 2000);
   }, [edit, jobId, clipId, stopPoll]);
 
+  // ── keyboard shortcuts (Task 5): Space play/pause · R render · 1-5 rail · Esc close ──
+  // prevClip/nextClip → in-page clip switch (Task 7). Compute neighbors from clipIds.
+  const dispatchShortcut = useCallback(
+    (a: EditorAction) => {
+      if (a === "playPause") {
+        const v = videoRef.current;
+        if (v) {
+          if (v.paused) void v.play();
+          else v.pause();
+        }
+      } else if (a === "render") {
+        // `busy` already includes renderState.kind === "rendering" → covers the guard.
+        if (!busy) void handleRender();
+      } else if (a === "closeOverlay") {
+        setEditingReply(null);
+        setInspectorOpen(false);
+      } else if (a === "prevClip" || a === "nextClip") {
+        if (busy) return;
+        const i = clipIds.indexOf(clipId);
+        if (i < 0) return;
+        const target = a === "prevClip" ? clipIds[i - 1] : clipIds[i + 1];
+        if (target) onSwitchClip(target);
+      } else if (typeof a === "object" && "tab" in a) {
+        const t = TABS[a.tab - 1];
+        if (t) {
+          setTab(t.id);
+          setInspectorOpen(true);
+        }
+      }
+    },
+    [busy, handleRender, clipIds, clipId, onSwitchClip],
+  );
+  useEditorShortcuts(dispatchShortcut);
+
   // ── активная реплика по текущему времени видео ──
   const replyRanges = useMemo(() => {
     const replies = edit?.captions.replies ?? [];
@@ -895,32 +1116,41 @@ export default function ClipEditorScreen({
   // ── РЕАЛЬНЫЙ режим кадра для превью на текущий момент ──
   // Приоритет: ручной override (таб «Кадр», виден сразу) → план от /reframe (D2: единый
   // путь рендера, всегда для ТЕКУЩИХ интервалов) → дефолт fill-центр.
+  // prevFrameRef: holds the last stable FrameState so stableFrame can return the same
+  // object reference on every ~250ms timeupdate tick when the crop hasn't changed,
+  // preventing needless PreviewPlayer re-renders. Writing a ref inside useMemo is safe
+  // here because it only stabilises identity and never triggers a re-render.
+  const prevFrameRef = useRef<FrameState | null>(null);
   const frame = useMemo<FrameState | null>(() => {
     const ovs = (edit?.reframe_overrides ?? []).filter(
       (ov) => ov.source_start < outerEnd && ov.source_end > outerStart,
     );
     const ov = ovs.at(-1);
+    let next: FrameState | null = null;
     if (ov) {
       const m = ov.mode === "fit" ? "fit" : ov.mode === "split" ? "split" : "fill";
-      return {
+      next = {
         mode: m,
         cx: ov.center ?? (m === "split" ? 0.3 : 0.5),
         cxB: ov.center_b ?? 0.7,
       };
-    }
-    if (rawRegions) {
+    } else if (rawRegions) {
       const clipT = Math.max(0, nowSec - outerStart);
       const reg =
         rawRegions.find((r) => clipT >= r.t0 && clipT < r.t1) ?? rawRegions.at(-1) ?? null;
       if (reg && (reg.mode === "fit" || reg.mode === "split" || reg.mode === "fill")) {
-        return {
+        next = {
           mode: reg.mode,
           cx: cxAt(reg.points, clipT),
           cxB: cxAt(reg.points_b, clipT),
         };
       }
     }
-    return null;
+    // eslint-disable-next-line react-hooks/refs -- identity-only memo: ref read/write stabilises object reference, never triggers render
+    const stable = stableFrame(prevFrameRef.current, next);
+    // eslint-disable-next-line react-hooks/refs -- same: writing ref to cache stable identity, no state setter involved
+    prevFrameRef.current = stable;
+    return stable;
   }, [edit, outerStart, outerEnd, rawRegions, nowSec]);
 
   // T5: аспект превью-контейнера (литералы → Tailwind JIT их видит)
@@ -929,11 +1159,81 @@ export default function ClipEditorScreen({
       edit?.aspect ?? "9:16"
     ] ?? "aspect-[9/16]";
 
-  const busy = phase === "saving" || renderState.kind === "rendering";
   const totalSec = edit
     ? edit.source_intervals.reduce((s, iv) => s + (iv.source_end - iv.source_start), 0)
     : 0;
   const useLibass = !!assText && !libassFailed;
+
+  // Активная панель inspector'а (одна и та же для lg-колонки и узкого overlay-шита —
+  // один источник, без дублирования JSX). Props/handlers — БЕЗ изменений.
+  const activePanel = edit && (
+    <>
+      {tab === "agent" && (
+        <AgentTab
+          key={clipId}
+          jobId={jobId}
+          clipId={clipId}
+          busy={busy}
+          onAgentEdited={handleAgentEdited}
+        />
+      )}
+      {tab === "captions" && (
+        <CaptionsTab
+          words={words}
+          replies={edit.captions.replies ?? []}
+          activeReplyIndex={activeReplyIndex}
+          busy={busy}
+          burn={edit.captions.burn ?? true}
+          onReplyTextChange={handleCaptionsChange}
+          onCutReply={handleCutReply}
+          onSeekReply={seekToReply}
+          onBurnChange={handleBurnChange}
+        />
+      )}
+      {tab === "hook" && (
+        <HookTab
+          edit={edit}
+          busy={busy}
+          onHookChange={handleHookChange}
+          onRegenerate={handleHookRegenerate}
+          regenerating={regeneratingHook}
+        />
+      )}
+      {tab === "style" && (
+        <StyleTab
+          edit={edit}
+          activePresetId={activePresetId}
+          busy={busy}
+          onPresetApply={handlePresetApply}
+          onError={setError}
+          onStyleChange={handleStyleChange}
+          onHighlightChange={handleHighlightChange}
+        />
+      )}
+      {tab === "frame" && (
+        <>
+          <FrameTab
+            edit={edit}
+            outerStart={outerStart}
+            outerEnd={outerEnd}
+            busy={busy}
+            onApply={handleFrameApply}
+            onAspectChange={handleAspectChange}
+          />
+          <div className="shrink-0 pt-3 border-t border-line">
+            <FitTimeline
+              regions={rawRegions}
+              intervals={edit.source_intervals}
+              overrides={edit.reframe_overrides}
+              nowSec={nowSec}
+              busy={busy}
+              onApplyRange={handleApplyRange}
+            />
+          </div>
+        </>
+      )}
+    </>
+  );
 
   // ── error / loading экраны ──
   if (phase === "error" && !edit) {
@@ -971,6 +1271,7 @@ export default function ClipEditorScreen({
         dirty={dirty}
         saving={unsaved}
         onBeforeLeave={flushPending}
+        onSwitchClip={onSwitchClip}
         onRender={handleRender}
       />
 
@@ -994,12 +1295,18 @@ export default function ClipEditorScreen({
           Loading editor…
         </div>
       ) : (
-        <main className="grid min-h-0 grid-cols-1 gap-4 overflow-y-auto p-4 lg:grid-cols-[minmax(280px,380px)_minmax(0,1fr)] lg:overflow-visible">
-          {/* ЛЕВО: превью. Доступная область = ширина колонки × ограниченная высота;
-              PreviewPlayer сам contain'ится по aspectClass (w-full + max-h-full + aspect) →
-              НЕ распирает страницу на 16:9/1:1/4:5 (баг T5 пофикшен). */}
-          <div className="sticky top-0 z-10 flex min-h-0 flex-col bg-bg pb-3 lg:static lg:z-auto lg:pb-0">
-            <div className="flex h-[44vh] max-h-full w-full items-center justify-center lg:h-auto lg:min-h-0 lg:flex-1">
+        <main
+          className="relative grid min-h-0 grid-cols-1 gap-4 overflow-y-auto lg:overflow-hidden p-4 lg:grid-cols-[auto_minmax(0,1fr)_var(--inspector-w)]"
+          style={{ "--inspector-w": "360px" } as React.CSSProperties}
+        >
+          {/* ── ЛЕВО: icon-rail (Fixed-Studio shell). Заменяет верхний таб-бар. ── */}
+          <EditorRail active={tab} onSelect={(t) => { setTab(t); setInspectorOpen(true); }} />
+
+          {/* ── ЦЕНТР: стабильный по высоте canvas (Task 1 инвариант — превью не ужимается
+              при смене панелей/аспекта). PreviewPlayer-поддерево живёт ЗДЕСЬ (state на месте). */}
+          <EditorCanvas
+            aspectClass={aspectClass}
+          >
               <PreviewPlayer
                 src={sourceSrc}
                 outerStart={outerStart}
@@ -1113,105 +1420,22 @@ export default function ClipEditorScreen({
                     </div>
                   )}
                 </PreviewPlayer>
-            </div>
+          </EditorCanvas>
 
-            {/* #1: мини-таймлайн «форсировать кадр» под превью. shrink-0 — чтобы плеер
-                (flex-1 выше) ужимался под него, а не клипал полосу за пределы колонки. */}
-            {edit && (
-              <div className="shrink-0">
-                <FitTimeline
-                  regions={rawRegions}
-                  intervals={edit.source_intervals}
-                  overrides={edit.reframe_overrides}
-                  nowSec={nowSec}
-                  busy={busy}
-                  onApplyRange={handleApplyRange}
-                />
-              </div>
-            )}
+          {/* ── ПРАВО: контекстный inspector. На lg всегда виден; на узком — overlay-шит
+              поверх gutter'а (canvas НЕ ужимается). ── */}
+          <div className="hidden lg:flex lg:min-h-0">
+            <Inspector active={tab}>{activePanel}</Inspector>
           </div>
 
-          {/* ПРАВО: табы */}
-          <div className="flex min-h-0 flex-col gap-3">
-            {/* #1: явно про live-vs-рендер — частый вопрос «надо ли ререндерить» */}
-            <p className="shrink-0 rounded-lg border border-line bg-surface-2 px-3 py-2 text-[11px] leading-snug text-muted">
-              <span className="font-semibold text-accent">Preview is live</span> — edits show
-              instantly. <span className="font-semibold text-ink">“Render”</span> writes them to
-              the downloadable file.
-            </p>
-            <div className="flex shrink-0 gap-1 rounded-xl border border-line bg-surface p-1">
-              {TABS.map(({ id, label, icon: Icon }) => (
-                <button
-                  key={id}
-                  type="button"
-                  onClick={() => setTab(id)}
-                  className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2.5 text-sm font-semibold transition sm:py-2 ${
-                    tab === id
-                      ? "bg-surface-3 text-accent shadow-[0_1px_2px_rgba(0,0,0,.4)]"
-                      : "text-muted hover:bg-surface-2 hover:text-ink"
-                  }`}
-                >
-                  <Icon className="size-4" />
-                  {label}
-                </button>
-              ))}
+          {/* narrow viewport: inspector как overlay-шит (canvas позади не ужимается) */}
+          {inspectorOpen && (
+            <div className="lg:hidden">
+              <Inspector active={tab} overlay onClose={() => setInspectorOpen(false)}>
+                {activePanel}
+              </Inspector>
             </div>
-
-            <div className="flex min-h-0 flex-1 flex-col rounded-xl border border-line bg-surface p-4">
-              {edit && tab === "agent" && (
-                <AgentTab
-                  key={clipId}
-                  jobId={jobId}
-                  clipId={clipId}
-                  busy={busy}
-                  onAgentEdited={handleAgentEdited}
-                />
-              )}
-              {edit && tab === "captions" && (
-                <CaptionsTab
-                  words={words}
-                  replies={edit.captions.replies ?? []}
-                  activeReplyIndex={activeReplyIndex}
-                  busy={busy}
-                  burn={edit.captions.burn ?? true}
-                  onReplyTextChange={handleCaptionsChange}
-                  onCutReply={handleCutReply}
-                  onSeekReply={seekToReply}
-                  onBurnChange={handleBurnChange}
-                />
-              )}
-              {edit && tab === "hook" && (
-                <HookTab
-                  edit={edit}
-                  busy={busy}
-                  onHookChange={handleHookChange}
-                  onRegenerate={handleHookRegenerate}
-                  regenerating={regeneratingHook}
-                />
-              )}
-              {edit && tab === "style" && (
-                <StyleTab
-                  edit={edit}
-                  activePresetId={activePresetId}
-                  busy={busy}
-                  onPresetApply={handlePresetApply}
-                  onError={setError}
-                  onStyleChange={handleStyleChange}
-                  onHighlightChange={handleHighlightChange}
-                />
-              )}
-              {edit && tab === "frame" && (
-                <FrameTab
-                  edit={edit}
-                  outerStart={outerStart}
-                  outerEnd={outerEnd}
-                  busy={busy}
-                  onApply={handleFrameApply}
-                  onAspectChange={handleAspectChange}
-                />
-              )}
-            </div>
-          </div>
+          )}
         </main>
       )}
 

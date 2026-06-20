@@ -51,6 +51,10 @@ typecheck-web:
 test-unit:
     cd services/worker; uv run pytest tests/unit -q
 
+# ── web unit-тесты (vitest, pure-logic helpers) ──
+test-web:
+    pnpm --filter web exec vitest run
+
 # ── e2e на одном реальном сэмпле (наполнится на H1: app/run.py) ──
 e2e SAMPLE:
     cd services/worker; uv run python -m app.run "{{SAMPLE}}"
@@ -60,4 +64,4 @@ anti-drift: types
     git diff --exit-code packages/shared
 
 # ── ГЛАВНЫЙ ГЕЙТ перед коммитом: lint + типы + тесты + anti-drift ──
-check: lint typecheck test-unit anti-drift
+check: lint typecheck test-unit test-web anti-drift

@@ -4,6 +4,18 @@
 > «как и почему так сделано». Актуальное состояние проекта = docs/README.md. Правила = CLAUDE.md.
 > Новые заметные решения дописывай СЮДА (не в CLAUDE.md).
 
+### 2026-06-20 — Редактор «Fixed Studio» (WS-A): новый shell + фикс framing-бага
+Оверхол IA/лэйаута редактора на ветке `editor-fixed-studio` (не смёрджено, не задеплоено).
+Закрыто в коммитах `b5f2d24`…`cadf14d`. Ключевые изменения: Fixed-Studio shell — левый icon-rail
+(Agent/Captions/Hook/Style/Frame) + центральный canvas + правый contextual inspector; canvas
+вынесен в стабильный регион (размер определяется viewport'ом, а не содержимым панели) → **фикс
+P0-бага «Frame-панель уменьшает видео»**; in-page переключение клипов без ремаунта + prefetch
+соседних клипов; live Frame mode (без явного Apply); de-overload Hook-инспектора; FitTimeline
+перенесён в Frame-контекст; сгруппированная Style-панель + preset grid (caption + hook); английские
+имена пресетов; `isascii`-тест (818 ✓); vitest-харнесс в `just check`. Три user-dogfood фикса
+сложены: aspect-contain CSS (FIX-A), preset grid (FIX-B), hook preset grid (FIX-C). Perf:
+стабилизация `frame`-identity, мемоизованный inspector. 21 unit-тест на pure-логику.
+
 ### 2026-06-20 — Co-watch / live moment discovery (видео играет + моменты всплывают при обработке)
 Фаундер: ранняя нарратив-лента (Part 3) слишком текстовая → хочет визуальный «со-просмотр». Решение +
 **ГЕЙТ КАЧЕСТВА:** маркеры моментов — ЧИСТО КОСМЕТИЧЕСКИ, из отдельной pure-эвристики

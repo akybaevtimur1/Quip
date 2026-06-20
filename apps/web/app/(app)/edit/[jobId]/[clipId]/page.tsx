@@ -9,5 +9,7 @@ export default async function EditPage({
   params: Promise<{ jobId: string; clipId: string }>;
 }) {
   const { jobId, clipId } = await params;
-  return <ClipEditorScreen jobId={jobId} clipId={clipId} />;
+  // clipId is the INITIAL clip — switching clips happens in-page (no remount),
+  // ClipEditorScreen holds the active clip in state and shallow-updates the URL.
+  return <ClipEditorScreen jobId={jobId} initialClipId={clipId} />;
 }

@@ -6,9 +6,10 @@ import { ExportMenu } from "@/components/ExportMenu";
 import { Button } from "@/components/ui/Button";
 
 // ── Хедер страницы редактора ──
-// «← Все клипы» ведёт на /dashboard?job=<id> (deep-link грид восстанавливается).
-// ‹ › переключают клипы той же задачи. ЛЮБАЯ навигация СНАЧАЛА дожимает несохранённые
-// правки (onBeforeLeave = flushPending) → уход НИКОГДА не теряет правки (B-#5).
+// «← Все клипы» ведёт на /dashboard?job=<id> (deep-link грид восстанавливается, РЕАЛЬНАЯ навигация).
+// ‹ › переключают клипы той же задачи IN-PAGE (Task 7): onSwitchClip — без remount, мгновенно
+// (flush + queue-isolation + shallow-URL внутри ClipEditorScreen). «Все клипы» — настоящий push,
+// который СНАЧАЛА дожимает несохранённые правки (onBeforeLeave = flushPending) → ничего не теряется.
 
 export type RenderState =
   | { kind: "idle" }
@@ -26,6 +27,7 @@ export function EditorHeader({
   dirty,
   saving,
   onBeforeLeave,
+  onSwitchClip,
   onRender,
 }: {
   jobId: string;
@@ -41,6 +43,8 @@ export function EditorHeader({
   saving?: boolean;
   /** Дожать несохранённые правки ПЕРЕД уходом со страницы (без потери данных). */
   onBeforeLeave?: () => Promise<void>;
+  /** Переключить клип IN-PAGE (без remount) — flush/queue-isolation/URL внутри редактора. */
+  onSwitchClip: (nextId: string) => void;
   onRender: () => void;
 }) {
   const router = useRouter();
@@ -76,7 +80,7 @@ export function EditorHeader({
           <button
             type="button"
             disabled={!prevId || busy}
-            onClick={() => prevId && leaveTo(`/edit/${jobId}/${prevId}`)}
+            onClick={() => prevId && onSwitchClip(prevId)}
             title="Previous clip"
             aria-label="Previous clip"
             className="inline-flex size-9 items-center justify-center rounded-lg border border-line text-muted transition enabled:hover:border-accent/50 enabled:hover:text-ink disabled:opacity-30 sm:size-8"
@@ -96,7 +100,7 @@ export function EditorHeader({
           <button
             type="button"
             disabled={!nextId || busy}
-            onClick={() => nextId && leaveTo(`/edit/${jobId}/${nextId}`)}
+            onClick={() => nextId && onSwitchClip(nextId)}
             title="Next clip"
             aria-label="Next clip"
             className="inline-flex size-9 items-center justify-center rounded-lg border border-line text-muted transition enabled:hover:border-accent/50 enabled:hover:text-ink disabled:opacity-30 sm:size-8"
