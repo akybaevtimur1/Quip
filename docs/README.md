@@ -34,14 +34,26 @@
   играбельны/редактируемы, ещё рендерящиеся — со скелетоном «Rendering…» + строка «N of M ready»
   (`ClipGrid`/`ClipCard`). Контракт не менялся: пустой `video_url` = «ещё рендерится». Источник:
   `run.py` (`set_clips_pending`/`set_clip_ready`) + `db.py`/`cloud_state.py`.
+- **Live Clip Feed — карточки до рендера (UX, 2026-06-20).** `set_clips_pending` теперь зовётся
+  СРАЗУ после select (status=`selecting`, progress 60), а не на границе рендера → богатые карточки
+  (хук/why/score) встают на ~60%, за минуты до видео. `JobProgress` в окне 0–60% показывает
+  live-счётчики (`source_minutes/transcript_words/moments_found`, миграция 0011,
+  `db.set_progress_detail` best-effort). `ClipCard`: `PendingThumb` (client frame-grab из
+  preview-прокси, БЕЗ crossOrigin — CDN без CORS) + всплытие карточки + счёт скора. Спека/план:
+  `docs/superpowers/{specs,plans}/2026-06-20-live-clip-feed*`.
+- **Качество рендера по плану (2026-06-20).** Энкод клипа больше не захардкожен `veryfast/crf20`
+  для всех: серверная `RenderPolicy` несёт `video_crf/video_preset` (free 20/veryfast, платные
+  **18/medium** — чётче на 1080). Протянут через `render_clip`+`render_timeline`. Только энкод,
+  кадровая сетка Δ=0 цела. Источник: `billing.py` + `stage5_render._video_out_args`.
 - **Рендер клипов = параллельный фан-аут (perf, 2026-06-17).** `run_job` делает import→
   transcribe→select, грузит source в R2, затем фанит per-clip reframe+render по контейнерам
   `reframe_render_clip` (`starmap`) вместо последовательного цикла. **preview-прокси** (полный
   транскод source→720p) снят с критического пути — отдельная `preview_job` строит его ПАРАЛЛЕЛЬНО
   с клипами (редактор фолбэчит на source, пока не готов). Локально (dev) — старый цикл + inline
   preview. Не трогает stage3/stage5 (инвариант кадровой сетки цел). См. JOURNAL 2026-06-17.
-- **State:** Supabase Postgres project **`qiagetbnsssvbiowuxpp`**, migrations **0001–0010 applied**
-  (0009 = RLS на agent_runs; 0010 = RPC `set_clip_video_url` для incremental-выдачи клипов)
+- **State:** Supabase Postgres project **`qiagetbnsssvbiowuxpp`**, migrations **0001–0011 applied**
+  (0009 = RLS на agent_runs; 0010 = RPC `set_clip_video_url` для incremental-выдачи клипов;
+  0011 = `jobs.source_minutes/transcript_words/moments_found` для live-narration счётчиков)
   (billing, credits, usage-idempotency, feedback, promo codes, job-cancel, agent-runs, **video-map**). Clips in **Cloudflare R2**
   (`cdn.quip.ink`).
 - **Billing is ON** (`BILLING_ENABLED`). Payments via **Polar** (NOT Lemon Squeezy). Webhook live
@@ -188,7 +200,7 @@ Pick [X] by task:
 |-------|-------|----------------|-----------|
 | Frontend (`apps/web`) | Vercel **`quip-app`** | **auto on push to `main`** | vercel.com/timurkas-projects/quip-app |
 | Worker (`services/worker`) | Modal **`quip-worker`** | `modal deploy deploy/modal/worker.py` | modal.com (workspace akybaevtimur7) |
-| State / auth / billing data | Supabase **`qiagetbnsssvbiowuxpp`** | SQL Editor / migrations `0001–0010` | supabase.com dashboard |
+| State / auth / billing data | Supabase **`qiagetbnsssvbiowuxpp`** | SQL Editor / migrations `0001–0011` | supabase.com dashboard |
 | Clip storage | Cloudflare **R2** (`cdn.quip.ink`) | n/a | Cloudflare dashboard |
 | Payments | **Polar** (production) | products + webhook configured | polar.sh dashboard |
 
