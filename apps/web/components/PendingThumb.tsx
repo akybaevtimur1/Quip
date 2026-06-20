@@ -35,7 +35,11 @@ export function PendingThumb({ jobId, clipStart }: { jobId: string; clipStart: n
 
   useEffect(() => {
     const video = document.createElement("video");
-    video.crossOrigin = "anonymous";
+    // NO crossOrigin: the CDN (cdn.quip.ink) doesn't return CORS headers on video GETs, and the
+    // preview/source URL 302-redirects there — with crossOrigin="anonymous" the video load is
+    // CORS-blocked and the thumbnail never paints (only the skeleton shows). We only DISPLAY the
+    // canvas, never read its pixels (no toDataURL/getImageData), so a cross-origin draw that
+    // *taints* the canvas is fine — tainted canvases still render to screen.
     video.muted = true;
     video.preload = "metadata";
     video.playsInline = true;
