@@ -221,6 +221,9 @@ function DashboardInner() {
                 elapsed={elapsed}
                 cancellable={job?.cancellable ?? false}
                 onStop={handleStop}
+                sourceMinutes={job?.source_minutes ?? null}
+                transcriptWords={job?.transcript_words ?? null}
+                momentsFound={job?.moments_found ?? null}
               />
             )}
           </div>

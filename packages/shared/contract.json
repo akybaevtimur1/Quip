@@ -846,6 +846,17 @@
           ],
           "default": null
         },
+        "moments_found": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "progress": {
           "maximum": 100,
           "minimum": 0,
@@ -854,11 +865,33 @@
         "source_kind": {
           "$ref": "#/$defs/SourceKind"
         },
+        "source_minutes": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "stage": {
           "$ref": "#/$defs/JobStatus"
         },
         "status": {
           "$ref": "#/$defs/JobStatus"
+        },
+        "transcript_words": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [

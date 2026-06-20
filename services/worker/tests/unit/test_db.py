@@ -64,6 +64,32 @@ def test_in_progress_row_has_empty_clips_and_no_metrics() -> None:
     assert wire["progress"] == 45
 
 
+def test_progress_detail_counts_surfaced_and_coerced() -> None:
+    # 0011: live-narration счётчики прокидываются в wire-Job с коэрсией типов (jsonb/SQLite).
+    base = {"id": "j", "status": "selecting", "stage": "selecting", "progress": 60, "error": None}
+    wire = row_to_wire(
+        {**base, "source_minutes": "8.3", "transcript_words": "412", "moments_found": 9}
+    )
+    assert wire["source_minutes"] == 8.3
+    assert wire["transcript_words"] == 412
+    assert wire["moments_found"] == 9
+
+
+def test_progress_detail_absent_is_none() -> None:
+    # Старые строки / до проставления → None (фронт не рисует чип). Backward compat.
+    base = {
+        "id": "j",
+        "status": "transcribing",
+        "stage": "transcribing",
+        "progress": 35,
+        "error": None,
+    }
+    wire = row_to_wire(base)
+    assert wire["source_minutes"] is None
+    assert wire["transcript_words"] is None
+    assert wire["moments_found"] is None
+
+
 def test_failed_row_carries_error() -> None:
     row = {
         "id": "job_y",

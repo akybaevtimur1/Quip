@@ -309,10 +309,13 @@ export interface Job {
   error?: string | null;
   id: string;
   metrics?: Metrics | null;
+  moments_found?: number | null;
   progress: number;
   source_kind: SourceKind;
+  source_minutes?: number | null;
   stage: JobStatus;
   status: JobStatus;
+  transcript_words?: number | null;
 }
 /**
  * Экономика/латентность прогона (на виду в UI).

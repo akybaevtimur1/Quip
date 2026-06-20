@@ -251,6 +251,7 @@ def run_pipeline(
     else:
         raise JobError("import", f"no data/{job_id}/source.mp4 and no URL provided")
     stages["download"] = round(time.perf_counter() - t0, 2)
+    db.set_progress_detail(job_id, source_minutes=round(meta.duration / 60, 1))  # live narration
 
     # ── Гейт квоты по РЕАЛЬНОЙ длине (до оплаты транскрипции). Поднимет JobError → failed,
     #    БЕЗ списания (record_usage идёт только после set_done). ──
@@ -311,6 +312,7 @@ def run_pipeline(
                     sha, s.transcription_provider, tr_model, transcript.model_dump()
                 )
     stages["transcription"] = round(time.perf_counter() - t0, 2)
+    db.set_progress_detail(job_id, transcript_words=len(transcript.words))  # live narration
 
     # ── Stage 2: Select (кэш по segments.json) ──
     emit(JobStatus.selecting, 60)
@@ -331,6 +333,7 @@ def run_pipeline(
         print(f"[2] select: {len(segments)} segments")
     stages["llm_select"] = round(time.perf_counter() - t0, 2)
     select_cost = _gemini_cost(usage)
+    db.set_progress_detail(job_id, moments_found=len(segments))  # live narration
 
     # ── Артефакты (meta/segments/transcript) в Postgres job_artifacts ДО фан-аута: preview_job
     #    (и любой будущий клип-контейнер) читает meta из облака. Локально — no-op. ──

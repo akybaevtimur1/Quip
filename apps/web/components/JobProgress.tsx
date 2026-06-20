@@ -18,12 +18,19 @@ export function JobProgress({
   elapsed,
   cancellable = false,
   onStop,
+  sourceMinutes = null,
+  transcriptWords = null,
+  momentsFound = null,
 }: {
   status: JobStatus;
   elapsed: number;
   // Stop-кнопка: показываем ТОЛЬКО когда воркер сообщил cancellable (FREE-фаза до транскрипции).
   cancellable?: boolean;
   onStop?: () => void;
+  // Live-narration счётчики (наполняются по мере стадий) → окно 0–60% (до карточек) не мёртвое.
+  sourceMinutes?: number | null;
+  transcriptWords?: number | null;
+  momentsFound?: number | null;
 }) {
   // While "queued" (cur=0) the first real step ("Downloading", index 1) reads as active,
   // so the stepper never looks dead between submit and the first status change.
@@ -62,6 +69,16 @@ export function JobProgress({
           const i = ORDER.indexOf(step.key);
           const done = cur > i;
           const active = cur === i;
+          // Live count for this stage (shown once the worker reports it) → the pre-clip wait
+          // shows real progress on THEIR video, not just a spinner.
+          const count =
+            step.key === "downloading" && sourceMinutes != null
+              ? `${sourceMinutes} min`
+              : step.key === "transcribing" && transcriptWords != null
+                ? `${transcriptWords.toLocaleString()} words`
+                : step.key === "selecting" && momentsFound != null
+                  ? `${momentsFound} found`
+                  : null;
           return (
             <li
               key={step.key}
@@ -88,6 +105,7 @@ export function JobProgress({
               </span>
               <span className={`font-medium ${active ? "text-ink" : done ? "text-ink" : "text-muted"}`}>
                 {step.label}
+                {count && <span className="ml-2 font-normal text-muted">· {count}</span>}
               </span>
             </li>
           );

@@ -144,6 +144,39 @@ def set_clips_pending(
     r.raise_for_status()
 
 
+def set_progress_detail(
+    job_id: str,
+    *,
+    source_minutes: float | None = None,
+    transcript_words: int | None = None,
+    moments_found: int | None = None,
+) -> None:
+    """Проставить live-narration счётчики (0011), ТОЛЬКО переданные ключи. Косметика → НЕ должно
+    валить рендер: при сбое логируем и продолжаем (явный лог, НЕ тихий проглот — правило №8)."""
+    fields = {
+        k: v
+        for k, v in (
+            ("source_minutes", source_minutes),
+            ("transcript_words", transcript_words),
+            ("moments_found", moments_found),
+        )
+        if v is not None
+    }
+    if not fields:
+        return
+    try:
+        r = httpx.patch(
+            f"{_base()}/jobs",
+            params={"id": f"eq.{job_id}"},
+            headers=_headers({"Prefer": "return=minimal"}),
+            json=fields,
+            timeout=_TIMEOUT,
+        )
+        r.raise_for_status()
+    except Exception as e:  # noqa: BLE001 — счётчики косметические, рендер важнее их записи
+        print(f"[set_progress_detail] WARN job={job_id}: {e}")
+
+
 def set_clip_ready(job_id: str, idx: int, url: str) -> None:
     """Атомарно проставить ``clips[idx].video_url`` ОДНОГО клипа (per-clip контейнер закончил).
 

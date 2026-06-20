@@ -159,6 +159,12 @@ class Job(BaseModel):
     # Stop-кнопка: можно ли ещё отменить джоб (True только во FREE-фазе: download/probe, до
     # транскрипции). Default False = безопасно: старые/неизвестные строки Stop не предлагают.
     cancellable: bool = False
+    # Live-narration счётчики во время обработки (до появления карточек). Опциональны → старые
+    # строки/код целы. source_minutes (после import), transcript_words (после transcribe),
+    # moments_found (после select, == число клипов). См. migrations/0011 + db.set_progress_detail.
+    source_minutes: float | None = None
+    transcript_words: int | None = None
+    moments_found: int | None = None
 
 
 # ─────────────────────────── EDITOR-модели (слой композиции, спека §3) ───────────────────────────

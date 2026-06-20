@@ -98,6 +98,10 @@ def init_db() -> None:
         # Stop-кнопка (зеркало migrations/0006_job_cancel.sql): id Modal-функции + флаг отмены.
         _ensure_column(c, "jobs", "function_call_id", "TEXT")
         _ensure_column(c, "jobs", "cancellable", "INTEGER NOT NULL DEFAULT 1")
+        # Live-narration счётчики (зеркало migrations/0011_progress_detail.sql).
+        _ensure_column(c, "jobs", "source_minutes", "REAL")
+        _ensure_column(c, "jobs", "transcript_words", "INTEGER")
+        _ensure_column(c, "jobs", "moments_found", "INTEGER")
 
 
 def insert_job(
@@ -179,6 +183,41 @@ def set_clips_pending(
             "UPDATE jobs SET status=?, stage=?, progress=?, clips_json=?, updated_at=? WHERE id=?",
             (status, status, progress, clips_json, time.time(), job_id),
         )
+
+
+def set_progress_detail(
+    job_id: str,
+    *,
+    source_minutes: float | None = None,
+    transcript_words: int | None = None,
+    moments_found: int | None = None,
+) -> None:
+    """Live-narration счётчики (0011): cloud PATCH / локальный SQLite UPDATE ТОЛЬКО переданных
+    полей. Косметика → cloud-путь best-effort (логирует, не валит рендер)."""
+    if cs.cloud_enabled():
+        cs.set_progress_detail(
+            job_id,
+            source_minutes=source_minutes,
+            transcript_words=transcript_words,
+            moments_found=moments_found,
+        )
+        return
+    sets: list[str] = []
+    vals: list[Any] = []
+    for col, v in (
+        ("source_minutes", source_minutes),
+        ("transcript_words", transcript_words),
+        ("moments_found", moments_found),
+    ):
+        if v is not None:
+            sets.append(f"{col}=?")
+            vals.append(v)
+    if not sets:
+        return
+    vals.extend((time.time(), job_id))
+    with _conn() as c:
+        # Колонки — из жёстко заданного кортежа выше (НЕ пользовательский ввод); значения через ?.
+        c.execute(f"UPDATE jobs SET {', '.join(sets)}, updated_at=? WHERE id=?", vals)  # noqa: S608
 
 
 def set_clip_ready(job_id: str, clip_index: int, video_url: str) -> None:
@@ -326,6 +365,17 @@ def row_to_wire(row: dict[str, Any]) -> dict[str, Any]:
         # downloading), даже если строка ещё несёт cancellable=1 (status — финальная истина).
         "cancellable": bool(row.get("cancellable"))
         and row.get("status") in ("queued", "downloading"),
+        # Live-narration счётчики (0011): None если ещё не проставлены/старая строка → фронт
+        # просто не показывает чип. Коэрсим типы (jsonb/SQLite могут вернуть строку/None).
+        "source_minutes": (
+            float(row["source_minutes"]) if row.get("source_minutes") is not None else None
+        ),
+        "transcript_words": (
+            int(row["transcript_words"]) if row.get("transcript_words") is not None else None
+        ),
+        "moments_found": (
+            int(row["moments_found"]) if row.get("moments_found") is not None else None
+        ),
     }
 
 
