@@ -154,25 +154,30 @@ def set_done(job_id: str, job: Job) -> None:
         )
 
 
-def set_clips_pending(job_id: str, clips: list[Any], progress: int = 80) -> None:
-    """Записать ВСЕ клипы (метаданные, video_url="") + status='rendering' СРАЗУ после Select.
+def set_clips_pending(
+    job_id: str, clips: list[Any], progress: int = 80, status: str = "rendering"
+) -> None:
+    """Записать ВСЕ клипы (метаданные, video_url="") в строку джоба СРАЗУ после Select.
 
     Инкрементальная выдача: строка джоба несёт полный список клипов как "pending" (пустой
     video_url), а каждый отрендеренный клип позже атомарно заполняет свой video_url через
     ``set_clip_ready``. GET /jobs отдаёт готовые клипы по мере рендера. ``clips`` — список
     ``ClipOut`` (или уже ``model_dump``-нутых dict'ов). Cloud пишет jsonb ``clips`` (та же
     колонка, что set_done); локальный SQLite — ``clips_json``.
+
+    ``status``: "selecting" если зовём СРАЗУ после select (карточки видны на ~60%, статус
+    честный), "rendering" на границе рендера (дефолт = старое поведение). Грид встаёт по
+    наличию клипов, не по статусу → ранний персист безопасен.
     """
     payload = [c.model_dump() if hasattr(c, "model_dump") else c for c in clips]
     if cs.cloud_enabled():
-        cs.set_clips_pending(job_id, payload, progress)
+        cs.set_clips_pending(job_id, payload, progress, status)
         return
     clips_json = json.dumps(payload, ensure_ascii=False)
     with _conn() as c:
         c.execute(
-            "UPDATE jobs SET status='rendering', stage='rendering', progress=?, clips_json=?,"
-            " updated_at=? WHERE id=?",
-            (progress, clips_json, time.time(), job_id),
+            "UPDATE jobs SET status=?, stage=?, progress=?, clips_json=?, updated_at=? WHERE id=?",
+            (status, status, progress, clips_json, time.time(), job_id),
         )
 
 

@@ -2,11 +2,20 @@
 
 import { Check, Gauge, Loader2, Pencil, Sparkles } from "lucide-react";
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { ExportMenu } from "@/components/ExportMenu";
 import { clipRange } from "@/lib/format";
 import type { ClipOut } from "@/lib/types";
 import { ClipPreview } from "./ClipPreview";
+import { PendingThumb } from "./PendingThumb";
 import { ReasonChip } from "./ReasonChip";
+
+function prefersReducedMotion(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
+}
 
 const WORKER_BASE = process.env.NEXT_PUBLIC_WORKER_URL ?? "";
 
@@ -32,29 +41,63 @@ export function ClipCard({
   const pending = !clip.video_url;
   const videoSrc = pending ? "" : resolveUrl(clip.video_url);
 
+  // ── arrival animation (per card instance; ClipGrid mounts one <ClipCard key=id>) ──
+  // `mounted` drives a one-time fade + scale "pop" on mount via Tailwind transition.
+  // `displayScore` counts up 0 → clip.score on first appearance. Both respect
+  // prefers-reduced-motion → final values are the INITIAL state (no animation, no
+  // synchronous setState in the effect — which the React Compiler lint forbids).
+  const reduced = prefersReducedMotion();
+  const [mounted, setMounted] = useState(reduced);
+  const [displayScore, setDisplayScore] = useState(() => (reduced ? clip.score : 0));
+
+  useEffect(() => {
+    if (prefersReducedMotion()) return;
+
+    // Trigger the enter transition on the next frame so the initial (hidden) state paints.
+    const raf = requestAnimationFrame(() => setMounted(true));
+
+    // Count the score up over ~600ms with rAF; clean up on unmount.
+    const target = clip.score;
+    const duration = 600;
+    let start: number | null = null;
+    let countRaf = 0;
+    const tick = (ts: number) => {
+      if (start === null) start = ts;
+      const t = Math.min(1, (ts - start) / duration);
+      // easeOutCubic for a snappy settle.
+      const eased = 1 - (1 - t) ** 3;
+      setDisplayScore(target * eased);
+      if (t < 1) countRaf = requestAnimationFrame(tick);
+      else setDisplayScore(target);
+    };
+    countRaf = requestAnimationFrame(tick);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      cancelAnimationFrame(countRaf);
+    };
+  }, [clip.score]);
+
+  // Resting opacity once mounted (pending/selected/idle). Before mount we force
+  // opacity-0 for the fade-in; afterwards the resting value takes over.
+  const restOpacity = pending ? "opacity-90" : selected ? "opacity-100" : "opacity-55 hover:opacity-80";
+
   return (
     <article
       className={`flex flex-col rounded-lg border bg-surface transition duration-200 ease-snappy ${
-        pending
-          ? "border-line opacity-90"
-          : selected
-            ? "border-accent/60 ring-1 ring-accent/30"
-            : "border-line opacity-55 hover:opacity-80"
+        pending ? "border-line" : selected ? "border-accent/60 ring-1 ring-accent/30" : "border-line"
+      } ${
+        mounted ? `translate-y-0 scale-100 ${restOpacity}` : "translate-y-1 scale-95 opacity-0"
       }`}
     >
       {/* ── video preview: SAME caption engine as the editor (libass + the real ASS),
           so the grid shows the hook + captions exactly like the editor / export ── */}
       <div className="relative">
         {pending ? (
-          // Skeleton placeholder for a clip still rendering. Keep the 9:16 frame so the grid
-          // doesn't reflow when this card flips to its real player.
-          <div className="relative aspect-[9/16] w-full overflow-hidden rounded-t-lg bg-surface-2">
-            <div className="absolute inset-0 animate-pulse bg-surface-2" />
-            <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 text-muted">
-              <Loader2 className="size-6 animate-spin" />
-              <span className="font-mono text-xs">Rendering…</span>
-            </div>
-          </div>
+          // Clip still rendering: frame-grab a poster from the preview proxy (falls back to a
+          // skeleton until ready). Keeps the 9:16 frame so the grid doesn't reflow when this
+          // card flips to its real player.
+          <PendingThumb jobId={jobId} clipStart={clip.start} />
         ) : (
           <ClipPreview
             src={videoSrc}
@@ -95,7 +138,7 @@ export function ClipCard({
             title="AI confidence that this clip works as a short"
           >
             <Gauge className="size-3.5 text-muted" />
-            {clip.score.toFixed(2)}
+            {displayScore.toFixed(2)}
           </span>
         </div>
 

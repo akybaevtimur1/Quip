@@ -121,19 +121,24 @@ def set_done(
     r.raise_for_status()
 
 
-def set_clips_pending(job_id: str, clips: list[dict[str, Any]], progress: int = 80) -> None:
-    """Записать ВСЕ клипы со статусом "rendering" и пустым video_url СРАЗУ после Select.
+def set_clips_pending(
+    job_id: str, clips: list[dict[str, Any]], progress: int = 80, status: str = "rendering"
+) -> None:
+    """Записать ВСЕ клипы (метаданные, пустой video_url) в строку джоба СРАЗУ после Select.
 
-    Та же колонка ``clips`` (jsonb), что пишет ``set_done`` — но status остаётся "rendering",
-    а каждый клип несёт ``video_url=""`` (pending). Параллельные фан-аут-контейнеры затем
-    проставляют свой video_url через ``set_clip_ready`` (атомарный jsonb_set). Так GET /jobs
-    отдаёт уже готовые клипы по мере рендера, пока ``set_done`` не флипнет в "done".
+    Та же колонка ``clips`` (jsonb), что пишет ``set_done``; каждый клип несёт ``video_url=""``
+    (pending). Параллельные фан-аут-контейнеры затем проставляют свой video_url через
+    ``set_clip_ready`` (атомарный jsonb_set). Так GET /jobs отдаёт клипы по мере готовности.
+
+    ``status`` управляет тем, КОГДА это зовут: на границе render → "rendering" (как раньше);
+    СРАЗУ после select → "selecting" (клипы видны на ~60%, статус честный, грид встаёт по
+    наличию клипов, не по статусу). Дефолт "rendering" = старое поведение.
     """
     r = httpx.patch(
         f"{_base()}/jobs",
         params={"id": f"eq.{job_id}"},
         headers=_headers({"Prefer": "return=minimal"}),
-        json={"status": "rendering", "stage": "rendering", "progress": progress, "clips": clips},
+        json={"status": status, "stage": status, "progress": progress, "clips": clips},
         timeout=_TIMEOUT,
     )
     r.raise_for_status()

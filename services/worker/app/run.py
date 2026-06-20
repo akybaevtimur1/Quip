@@ -341,6 +341,18 @@ def run_pipeline(
         transcript.model_dump(),
     )
 
+    # ── Инкрементальная выдача СРАЗУ после select (а не на границе рендера): персистим ВСЕ клипы
+    #    (метаданные хук/why/score/интервал + ПУСТОЙ video_url) в строку джоба ТЕПЕРЬ → GET /jobs
+    #    отдаёт богатые карточки на ~60%, за МИНУТЫ до рендера (фронт встаёт на грид по наличию
+    #    клипов). status="selecting" (честно), progress=60. Каждый per-clip контейнер позже
+    #    атомарно проставит свой video_url (db.set_clip_ready). clip_id 1-based (clip_{i:02d})
+    #    совпадает с порядком segments → idx фан-аута выровнен. ──
+    pending_clips: list[ClipOut] = [
+        build_clip_out(f"clip_{i:02d}", seg, transcript.words, "")
+        for i, seg in enumerate(segments, start=1)
+    ]
+    db.set_clips_pending(job_id, pending_clips, progress=60, status=JobStatus.selecting)
+
     # ── Источник в R2 ДО фан-аута: каждый клип-контейнер скачивает source из R2
     #    (artifacts.ensure_source — тот же проверенный путь, что у editor-render). Локально
     #    upload_source = no-op (исходник остаётся на диске). ──
@@ -359,16 +371,9 @@ def run_pipeline(
     if dispatch.modal_spawn_enabled():
         dispatch.spawn("generate_video_map_job", job_id)
 
-    # ── Инкрементальная выдача: персистим ВСЕ клипы (метаданные + ПУСТОЙ video_url) в строку
-    #    джоба СРАЗУ, status='rendering'. Каждый per-clip контейнер затем атомарно проставит свой
-    #    video_url (db.set_clip_ready) по мере готовности → GET /jobs отдаёт клипы по одному, а не
-    #    разом в конце. clip_id 1-based (clip_{i:02d}) совпадает с порядком массива. ──
+    # ── Рендер реально стартует здесь: статус → rendering, progress 80. Клипы уже персистнуты
+    #    выше (после select); тут только апдейт статуса/прогресса (клипы не переписываем). ──
     emit(JobStatus.rendering, 80)
-    pending_clips: list[ClipOut] = [
-        build_clip_out(f"clip_{i:02d}", seg, transcript.words, "")
-        for i, seg in enumerate(segments, start=1)
-    ]
-    db.set_clips_pending(job_id, pending_clips, progress=80)
 
     # ── Stages 3–5: #1 фан-аут per-clip по контейнерам Modal (параллельно) ЛИБО последовательный
     #    цикл локально. Результаты приходят в порядке сегментов → стабильный ClipOut. ──
