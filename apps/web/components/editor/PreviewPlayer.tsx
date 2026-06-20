@@ -40,7 +40,8 @@ export function PreviewPlayer({
   frame?: FrameState | null;
   onTimeChange?: (sec: number) => void;
   /** T5: класс соотношения сторон (aspect-[9/16] | aspect-[1/1] | aspect-[4/5] | aspect-[16/9]).
-   *  Контейнер сам contain'ится: w-full + max-h-full + aspect → не распирает страницу. */
+   *  Рендер-бокс HEIGHT-driven и ограничен обе стороны (h-full + max-h-full + max-w-full +
+   *  aspect), центрирован в флекс-контейнере → contain'ится в ЛЮБОЙ (в т.ч. широкой) колонке. */
   aspectClass?: string;
   children?: React.ReactNode;
 }) {
@@ -56,6 +57,15 @@ export function PreviewPlayer({
   const mode = frame?.mode ?? "fill";
   const cx = frame?.cx ?? 0.5;
   const cxB = frame?.cxB ?? 0.7;
+
+  // ── numeric aspect ratio (W/H) parsed from aspectClass (`aspect-[9/16]` → 9/16) ──
+  // Drives the CSS-only "contain" width: the render box width = min(full container
+  // width, ratio × full container height). aspect-ratio derives its height. This is the
+  // ONLY single-element CSS that contains EVERY aspect in a container of ANY shape — a
+  // plain `h-full`+aspect+`max-w-full` box STRETCHES landscape aspects in a wide-and-short
+  // column (height stays 100% while max-width clamps width → ratio broken). See report.
+  const arMatch = /aspect-\[(\d+(?:\.\d+)?)\/(\d+(?:\.\d+)?)\]/.exec(aspectClass);
+  const ar = arMatch ? Number(arMatch[1]) / Number(arMatch[2]) : 9 / 16;
 
   // ── блюр-фон (fit) ведомый: догоняет мастера ТОЛЬКО пока fit активен ──
   // (иначе 3 лишних декодера 300МБ-источника крутятся вхолостую и душат страницу)
@@ -178,20 +188,26 @@ export function PreviewPlayer({
   return (
     <div
       ref={containerRef}
-      className={`group relative mx-auto overflow-hidden rounded-xl border border-line bg-black ${
-        isFullscreen ? "flex h-full w-full items-center justify-center" : `w-full max-h-full ${aspectClass}`
-      }`}
+      className="group relative mx-auto flex h-full w-full items-center justify-center overflow-hidden [container-type:size]"
     >
       {/* Внутренний бокс = РЕНДЕР-бокс видео; video/canvas/хит-зоны/гайды все absolute
           inset-0 относительно него → оверлей (libass + драг-зоны) ВСЕГДА совпадает с
-          картинкой. В fullscreen центрируемся в флекс-контейнере и держим aspect, но
-          ограничиваем ОБЕ стороны (max-h-full max-w-full): иначе при не-портретном
-          aspectClass `h-full`+aspect распирал ширину за вьюпорт → видео/субтитры
-          вылезали за экран = артефакты/смещение оверлея в fullscreen. */}
+          картинкой (offsetParent оверлея = этот бокс; ResizeObserver libass меряет его).
+          Центрируемся в флекс-контейнере и держим aspect в ОБОИХ режимах (НЕ только
+          fullscreen).
+
+          CONTAIN (CSS-only, любой shape контейнера): ширина = min(вся ширина контейнера,
+          ratio × вся высота), aspect-ratio добирает высоту. Так бокс упирается в МЕНЬШЕЕ
+          из двух ограничений и НИКОГДА не растягивается. Раньше non-fullscreen был
+          `w-full`+aspect на КОРНЕ: в широкой колонке Fixed-Studio (~900px) 9:16 считал
+          высоту ~1600px → max-h-full клампил высоту, ширина оставалась 900 → бокс
+          становился ШИРОКИМ (~16:9). А наивный `h-full`+aspect+max-w-full ломает обратное:
+          landscape (16:9) в широкой-низкой колонке → высота 100%, ширину клампит max-w →
+          ratio рвётся = растяжка. min(100cqw, ratio×100cqh) корректен для ВСЕХ аспектов.
+          Рамка/фон живут на ЭТОМ боксе, чтобы видимый кадр = видео. */}
       <div
-        className={
-          isFullscreen ? `relative h-full max-h-full max-w-full ${aspectClass}` : "absolute inset-0"
-        }
+        style={{ width: `min(100cqw, ${ar} * 100cqh)` }}
+        className={`relative h-auto max-h-full max-w-full overflow-hidden rounded-xl border border-line bg-black ${aspectClass}`}
       >
         {/* fit: блюр-фон позади (весь кадр + рамки, как в рендере).
             ПРОГРЕВ (#4 анти-флеш): монтируем во ВСЕХ режимах КРОМЕ split — не только в fit.
