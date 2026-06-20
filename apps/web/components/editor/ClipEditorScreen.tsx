@@ -994,7 +994,7 @@ export default function ClipEditorScreen({
           Loading editor…
         </div>
       ) : (
-        <main className="grid min-h-0 grid-cols-1 gap-4 overflow-y-auto p-4 lg:grid-cols-[minmax(280px,380px)_minmax(0,1fr)] lg:overflow-visible">
+        <main className="grid min-h-0 grid-cols-1 gap-4 overflow-y-auto p-4 lg:grid-cols-[minmax(280px,380px)_minmax(0,1fr)] lg:overflow-hidden">
           {/* ЛЕВО: превью. Доступная область = ширина колонки × ограниченная высота;
               PreviewPlayer сам contain'ится по aspectClass (w-full + max-h-full + aspect) →
               НЕ распирает страницу на 16:9/1:1/4:5 (баг T5 пофикшен). */}
@@ -1157,7 +1157,7 @@ export default function ClipEditorScreen({
               ))}
             </div>
 
-            <div className="flex min-h-0 flex-1 flex-col rounded-xl border border-line bg-surface p-4">
+            <div className="flex min-h-0 flex-1 flex-col overflow-y-auto rounded-xl border border-line bg-surface p-4">
               {edit && tab === "agent" && (
                 <AgentTab
                   key={clipId}
