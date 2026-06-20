@@ -57,6 +57,12 @@
   без `Cache-Control` → Download тянул старый рендер (било ЛЮБУЮ правку после первого рендера). Фикс:
   `Cache-Control: no-cache` на заливке + cache-buster `?v=<clip_edit.version>` на render-URL
   (`storage.clip_upload_extra_args` + `storage.with_cache_bust` в `get_render`). Только экспорт/кэш.
+- **Редактор «Fixed Studio» (WS-A) — ветка `editor-fixed-studio`, не смёрджена.** Новый shell:
+  левый icon-rail (Agent/Captions/Hook/Style/Frame) + стабильный canvas + contextual inspector.
+  P0-баг «Frame-панель уменьшает видео» закрыт (canvas отвязан от высоты контента панели). Preview
+  aspect-contain fix (9:16 в широком canvas). In-page переключение клипов без ремаунта + prefetch.
+  Live Frame mode (без Apply). De-overload Hook + grouped Style + preset grids. English preset names.
+  Spec/plan: `docs/superpowers/specs/2026-06-20-editor-fixed-studio-design.md`.
 - **Рендер клипов = параллельный фан-аут (perf, 2026-06-17).** `run_job` делает import→
   transcribe→select, грузит source в R2, затем фанит per-clip reframe+render по контейнерам
   `reframe_render_clip` (`starmap`) вместо последовательного цикла. **preview-прокси** (полный
@@ -204,7 +210,7 @@ Pick [X] by task:
 |------|------|
 | Anything backend | `CLAUDE.md` rules + `docs/BACKEND_AUDIT.md` |
 | Reframe / render / "flashes" | `docs/REFRAME_FPS_GRID_INVARIANT.md` (mandatory) |
-| Editor (timeline/captions/preview) | `docs/superpowers/specs/2026-06-12-editor-v3-design.md` + `…wysiwyg-libass-preview…` |
+| Editor (timeline/captions/preview) | `docs/superpowers/specs/2026-06-12-editor-v3-design.md` + `…wysiwyg-libass-preview…` · **layout/shell (WS-A):** `docs/superpowers/specs/2026-06-20-editor-fixed-studio-design.md` |
 | Billing / Polar / credits | `app/billing.py`, `app/polar.py`, this file's "Money paths" |
 | UI / design | `DESIGN.md` + `apps/web/AGENTS.md` |
 | Deploy / infra | "Deploy & infra map" below (ignore `apps/web/DEPLOY.md` step 1) |

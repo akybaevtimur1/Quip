@@ -245,3 +245,49 @@ Frame context), the `(app)/edit/[jobId]/[clipId]/page.tsx` (initial-clip handoff
 
 None blocking. The only implementation-time unknown is the exact Next 16 shallow-URL API, resolved by reading
 `node_modules/next/dist/docs/` during implementation.
+
+---
+
+## Implemented (WS-A) — 2026-06-20
+
+> Status: **implemented on branch `editor-fixed-studio`, not yet merged or deployed.**
+> Commit range: `b5f2d24` (Task 1 — framing-bug fix) … `cadf14d` (FIX-C — hook preset grid).
+> All tasks reviewed and approved; `just check` green throughout.
+
+### What shipped
+
+- **Fixed-Studio shell** (`EditorRail`, `EditorCanvas`, `Inspector`) — left icon-rail
+  (Agent / Captions / Hook / Style / Frame, 5 items; Presets deferred to WS-D), center canvas,
+  right contextual inspector, bottom timeline. Replaces the old top-tab layout.
+- **Framing-panel "video shrinks" bug fixed** — canvas size is now decoupled from inspector
+  content height; opening any panel (including Frame, the tallest) no longer resizes the video.
+- **Preview aspect-contain fix** (FIX-A, user dogfood) — 9:16 video contains/centers correctly
+  in the wide canvas column via CSS container-query `contain` (`width: min(100cqw, ar*100cqh)`);
+  overlay alignment verified (libass `parentElement` / overlay `offsetParent` both = render box).
+- **In-page clip switching** (no full remount) — `clipId` as client state; neighbor prefetch
+  cache (current ±1); switch-time race guards (cross-clip PATCH apply + instant-paint revalidation
+  clobber both closed).
+- **Live Frame mode** — explicit "Apply" button removed; frame-mode changes apply live (debounced),
+  consistent with every other live control. "Reset framing" affordance kept.
+- **De-overloaded Hook inspector** — primary section (toggle / text / regenerate / timing) +
+  collapsible Style section; no new capabilities, reorganization only.
+- **FitTimeline moved into the Frame inspector** — duplicate per-shot framing UI under the canvas
+  removed; Frame inspector is the authoritative framing surface.
+- **Grouped Style panel + preset grid** (FIX-B, user dogfood) — `PresetStrip` → `grid-cols-3`
+  (no horizontal-scroll dep); `StyleTab` grouped into Colors / Text / Position / Animation; full
+  control parity.
+- **Hook preset grid** (FIX-C) — same grid treatment as caption presets; `useWheelHscroll.ts`
+  deleted (dead code, −45 lines); behavior parity.
+- **English-only built-in preset names** — 11 Russian names in `preset_seeds.py` → English;
+  `isascii` enforced by test (818 tests green).
+- **Perf:** stabilized `frame` memo identity (fewer per-tick re-renders); memoized inspector
+  subtree (stops `~4Hz nowSec` tick from re-rendering controls); keyboard shortcuts
+  (`Space` / `R` / `1–5` / `[` / `]` / `Esc`).
+- **Vitest harness** added and gated in `just check`; 21 pure-logic unit tests covering the
+  prefetch cache, keyboard resolver, frame-identity stabilizer, and clip-switch reducer.
+
+### Minor open findings (non-blocking, tracked in `.superpowers/sdd/progress.md`)
+
+Cosmetic / optional hardening items only — redundant `aspectClass` prop, stale `touchedRef` dead
+code, `[`/`]` not gated on `busy`, focus ring on relocated "Remove hook" button, two stray BOM
+chars in commit subjects.
