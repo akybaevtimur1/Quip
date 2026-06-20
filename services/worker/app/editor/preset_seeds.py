@@ -1,9 +1,7 @@
-"""Сид-пресеты стилей субтитров (галерея, дефолт A). PURE-данные.
+"""Seed caption style presets (UI gallery, default A). Pure data.
 
-Один источник правды значений для бэка (экспорт ASS) и фронта (CSS-превью): фронт зеркалит
-эти же значения в apps/web/lib/presets.ts. Главный путь — отдавать их через GET /presets.
-
-Дефолт = A (караоке-бокс). См. docs/superpowers/specs/2026-06-11-editor-v2-design.md §A2.
+Single source of truth for backend (ASS export) and frontend (CSS preview).
+Served via GET /presets endpoint. See docs/superpowers/specs/2026-06-11-editor-v2-design.md.
 """
 
 from __future__ import annotations
@@ -14,11 +12,11 @@ DEFAULT_PRESET_ID = "preset_a"
 
 
 def seed_presets() -> list[CaptionPreset]:
-    """4 встроенных пресета. id стабильны (preset_a..preset_d), A — дефолт."""
+    """21 built-in presets. IDs are stable (preset_a..preset_u), A is default."""
     return [
         CaptionPreset(
             id="preset_a",
-            name="Активное слово",
+            name="Active Word",
             # Дефолт = вирусный стандарт (OpusClip/Submagic): активное слово вспыхивает
             # кораллом + подскок (pop) РОВНО в момент произнесения. box=False — per-word
             # плашка в libass не рисуется (нет примитива фона под спан), не обещаем её.
@@ -27,7 +25,7 @@ def seed_presets() -> list[CaptionPreset]:
         ),
         CaptionPreset(
             id="preset_b",
-            name="Цветное слово",
+            name="Color Word",
             style=CaptionStyle(size=84, color="#FFFFFF", outline_color="#000000", outline_w=8),
             highlight=HighlightStyle(color="#FFD23D", scale=1.0, box=False),
         ),
@@ -39,7 +37,7 @@ def seed_presets() -> list[CaptionPreset]:
         ),
         CaptionPreset(
             id="preset_d",
-            name="Чистая строка",
+            name="Clean Line",
             style=CaptionStyle(
                 size=76, color="#FFFFFF", outline_color="#000000", outline_w=4, shadow=4
             ),
@@ -53,7 +51,7 @@ def seed_presets() -> list[CaptionPreset]:
         ),
         CaptionPreset(
             id="preset_f",
-            name="Неон",
+            name="Neon",
             style=CaptionStyle(
                 size=92, color="#E9FBFF", outline_color="#0FD9FF", outline_w=4, shadow=4
             ),
@@ -61,7 +59,7 @@ def seed_presets() -> list[CaptionPreset]:
         ),
         CaptionPreset(
             id="preset_g",
-            name="Минимал",
+            name="Minimal",
             style=CaptionStyle(
                 size=64,
                 color="#FFFFFF",
@@ -74,7 +72,7 @@ def seed_presets() -> list[CaptionPreset]:
         ),
         CaptionPreset(
             id="preset_h",
-            name="Подкаст",
+            name="Podcast",
             style=CaptionStyle(
                 size=78,
                 color="#FFFFFF",
@@ -89,25 +87,25 @@ def seed_presets() -> list[CaptionPreset]:
         ),
         CaptionPreset(
             id="preset_i",
-            name="Караоке-грин",
+            name="Karaoke Green",
             style=CaptionStyle(size=90, color="#FFFFFF", outline_color="#000000", outline_w=6),
             highlight=HighlightStyle(color="#34E36B", scale=1.0, box=True),
         ),
         CaptionPreset(
             id="preset_j",
-            name="Жирный белый",
+            name="Bold White",
             style=CaptionStyle(size=118, color="#FFFFFF", outline_color="#000000", outline_w=9),
             highlight=HighlightStyle(color="#FFFFFF", scale=1.15, box=False, animation="bounce"),
         ),
         CaptionPreset(
             id="preset_k",
-            name="Контур-поп",
+            name="Outline Pop",
             style=CaptionStyle(size=96, color="#FFFFFF", outline_color="#FF5A3D", outline_w=5),
             highlight=HighlightStyle(color="#FF5A3D", scale=1.0, box=False, animation="pop"),
         ),
         CaptionPreset(
             id="preset_l",
-            name="Нижняя треть",
+            name="Lower Third",
             style=CaptionStyle(
                 size=58,
                 color="#FFFFFF",
@@ -123,7 +121,7 @@ def seed_presets() -> list[CaptionPreset]:
         ),
         CaptionPreset(
             id="preset_m",
-            name="Поп-слова",
+            name="Pop Words",
             # T3: авто-подсветка ключевых слов (числа + длинные контентные) коралл-акцентом,
             # без караоке → чистый белый с «выстреливающими» словами (стиль OpusClip/Hormozi).
             style=CaptionStyle(
