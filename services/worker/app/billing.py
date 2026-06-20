@@ -45,6 +45,11 @@ class PlanLimits:
     max_video_minutes: int | None  # cap длины ОДНОГО видео (None = только тех. потолок)
     watermark: bool  # прожигать вотермарку (free)
     max_resolution: int  # 720 / 1080
+    # Качество энкода клипа (libx264). Платные планы получают НАИВЫСШЕЕ практичное качество
+    # (низкий CRF + медленнее пресет = чётче картинка при том же 1080), free — быстрый дефолт.
+    # Меняет ТОЛЬКО энкод, не кадровую сетку (Δ=0). crf: меньше = лучше; preset: медленнее = лучше.
+    video_crf: int = 20
+    video_preset: str = "veryfast"
     priority: bool = False  # приоритет очереди
 
 
@@ -68,6 +73,8 @@ PLANS: dict[str, PlanLimits] = {
         max_video_minutes=None,  # длина одного видео — только тех. потолок
         watermark=False,
         max_resolution=1080,
+        video_crf=18,  # платные: чётче (vs free 20)
+        video_preset="medium",  # платные: лучше компрессия/качество (vs free veryfast)
     ),  # fmt: skip
     "pro": PlanLimits(
         id="pro",
@@ -77,6 +84,8 @@ PLANS: dict[str, PlanLimits] = {
         max_video_minutes=None,
         watermark=False,
         max_resolution=1080,
+        video_crf=18,  # платные: чётче (vs free 20)
+        video_preset="medium",  # платные: лучше компрессия/качество (vs free veryfast)
         priority=True,
     ),  # fmt: skip
 }
@@ -125,14 +134,17 @@ class RenderPolicy:
 
     ``watermark``       — прожигать ли вотермарку «Made with Quip» (free=True).
     ``max_resolution``  — потолок высоты выходного клипа в px (free=720, платные=1080).
+    ``video_crf``       — CRF libx264 (меньше = качественнее; free=20, платные=18).
+    ``video_preset``    — preset libx264 (медленнее = качественнее; free=veryfast, платные=medium).
 
-    Источник правды — ``PlanLimits`` (free.watermark/max_resolution). Решается СЕРВЕРНО из
-    плана владельца (``jobs.user_id`` → ``profiles.plan``) и не зависит ни от какого клиентского
-    флага → обойти с фронта невозможно.
+    Источник правды — ``PlanLimits``. Решается СЕРВЕРНО из плана владельца (``jobs.user_id`` →
+    ``profiles.plan``) и не зависит ни от какого клиентского флага → обойти с фронта невозможно.
     """
 
     watermark: bool
     max_resolution: int
+    video_crf: int = 20
+    video_preset: str = "veryfast"
 
 
 def resolve_render_policy(plan_id: str | None, *, local_dev: bool) -> RenderPolicy:
@@ -144,9 +156,20 @@ def resolve_render_policy(plan_id: str | None, *, local_dev: bool) -> RenderPoli
     ``user_id``, поэтому free-юзер ВСЕГДА получает вотермарку (обойти с клиента нельзя).
     """
     if local_dev:
-        return RenderPolicy(watermark=False, max_resolution=PLANS["pro"].max_resolution)
+        pro = PLANS["pro"]
+        return RenderPolicy(
+            watermark=False,
+            max_resolution=pro.max_resolution,
+            video_crf=pro.video_crf,
+            video_preset=pro.video_preset,
+        )
     plan = resolve_plan(plan_id)
-    return RenderPolicy(watermark=plan.watermark, max_resolution=plan.max_resolution)
+    return RenderPolicy(
+        watermark=plan.watermark,
+        max_resolution=plan.max_resolution,
+        video_crf=plan.video_crf,
+        video_preset=plan.video_preset,
+    )
 
 
 @dataclass(frozen=True)

@@ -159,6 +159,7 @@ def render_one_clip(
         out, source_name, seg.start, f"clips/{clip_id}.mp4",
         regions=regions, src_w=meta.width, src_h=meta.height, fps=meta.fps,
         engine=s.reframe_engine, out_w=out_w, out_h=out_h, watermark=policy.watermark,
+        crf=policy.video_crf, preset=policy.video_preset,
     )  # fmt: skip
     video_url = storage.upload_clip(out / "clips" / f"{clip_id}.mp4", out.name, clip_id)
     # Инкрементальная выдача: атомарно проставляем video_url ЭТОГО клипа в строку джоба сразу

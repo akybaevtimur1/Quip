@@ -372,17 +372,28 @@ def build_smooth_filter(
     return "".join(parts)
 
 
+def _video_out_args(crf: int, preset: str) -> list[str]:
+    """Выходные args ffmpeg (видео+аудио). Качество (crf/preset) приходит из RenderPolicy
+    владельца джоба → платные планы рендерят чётче (ниже crf, медленнее preset), free — быстрый
+    дефолт. yuv420p — совместимость браузер/соцсети; faststart — moov вперёд. Меняет ТОЛЬКО энкод,
+    НЕ кадровую сетку (trim/fps/регионы) → Δ=0 инвариант цел (REFRAME_FPS_GRID_INVARIANT). PURE."""
+    return [
+        "-c:v", "libx264", "-preset", preset, "-crf", str(crf), "-pix_fmt", "yuv420p",
+        "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart",
+    ]  # fmt: skip
+
+
 def build_single_pass_cmd(
-    source: str, start: float, dur: float, filter_complex: str, out_name: str
-) -> list[str]:
+    source: str, start: float, dur: float, filter_complex: str, out_name: str,
+    *, crf: int = 20, preset: str = "veryfast",
+) -> list[str]:  # fmt: skip
     """ffmpeg: -ss ДО -i (выровненный старт), видео [outv], аудио непрерывным 0:a."""
     return [
         "ffmpeg", "-y",
         "-ss", str(start), "-i", source, "-t", str(dur),
         "-filter_complex", filter_complex,
         "-map", "[outv]", "-map", "0:a",
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
-        "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart",
+        *_video_out_args(crf, preset),
         out_name,
     ]  # fmt: skip
 
@@ -439,6 +450,8 @@ def render_frame_by_frame(
     out_h: int = 1920,
     blur_k: int = 55,
     watermark: bool = False,
+    crf: int = 20,
+    preset: str = "veryfast",
 ) -> None:
     """Engine B: cv2 per-frame → pipe raw BGR → ffmpeg stdin.
 
@@ -469,8 +482,7 @@ def render_frame_by_frame(
         "-ss", str(aligned_start), "-t", str(dur), "-i", str(source),
         "-map", "0:v:0", "-map", "1:a:0?",
         *(["-vf", ",".join(vf_filters)] if vf_filters else []),
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
-        "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart",
+        *_video_out_args(crf, preset),
         out_name,
     ]  # fmt: skip
     proc = subprocess.Popen(ffmpeg_cmd, cwd=data_dir, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -531,6 +543,8 @@ def render_clip(
     out_w: int = 1080,
     out_h: int = 1920,
     watermark: bool = False,
+    crf: int = 20,
+    preset: str = "veryfast",
 ) -> float:
     """ОДИН проход рендера клипа (V2): Engine A (ffmpeg expr) или B (cv2 pipe).
 
@@ -565,13 +579,17 @@ def render_clip(
             out_w=out_w,
             out_h=out_h,
             watermark=watermark,
+            crf=crf,
+            preset=preset,
         )
     else:  # Engine A (default)
         fc = build_smooth_filter(
             regions, src_w, src_h, fps, ass_name, out_w=out_w, out_h=out_h,
             fontsdir=_fontsdir_rel(data_dir), watermark=watermark,
         )  # fmt: skip
-        cmd = build_single_pass_cmd(source_name, aligned_start, dur, fc, out_name)
+        cmd = build_single_pass_cmd(
+            source_name, aligned_start, dur, fc, out_name, crf=crf, preset=preset
+        )
         _run_ffmpeg(cmd, data_dir)
 
     if not (data_dir / out_name).exists():
@@ -674,14 +692,15 @@ def build_timeline_filter(
     return "".join(parts)
 
 
-def build_timeline_cmd(source: str, filter_complex: str, out_name: str) -> list[str]:
+def build_timeline_cmd(
+    source: str, filter_complex: str, out_name: str, *, crf: int = 20, preset: str = "veryfast"
+) -> list[str]:
     """ffmpeg для таймлайна: ПОЛНЫЙ вход (-i), маппим [outv]/[outa] из фильтра."""
     return [
         "ffmpeg", "-y", "-i", source,
         "-filter_complex", filter_complex,
         "-map", "[outv]", "-map", "[outa]",
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
-        "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart",
+        *_video_out_args(crf, preset),
         out_name,
     ]  # fmt: skip
 
@@ -701,6 +720,8 @@ def render_timeline(
     out_w: int = 1080,
     out_h: int = 1920,
     watermark: bool = False,
+    crf: int = 20,
+    preset: str = "veryfast",
 ) -> float:
     """Рендер mp4 из edit-state (спека §6). Возвращает латентность (с). JobError при сбое.
 
@@ -729,6 +750,8 @@ def render_timeline(
             out_w=out_w,
             out_h=out_h,
             watermark=watermark,
+            crf=crf,
+            preset=preset,
         )
 
     segments = flatten_timeline(intervals, regions_per_interval, fps)
@@ -737,7 +760,7 @@ def render_timeline(
         fontsdir=_fontsdir_rel(data_dir), watermark=watermark,
     )  # fmt: skip
     t0 = time.perf_counter()
-    _run_ffmpeg(build_timeline_cmd(source_name, fc, out_name), data_dir)
+    _run_ffmpeg(build_timeline_cmd(source_name, fc, out_name, crf=crf, preset=preset), data_dir)
     if not (data_dir / out_name).exists():
         raise JobError(_STAGE, f"render_timeline did not create {out_name}")
     return round(time.perf_counter() - t0, 2)

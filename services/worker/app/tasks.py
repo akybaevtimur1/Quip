@@ -170,6 +170,8 @@ def render_edit_to_file(job_id: str, clip_id: str, *, with_subtitles: bool, out_
         out_w=out_w,
         out_h=out_h,
         watermark=policy.watermark,
+        crf=policy.video_crf,
+        preset=policy.video_preset,
     )
 
 

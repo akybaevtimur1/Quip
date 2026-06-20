@@ -105,6 +105,37 @@ class TestResolveRenderPolicy:
         p = resolve_render_policy("free", local_dev=True)
         assert p.watermark is False
 
+    # ── Качество энкода по плану (платные = чётче) ──
+    def test_free_encode_is_fast_default(self) -> None:
+        p = resolve_render_policy("free", local_dev=False)
+        assert p.video_crf == 20
+        assert p.video_preset == "veryfast"
+
+    def test_paid_encode_is_higher_quality(self) -> None:
+        # Платные планы рендерят НАИВЫСШИМ практичным качеством: ниже CRF + медленнее preset.
+        for plan_id in ("starter", "pro"):
+            p = resolve_render_policy(plan_id, local_dev=False)
+            assert p.video_crf == 18
+            assert p.video_preset == "medium"
+
+    def test_paid_crf_strictly_better_than_free(self) -> None:
+        # Инвариант качества: платный CRF ДОЛЖЕН быть ниже free (меньше = качественнее).
+        free = resolve_render_policy("free", local_dev=False)
+        pro = resolve_render_policy("pro", local_dev=False)
+        assert pro.video_crf < free.video_crf
+
+    def test_local_dev_uses_pro_encode_quality(self) -> None:
+        # Локальный dev (нет owner) → качество Pro (как и max_resolution=1080).
+        p = resolve_render_policy(None, local_dev=True)
+        assert p.video_crf == 18
+        assert p.video_preset == "medium"
+
+    def test_unknown_plan_defaults_to_free_encode(self) -> None:
+        # Безопасный дефолт: неизвестный план → free-энкод (не выдаём платное качество даром).
+        p = resolve_render_policy("bogus", local_dev=False)
+        assert p.video_crf == 20
+        assert p.video_preset == "veryfast"
+
 
 class TestCheckQuota:
     def test_free_allows_short_video(self) -> None:
