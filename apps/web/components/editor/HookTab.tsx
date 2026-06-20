@@ -7,7 +7,6 @@ import { Checkbox } from "@/components/ui/Checkbox";
 import { Select } from "@/components/ui/Select";
 import { HOOK_PRESETS } from "@/lib/hookPresets";
 import type { ClipEdit, HookOverlay } from "@/lib/types";
-import { useWheelHscroll } from "@/lib/useWheelHscroll";
 import { CAPTION_FONTS } from "./StyleTab";
 import { ColorField, DebouncedSlider } from "./StyleControls";
 
@@ -59,7 +58,6 @@ export function HookTab({
   // box_color: undefined в патче ≠ null. Модельный дефолт = коралл-плашка.
   const boxColor = hook?.box_color === undefined ? HOOK_DEFAULTS.box_color : hook.box_color;
   const hasPlaque = boxColor !== null;
-  const presetScrollRef = useWheelHscroll<HTMLDivElement>(); // #6: колесо мыши → горизонталь
 
   // локальный текст: печать не должна слать PATCH на каждый символ (как ColorField).
   // Коммит — на blur / Enter-pause (debounce). Синк с пропом — adjust-during-render.
@@ -234,17 +232,14 @@ export function HookTab({
               <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">
                 Presets
               </p>
-              <div
-                ref={presetScrollRef}
-                className="no-scrollbar flex snap-x snap-mandatory gap-2 overflow-x-auto py-1"
-              >
+              <div className="grid grid-cols-3 gap-2 py-1">
                 {HOOK_PRESETS.map((preset) => (
                   <button
                     key={preset.id}
                     type="button"
                     disabled={busy}
                     onClick={() => onHookChange({ ...preset.values, enabled: true })}
-                    className="flex shrink-0 snap-start flex-col items-stretch gap-1 rounded-lg border border-line bg-surface-2 p-1.5 transition hover:border-line-strong focus:outline-none focus:ring-2 focus:ring-accent/50 disabled:opacity-50"
+                    className="flex flex-col items-stretch gap-1 rounded-lg border border-line bg-surface-2 p-1.5 transition hover:border-line-strong focus:outline-none focus:ring-2 focus:ring-accent/50 disabled:opacity-50"
                   >
                     <HookPresetThumb preset={preset.values} />
                     <span className="text-center text-[10px] font-semibold text-muted">
@@ -382,7 +377,7 @@ function HookPresetThumb({ preset }: { preset: Partial<HookOverlay> }) {
   const box = preset.box_color ?? null;
   const outline = preset.outline_color ?? "#000000";
   return (
-    <div className="flex h-12 w-24 items-center justify-center rounded-lg bg-black px-1">
+    <div className="flex h-12 w-full items-center justify-center rounded-lg bg-black px-1">
       <span
         style={{
           fontFamily: "var(--font-display), system-ui, sans-serif",
