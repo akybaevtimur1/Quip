@@ -97,7 +97,7 @@ export function HookTab({
                 type="button"
                 disabled={busy}
                 onClick={() => onHookChange(null)}
-                className="text-[11px] font-medium text-bad/70 transition hover:text-bad disabled:opacity-50"
+                className="rounded text-[11px] font-medium text-bad/70 transition hover:text-bad focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 disabled:opacity-50"
               >
                 Remove
               </button>

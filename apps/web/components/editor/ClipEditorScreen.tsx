@@ -956,6 +956,7 @@ export default function ClipEditorScreen({
         setEditingReply(null);
         setInspectorOpen(false);
       } else if (a === "prevClip" || a === "nextClip") {
+        if (busy) return;
         const i = clipIds.indexOf(clipId);
         if (i < 0) return;
         const target = a === "prevClip" ? clipIds[i - 1] : clipIds[i + 1];
