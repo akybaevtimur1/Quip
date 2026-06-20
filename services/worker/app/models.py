@@ -284,6 +284,7 @@ class PreviewMoment(BaseModel):
     t: float
     kind: Literal["question", "stat", "emphasis", "beat"]
     intensity: float = Field(ge=0.0, le=1.0)
+    text: str = ""  # короткая реальная фраза из транскрипта в этот момент (для чипа-аннотации)
 
 
 class CaptionReply(BaseModel):

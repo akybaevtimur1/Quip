@@ -24,6 +24,20 @@ def test_emphasis_detected() -> None:
     assert [m.kind for m in ms] == ["emphasis"]
 
 
+def test_marker_carries_real_phrase_text() -> None:
+    # The chip annotation needs the actual line leading to the trigger word.
+    words = [
+        _w("why", 0.0, 0.3),
+        _w("don't", 0.3, 0.6),
+        _w("you", 0.6, 0.9),
+        _w("remember?", 0.9, 1.3),
+    ]
+    ms = detect_preview_moments(words)
+    assert len(ms) == 1
+    assert ms[0].kind == "question"
+    assert ms[0].text == "why don't you remember?"
+
+
 def test_stat_detected() -> None:
     ms = detect_preview_moments([_w("about", 0.0, 0.3), _w("90", 0.3, 0.6)])
     assert [m.kind for m in ms] == ["stat"]

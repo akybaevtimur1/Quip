@@ -74,12 +74,22 @@ def detect_preview_moments(
     """
     cand: list[PreviewMoment] = []
     prev_end: float | None = None
-    for w in words:
+    for i, w in enumerate(words):
         m = _classify(w, prev_end)
         if m is not None:
+            m.text = _snippet(words, i)  # реальная фраза → чип-аннотация на видео
             cand.append(m)
         prev_end = w.end
     return _space_and_cap(cand, max_moments, min_gap_s)
+
+
+def _snippet(words: list[Word], i: int, *, n: int = 6, max_chars: int = 52) -> str:
+    """Короткая реальная фраза, ВЕДУЩАЯ к слову-триггеру words[i] (n слов, обрезка слева). PURE."""
+    start = max(0, i - n + 1)
+    phrase = " ".join(w.text for w in words[start : i + 1]).strip()
+    if len(phrase) > max_chars:
+        phrase = "…" + phrase[-(max_chars - 1) :].lstrip()
+    return phrase
 
 
 def detect_energy_moments(

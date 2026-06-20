@@ -1,26 +1,28 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef } from "react";
 
 // ────────────────────────────────────────────────────────────────────────────
-// CoWatch — "watch the AI analyze your video" view shown DURING processing (Part 4).
+// CoWatch — "watch the AI read your video" view shown DURING processing (Part 4).
 //
-// The source plays immediately (the user's own video), a scan playhead follows it, and
-// detected "moments" (cosmetic markers from the worker's heuristic — see preview_moments.py)
-// light up on the timeline as they arrive. Markers are PURELY VISUAL: they never influence
-// the AI clip selection. Presentational only — the container polls and feeds `moments` in.
+// The source plays immediately (the user's own video) and the moments the AI flags surface as
+// quote chips ON the video — the real line it caught + a tag — rising in as they're found. No
+// abstract timeline bar: the eye stays on the content, and each marker carries meaning (the
+// actual phrase), not just a color. PURELY VISUAL: these never influence clip selection.
+// Presentational only — the container polls the worker and feeds `moments` in (newest last).
 // ────────────────────────────────────────────────────────────────────────────
 
 export type Moment = {
   t: number; // seconds from source start
   kind: "question" | "stat" | "emphasis" | "beat";
   intensity: number; // 0..1
+  text?: string; // the real phrase the AI caught (chip body); empty → tag only
 };
 
 const KIND: Record<Moment["kind"], { dot: string; label: string }> = {
   question: { dot: "bg-sky-400", label: "Question" },
-  emphasis: { dot: "bg-accent", label: "Emphasis" },
-  stat: { dot: "bg-emerald-400", label: "Stat" },
+  emphasis: { dot: "bg-accent", label: "Big moment" },
+  stat: { dot: "bg-emerald-400", label: "Number" },
   beat: { dot: "bg-amber-400", label: "Beat" },
 };
 
@@ -29,44 +31,24 @@ const momentKey = (m: Moment) => `${m.kind}-${m.t}`;
 export function CoWatch({
   src,
   moments,
-  durationSec,
   stageLabel,
   elapsed,
 }: {
   /** Source video URL (ideally the local uploaded File via object URL → instant, no CORS). */
   src: string;
-  /** Detected markers so far (grows as the worker finds more). */
+  /** Detected markers so far (grows as the worker finds more); newest LAST. */
   moments: Moment[];
-  /** Source duration (seconds) for positioning markers; falls back to the video's own duration. */
-  durationSec?: number;
   /** Current stage copy, e.g. "Transcribing" / "Finding the moments worth posting". */
   stageLabel: string;
-  /** Elapsed seconds (mm:ss shown in the overlay). */
+  /** Elapsed seconds (mm:ss shown in the header). */
   elapsed: number;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const [pos, setPos] = useState(0); // playhead fraction 0..1
-  const [dur, setDur] = useState(durationSec ?? 0);
-
-  useEffect(() => {
-    const v = videoRef.current;
-    if (!v) return;
-    const onTime = () => {
-      const d = durationSec || v.duration || 0;
-      if (d > 0) setPos(Math.min(1, v.currentTime / d));
-    };
-    const onMeta = () => setDur(durationSec || v.duration || 0);
-    v.addEventListener("timeupdate", onTime);
-    v.addEventListener("loadedmetadata", onMeta);
-    return () => {
-      v.removeEventListener("timeupdate", onTime);
-      v.removeEventListener("loadedmetadata", onMeta);
-    };
-  }, [durationSec]);
-
-  const total = durationSec || dur || 0;
   const mm = Math.floor(elapsed / 60);
   const ss = String(elapsed % 60).padStart(2, "0");
+  // The two most recent finds — newest is the prominent one, the prior sits above it, faded,
+  // giving a gentle sense of a stream without cluttering the frame.
+  const recent = moments.slice(-2);
 
   return (
     <div className="w-full max-w-3xl">
@@ -77,7 +59,6 @@ export function CoWatch({
         </span>
       </div>
 
-      {/* source playing — the user co-watches while the AI works */}
       <div className="relative overflow-hidden rounded-2xl border border-line bg-black">
         <video
           ref={videoRef}
@@ -88,7 +69,34 @@ export function CoWatch({
           playsInline
           className="aspect-video w-full object-contain"
         />
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center gap-2 bg-gradient-to-t from-black/70 to-transparent px-4 py-3">
+
+        {/* quote chips — the AI surfacing the real lines it catches, on the video */}
+        <div className="pointer-events-none absolute inset-x-0 bottom-14 flex flex-col items-start gap-2 px-4">
+          {recent.map((m, i) => {
+            const newest = i === recent.length - 1;
+            return (
+              <div
+                key={momentKey(m)}
+                className={`max-w-[80%] rounded-xl border border-white/10 bg-black/60 px-3 py-2 backdrop-blur-md motion-safe:animate-[riseIn_360ms_var(--ease-snappy)] ${
+                  newest ? "opacity-100" : "scale-95 opacity-45"
+                }`}
+              >
+                <span className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-white/80">
+                  <span className={`size-2 rounded-full ${KIND[m.kind].dot}`} />
+                  {KIND[m.kind].label}
+                </span>
+                {m.text && (
+                  <p className="mt-0.5 text-[15px] font-semibold leading-snug text-white">
+                    “{m.text}”
+                  </p>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* stage + count strip */}
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center gap-2 bg-gradient-to-t from-black/75 to-transparent px-4 py-3">
           <span className="size-2 animate-pulse rounded-full bg-accent" />
           <span className="text-sm font-medium text-white/90">{stageLabel}</span>
           <span className="ml-auto font-mono text-xs text-white/60">
@@ -97,48 +105,9 @@ export function CoWatch({
         </div>
       </div>
 
-      {/* timeline: scan playhead + markers lighting up as they're found */}
-      <div className="relative mt-4 h-12 rounded-xl border border-line bg-surface-2">
-        {/* scan playhead (follows the playing source) */}
-        <div
-          className="absolute top-0 z-20 h-full w-px bg-accent/80 transition-[left] duration-200 ease-linear"
-          style={{ left: `${pos * 100}%` }}
-        >
-          <span className="absolute -top-1 left-1/2 size-2 -translate-x-1/2 rounded-full bg-accent shadow-[0_0_8px_var(--color-accent,#FF5A3D)]" />
-        </div>
-        {/* markers */}
-        {total > 0 &&
-          moments.map((m) => {
-            const left = Math.min(100, Math.max(0, (m.t / total) * 100));
-            const h = 30 + Math.round(m.intensity * 60); // taller = stronger
-            // Each marker mounts once (stable key) → the popIn animation runs once, on arrival.
-            // New markers animate; already-shown ones don't re-mount, so they don't re-animate.
-            return (
-              <div
-                key={momentKey(m)}
-                title={`${KIND[m.kind].label} · ${m.t.toFixed(1)}s`}
-                className="absolute bottom-1 z-10 w-1 -translate-x-1/2 origin-bottom rounded-full motion-safe:animate-[popIn_320ms_ease-out]"
-                style={{ left: `${left}%`, height: `${h}%` }}
-              >
-                <span
-                  className={`block size-full rounded-full ${KIND[m.kind].dot}`}
-                  style={{ opacity: 0.55 + m.intensity * 0.45 }}
-                />
-              </div>
-            );
-          })}
-      </div>
-
-      {/* legend */}
-      <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-muted">
-        {(Object.keys(KIND) as Moment["kind"][]).map((k) => (
-          <span key={k} className="inline-flex items-center gap-1.5">
-            <span className={`size-2 rounded-full ${KIND[k].dot}`} />
-            {KIND[k].label}
-          </span>
-        ))}
-        <span className="ml-auto">Your clips appear here as soon as they’re cut.</span>
-      </div>
+      <p className="mt-3 text-center text-xs text-muted">
+        Your clips appear here as soon as they’re cut — hooks and scores first, video as it renders.
+      </p>
     </div>
   );
 }

@@ -98,17 +98,14 @@
   --container-page: 1200px;
 }
 
-/* CoWatch marker "light up" (Part 4) — markers pop in as the AI finds moments. */
-@keyframes popIn {
+/* CoWatch (Part 4) — quote chips rise in as the AI catches each line. */
+@keyframes riseIn {
   0% {
-    transform: scaleY(0.2);
+    transform: translateY(10px);
     opacity: 0;
   }
-  60% {
-    transform: scaleY(1.15);
-  }
   100% {
-    transform: scaleY(1);
+    transform: translateY(0);
     opacity: 1;
   }
 }
