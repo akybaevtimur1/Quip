@@ -1210,14 +1210,26 @@ export default function ClipEditorScreen({
         />
       )}
       {tab === "frame" && (
-        <FrameTab
-          edit={edit}
-          outerStart={outerStart}
-          outerEnd={outerEnd}
-          busy={busy}
-          onApply={handleFrameApply}
-          onAspectChange={handleAspectChange}
-        />
+        <>
+          <FrameTab
+            edit={edit}
+            outerStart={outerStart}
+            outerEnd={outerEnd}
+            busy={busy}
+            onApply={handleFrameApply}
+            onAspectChange={handleAspectChange}
+          />
+          <div className="shrink-0 pt-3 border-t border-line">
+            <FitTimeline
+              regions={rawRegions}
+              intervals={edit.source_intervals}
+              overrides={edit.reframe_overrides}
+              nowSec={nowSec}
+              busy={busy}
+              onApplyRange={handleApplyRange}
+            />
+          </div>
+        </>
       )}
     </>
   );
@@ -1293,18 +1305,6 @@ export default function ClipEditorScreen({
               при смене панелей/аспекта). PreviewPlayer-поддерево живёт ЗДЕСЬ (state на месте). */}
           <EditorCanvas
             aspectClass={aspectClass}
-            fitTimeline={
-              edit && (
-                <FitTimeline
-                  regions={rawRegions}
-                  intervals={edit.source_intervals}
-                  overrides={edit.reframe_overrides}
-                  nowSec={nowSec}
-                  busy={busy}
-                  onApplyRange={handleApplyRange}
-                />
-              )
-            }
           >
               <PreviewPlayer
                 src={sourceSrc}
