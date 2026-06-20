@@ -1,6 +1,7 @@
 "use client";
 
-import { Captions, Crop, Loader2, Palette, Type, Wand2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
+import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   type Aspect,
@@ -36,10 +37,15 @@ import { resolveUrl } from "../ClipCard";
 import { LibassLayer } from "../LibassLayer";
 import { AgentTab } from "./AgentTab";
 import { CaptionsTab } from "./CaptionsTab";
+import { EditorCanvas } from "./EditorCanvas";
 import { EditorHeader, type RenderState } from "./EditorHeader";
+import { type Tab, TABS, EditorRail } from "./EditorRail";
+import { type EditorAction } from "@/lib/editorShortcuts";
+import { useEditorShortcuts } from "./useEditorShortcuts";
 import { FitTimeline } from "./FitTimeline";
 import { FrameTab } from "./FrameTab";
 import { HookTab } from "./HookTab";
+import { Inspector } from "./Inspector";
 import { OverlaySelectionBox } from "./OverlaySelectionBox";
 import type { SubRects } from "@/lib/overlayBox";
 import { stableFrame } from "@/lib/frameIdentity";
@@ -57,7 +63,6 @@ import TimelineV2 from "./TimelineV2";
 // ────────────────────────────────────────────────────────────────────────────
 
 type Phase = "loading" | "ready" | "saving" | "error";
-type Tab = "captions" | "hook" | "style" | "frame" | "agent";
 
 /** Регион reframe-плана пайплайна (reframe_<clip>.json), клип-время. */
 interface RawRegion {
@@ -89,14 +94,6 @@ function cxAt(points: { t: number; cx: number | null }[] | undefined, clipT: num
   return points[points.length - 1].cx ?? 0.5;
 }
 
-const TABS: { id: Tab; label: string; icon: typeof Captions }[] = [
-  { id: "agent", label: "Agent", icon: Wand2 },
-  { id: "captions", label: "Captions", icon: Captions },
-  { id: "hook", label: "Hook", icon: Type },
-  { id: "style", label: "Style", icon: Palette },
-  { id: "frame", label: "Frame", icon: Crop },
-];
-
 export default function ClipEditorScreen({
   jobId,
   clipId,
@@ -110,6 +107,9 @@ export default function ClipEditorScreen({
   const [words, setWords] = useState<Word[]>([]);
   const [loadKey, setLoadKey] = useState(0);
   const [tab, setTab] = useState<Tab>("captions");
+  // Narrow-viewport only: the inspector opens as an overlay sheet over the canvas
+  // gutter (on lg it's always visible). Opening it must NOT resize the canvas.
+  const [inspectorOpen, setInspectorOpen] = useState(false);
 
   const [timeline, setTimeline] = useState<TimelineData | null>(null);
   const [clipIds, setClipIds] = useState<string[]>([]);
@@ -126,6 +126,8 @@ export default function ClipEditorScreen({
   // есть НЕсохранённые правки (debounce-PATCH ещё не ушёл / в полёте) — индикатор
   // «Сохраняю…/Сохранено» + гарантия flush перед уходом (B-#5, без потери данных).
   const [unsaved, setUnsaved] = useState(false);
+
+  const busy = phase === "saving" || renderState.kind === "rendering";
 
   // ── WYSIWYG-превью ──
   const [assText, setAssText] = useState("");
@@ -753,6 +755,36 @@ export default function ClipEditorScreen({
     }, 2000);
   }, [edit, jobId, clipId, stopPoll]);
 
+  // ── keyboard shortcuts (Task 5): Space play/pause · R render · 1-5 rail · Esc close ──
+  // Pure layout/dispatch only — no mutation/flush/ASS logic. prevClip/nextClip are no-ops
+  // this task (wired in Task 7 with in-page clip switching).
+  const dispatchShortcut = useCallback(
+    (a: EditorAction) => {
+      if (a === "playPause") {
+        const v = videoRef.current;
+        if (v) {
+          if (v.paused) void v.play();
+          else v.pause();
+        }
+      } else if (a === "render") {
+        // `busy` already includes renderState.kind === "rendering" → covers the guard.
+        if (!busy) void handleRender();
+      } else if (a === "closeOverlay") {
+        setEditingReply(null);
+        setInspectorOpen(false);
+      } else if (typeof a === "object" && "tab" in a) {
+        const t = TABS[a.tab - 1];
+        if (t) {
+          setTab(t.id);
+          setInspectorOpen(true);
+        }
+      }
+      // "prevClip"/"nextClip": no-op this task — wired in Task 7.
+    },
+    [busy, handleRender],
+  );
+  useEditorShortcuts(dispatchShortcut);
+
   // ── активная реплика по текущему времени видео ──
   const replyRanges = useMemo(() => {
     const replies = edit?.captions.replies ?? [];
@@ -939,11 +971,69 @@ export default function ClipEditorScreen({
       edit?.aspect ?? "9:16"
     ] ?? "aspect-[9/16]";
 
-  const busy = phase === "saving" || renderState.kind === "rendering";
   const totalSec = edit
     ? edit.source_intervals.reduce((s, iv) => s + (iv.source_end - iv.source_start), 0)
     : 0;
   const useLibass = !!assText && !libassFailed;
+
+  // Активная панель inspector'а (одна и та же для lg-колонки и узкого overlay-шита —
+  // один источник, без дублирования JSX). Props/handlers — БЕЗ изменений.
+  const activePanel = edit && (
+    <>
+      {tab === "agent" && (
+        <AgentTab
+          key={clipId}
+          jobId={jobId}
+          clipId={clipId}
+          busy={busy}
+          onAgentEdited={handleAgentEdited}
+        />
+      )}
+      {tab === "captions" && (
+        <CaptionsTab
+          words={words}
+          replies={edit.captions.replies ?? []}
+          activeReplyIndex={activeReplyIndex}
+          busy={busy}
+          burn={edit.captions.burn ?? true}
+          onReplyTextChange={handleCaptionsChange}
+          onCutReply={handleCutReply}
+          onSeekReply={seekToReply}
+          onBurnChange={handleBurnChange}
+        />
+      )}
+      {tab === "hook" && (
+        <HookTab
+          edit={edit}
+          busy={busy}
+          onHookChange={handleHookChange}
+          onRegenerate={handleHookRegenerate}
+          regenerating={regeneratingHook}
+        />
+      )}
+      {tab === "style" && (
+        <StyleTab
+          edit={edit}
+          activePresetId={activePresetId}
+          busy={busy}
+          onPresetApply={handlePresetApply}
+          onError={setError}
+          onStyleChange={handleStyleChange}
+          onHighlightChange={handleHighlightChange}
+        />
+      )}
+      {tab === "frame" && (
+        <FrameTab
+          edit={edit}
+          outerStart={outerStart}
+          outerEnd={outerEnd}
+          busy={busy}
+          onApply={handleFrameApply}
+          onAspectChange={handleAspectChange}
+        />
+      )}
+    </>
+  );
 
   // ── error / loading экраны ──
   if (phase === "error" && !edit) {
@@ -1004,12 +1094,30 @@ export default function ClipEditorScreen({
           Loading editor…
         </div>
       ) : (
-        <main className="grid min-h-0 grid-cols-1 gap-4 overflow-y-auto p-4 lg:grid-cols-[minmax(280px,380px)_minmax(0,1fr)] lg:overflow-hidden">
-          {/* ЛЕВО: превью. Доступная область = ширина колонки × ограниченная высота;
-              PreviewPlayer сам contain'ится по aspectClass (w-full + max-h-full + aspect) →
-              НЕ распирает страницу на 16:9/1:1/4:5 (баг T5 пофикшен). */}
-          <div className="sticky top-0 z-10 flex min-h-0 flex-col bg-bg pb-3 lg:static lg:z-auto lg:pb-0">
-            <div className="flex h-[44vh] max-h-full w-full items-center justify-center lg:h-auto lg:min-h-0 lg:flex-1">
+        <main
+          className="relative grid min-h-0 grid-cols-1 gap-4 overflow-hidden p-4 lg:grid-cols-[auto_minmax(0,1fr)_var(--inspector-w)]"
+          style={{ "--inspector-w": "360px" } as React.CSSProperties}
+        >
+          {/* ── ЛЕВО: icon-rail (Fixed-Studio shell). Заменяет верхний таб-бар. ── */}
+          <EditorRail active={tab} onSelect={(t) => { setTab(t); setInspectorOpen(true); }} />
+
+          {/* ── ЦЕНТР: стабильный по высоте canvas (Task 1 инвариант — превью не ужимается
+              при смене панелей/аспекта). PreviewPlayer-поддерево живёт ЗДЕСЬ (state на месте). */}
+          <EditorCanvas
+            aspectClass={aspectClass}
+            fitTimeline={
+              edit && (
+                <FitTimeline
+                  regions={rawRegions}
+                  intervals={edit.source_intervals}
+                  overrides={edit.reframe_overrides}
+                  nowSec={nowSec}
+                  busy={busy}
+                  onApplyRange={handleApplyRange}
+                />
+              )
+            }
+          >
               <PreviewPlayer
                 src={sourceSrc}
                 outerStart={outerStart}
@@ -1123,105 +1231,22 @@ export default function ClipEditorScreen({
                     </div>
                   )}
                 </PreviewPlayer>
-            </div>
+          </EditorCanvas>
 
-            {/* #1: мини-таймлайн «форсировать кадр» под превью. shrink-0 — чтобы плеер
-                (flex-1 выше) ужимался под него, а не клипал полосу за пределы колонки. */}
-            {edit && (
-              <div className="shrink-0">
-                <FitTimeline
-                  regions={rawRegions}
-                  intervals={edit.source_intervals}
-                  overrides={edit.reframe_overrides}
-                  nowSec={nowSec}
-                  busy={busy}
-                  onApplyRange={handleApplyRange}
-                />
-              </div>
-            )}
+          {/* ── ПРАВО: контекстный inspector. На lg всегда виден; на узком — overlay-шит
+              поверх gutter'а (canvas НЕ ужимается). ── */}
+          <div className="hidden lg:flex lg:min-h-0">
+            <Inspector active={tab}>{activePanel}</Inspector>
           </div>
 
-          {/* ПРАВО: табы */}
-          <div className="flex min-h-0 flex-col gap-3">
-            {/* #1: явно про live-vs-рендер — частый вопрос «надо ли ререндерить» */}
-            <p className="shrink-0 rounded-lg border border-line bg-surface-2 px-3 py-2 text-[11px] leading-snug text-muted">
-              <span className="font-semibold text-accent">Preview is live</span> — edits show
-              instantly. <span className="font-semibold text-ink">“Render”</span> writes them to
-              the downloadable file.
-            </p>
-            <div className="flex shrink-0 gap-1 rounded-xl border border-line bg-surface p-1">
-              {TABS.map(({ id, label, icon: Icon }) => (
-                <button
-                  key={id}
-                  type="button"
-                  onClick={() => setTab(id)}
-                  className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2.5 text-sm font-semibold transition sm:py-2 ${
-                    tab === id
-                      ? "bg-surface-3 text-accent shadow-[0_1px_2px_rgba(0,0,0,.4)]"
-                      : "text-muted hover:bg-surface-2 hover:text-ink"
-                  }`}
-                >
-                  <Icon className="size-4" />
-                  {label}
-                </button>
-              ))}
+          {/* narrow viewport: inspector как overlay-шит (canvas позади не ужимается) */}
+          {inspectorOpen && (
+            <div className="lg:hidden">
+              <Inspector active={tab} overlay onClose={() => setInspectorOpen(false)}>
+                {activePanel}
+              </Inspector>
             </div>
-
-            <div className="flex min-h-0 flex-1 flex-col overflow-y-auto rounded-xl border border-line bg-surface p-4">
-              {edit && tab === "agent" && (
-                <AgentTab
-                  key={clipId}
-                  jobId={jobId}
-                  clipId={clipId}
-                  busy={busy}
-                  onAgentEdited={handleAgentEdited}
-                />
-              )}
-              {edit && tab === "captions" && (
-                <CaptionsTab
-                  words={words}
-                  replies={edit.captions.replies ?? []}
-                  activeReplyIndex={activeReplyIndex}
-                  busy={busy}
-                  burn={edit.captions.burn ?? true}
-                  onReplyTextChange={handleCaptionsChange}
-                  onCutReply={handleCutReply}
-                  onSeekReply={seekToReply}
-                  onBurnChange={handleBurnChange}
-                />
-              )}
-              {edit && tab === "hook" && (
-                <HookTab
-                  edit={edit}
-                  busy={busy}
-                  onHookChange={handleHookChange}
-                  onRegenerate={handleHookRegenerate}
-                  regenerating={regeneratingHook}
-                />
-              )}
-              {edit && tab === "style" && (
-                <StyleTab
-                  edit={edit}
-                  activePresetId={activePresetId}
-                  busy={busy}
-                  onPresetApply={handlePresetApply}
-                  onError={setError}
-                  onStyleChange={handleStyleChange}
-                  onHighlightChange={handleHighlightChange}
-                />
-              )}
-              {edit && tab === "frame" && (
-                <FrameTab
-                  edit={edit}
-                  outerStart={outerStart}
-                  outerEnd={outerEnd}
-                  busy={busy}
-                  onApply={handleFrameApply}
-                  onAspectChange={handleAspectChange}
-                />
-              )}
-            </div>
-          </div>
+          )}
         </main>
       )}
 
