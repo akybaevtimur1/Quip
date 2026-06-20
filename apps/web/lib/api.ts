@@ -366,6 +366,23 @@ export async function getVideoMap(jobId: string, retry = false): Promise<VideoMa
   return res.json();
 }
 
+export type PreviewMoment = {
+  t: number;
+  kind: "question" | "stat" | "emphasis" | "beat";
+  intensity: number;
+  text?: string;
+};
+
+/** Cosmetic co-watch markers shown DURING processing (Part 4). ⚠️ Never influence clip
+ *  selection — purely the "the AI is reading your video" visual. Empty until the worker has
+ *  detected any (and [] on local dev / old jobs). fetchWithTimeout so a hung poll can't stick. */
+export async function getPreviewMoments(jobId: string): Promise<PreviewMoment[]> {
+  const res = await fetchWithTimeout(`${BASE}/jobs/${jobId}/preview-moments`, { cache: "no-store" });
+  if (!res.ok) throw new Error(`getPreviewMoments failed: ${res.status}`);
+  const data = (await res.json()) as { moments?: PreviewMoment[] };
+  return data.moments ?? [];
+}
+
 export async function setCropOverride(
   jobId: string,
   clipId: string,

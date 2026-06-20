@@ -8,6 +8,7 @@ import { PromoRedeem } from "@/components/app/PromoRedeem";
 import { RecentProjects } from "@/components/app/RecentProjects";
 import { UsageMeter } from "@/components/app/UsageMeter";
 import { ClipGrid } from "@/components/ClipGrid";
+import { CoWatchPanel } from "@/components/CoWatchPanel";
 import { VideoMap } from "@/components/VideoMap";
 import { ErrorPanel } from "@/components/ErrorPanel";
 import { JobProgress } from "@/components/JobProgress";
@@ -59,6 +60,16 @@ function DashboardInner() {
   const [submitting, setSubmitting] = useState(false);
   const [uploadPct, setUploadPct] = useState<number | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  // Local object URL of the just-uploaded file → the co-watch plays the user's OWN video
+  // INSTANTLY (no upload round-trip / CORS) while the AI works. Only set for uploads in this
+  // same session; gone after reload (then we fall back to the stepper). YouTube → null.
+  const [sourceUrl, setSourceUrl] = useState<string | null>(null);
+  useEffect(() => {
+    // Revoke the blob URL when it changes or on unmount — don't leak object URLs.
+    return () => {
+      if (sourceUrl) URL.revokeObjectURL(sourceUrl);
+    };
+  }, [sourceUrl]);
   const error = submitError ?? pollError;
   // In-flight upload controller — abort on reset / unmount / new submit. Без этого брошенная
   // загрузка (ушёл со страницы / «Новый проект» / залил второй раз) продолжала XHR: создавала
@@ -83,6 +94,7 @@ function DashboardInner() {
     try {
       const { id } = await createJob({ source_type: "youtube", source_ref: url, max_clips: maxClips });
       addRecentProject({ id, label: labelFromUrl(url), at: Date.now() });
+      setSourceUrl(null); // YouTube → no local file to co-watch (falls back to the stepper)
       start(id);
     } catch (e) {
       setSubmitError(e instanceof Error ? e.message : "Couldn’t create project");
@@ -104,6 +116,7 @@ function DashboardInner() {
       if (ctrl.signal.aborted) return; // отменена/вытеснена — не трогаем стейт
       setUploadPct(null);
       addRecentProject({ id, label: file.name, at: Date.now() });
+      setSourceUrl(URL.createObjectURL(file)); // co-watch plays THIS file instantly while AI works
       start(id);
     } catch (e) {
       // намеренная отмена (reset/unmount/новый сабмит) → НЕ показываем ошибку
@@ -137,6 +150,7 @@ function DashboardInner() {
     setSubmitError(null);
     setSubmitting(false);
     setUploadPct(null);
+    setSourceUrl(null); // drop the co-watch source (effect revokes the blob URL)
     // Drop ?job= so a deep-linked project doesn't keep us out of the idle "New project"
     // form (phase below treats a present ?job= as loading). Without this, reset couldn't
     // return to idle when the URL still carried the job id.
@@ -215,6 +229,17 @@ function DashboardInner() {
                 <Loader2 className="size-6 animate-spin text-accent" aria-hidden />
                 <p className="text-sm text-muted">Opening your project…</p>
               </div>
+            ) : sourceUrl && jobId ? (
+              // Co-watch: the uploaded file plays instantly while the AI reads it and real
+              // moments light up. Falls back to the stepper for YouTube / after a reload.
+              <CoWatchPanel
+                jobId={jobId}
+                src={sourceUrl}
+                status={job?.status ?? "queued"}
+                elapsed={elapsed}
+                cancellable={job?.cancellable ?? false}
+                onStop={handleStop}
+              />
             ) : (
               <JobProgress
                 status={job?.status ?? "queued"}

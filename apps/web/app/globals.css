@@ -98,6 +98,18 @@
   --container-page: 1200px;
 }
 
+/* CoWatch (Part 4) — quote chips rise in as the AI catches each line. */
+@keyframes riseIn {
+  0% {
+    transform: translateY(10px);
+    opacity: 0;
+  }
+  100% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
 /* ─────────────────────────── base ─────────────────────────── */
 html {
   background: var(--color-bg);

@@ -22,6 +22,12 @@ from app import billing, db, dispatch, storage
 from app.config import get_settings
 from app.errors import JobError
 from app.models import ClipOut, Job, JobStatus, Metrics, Segment, Transcript, Word
+from app.pipeline.preview_moments import (
+    detect_energy_moments,
+    detect_preview_moments,
+    extract_loudness,
+    merge_moments,
+)
 from app.pipeline.stage0_import import SourceMeta, build_preview_proxy, import_youtube
 from app.pipeline.stage1_transcribe import DEEPGRAM_NOVA_USD_PER_MIN, transcribe_to_file
 from app.pipeline.stage2_select import select_segments
@@ -252,6 +258,12 @@ def run_pipeline(
         raise JobError("import", f"no data/{job_id}/source.mp4 and no URL provided")
     stages["download"] = round(time.perf_counter() - t0, 2)
     db.set_progress_detail(job_id, source_minutes=round(meta.duration / 60, 1))  # live narration
+    # Энергетические co-watch-маркеры (Part 4) — БЕСТ-ЭФФОРТ, доступны РАНО (до transcribe), потому
+    # покрывают самый длинный кусок ожидания. ⚠️ ИНВАРИАНТ: НЕ идут в select_segments — отбор
+    # от них не зависит (качество не меняется). [] при любом сбое extract_loudness.
+    energy_moments = detect_energy_moments(extract_loudness(str(out / "source.mp4")))
+    if energy_moments:
+        db.put_job_artifact(job_id, "preview_moments", [m.model_dump() for m in energy_moments])
 
     # ── Гейт квоты по РЕАЛЬНОЙ длине (до оплаты транскрипции). Поднимет JobError → failed,
     #    БЕЗ списания (record_usage идёт только после set_done). ──
@@ -313,6 +325,11 @@ def run_pipeline(
                 )
     stages["transcription"] = round(time.perf_counter() - t0, 2)
     db.set_progress_detail(job_id, transcript_words=len(transcript.words))  # live narration
+    # Дополняем энергетические маркеры (с download) транскриптными (вопрос/нажим/цифра/пауза) и
+    # перезаписываем preview_moments объединённым набором. ⚠️ ИНВАРИАНТ: НЕ передаём в
+    # select_segments ниже — LLM-отбор от них НЕ зависит (качество нарезки не меняется).
+    _merged = merge_moments(energy_moments, detect_preview_moments(transcript.words))
+    db.put_job_artifact(job_id, "preview_moments", [m.model_dump() for m in _merged])
 
     # ── Stage 2: Select (кэш по segments.json) ──
     emit(JobStatus.selecting, 60)
