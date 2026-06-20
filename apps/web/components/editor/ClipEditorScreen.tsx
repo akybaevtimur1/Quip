@@ -42,6 +42,7 @@ import { FrameTab } from "./FrameTab";
 import { HookTab } from "./HookTab";
 import { OverlaySelectionBox } from "./OverlaySelectionBox";
 import type { SubRects } from "@/lib/overlayBox";
+import { stableFrame } from "@/lib/frameIdentity";
 import { type FrameState, PreviewPlayer } from "./PreviewPlayer";
 import { buildReplyRanges, clampMargin, originalReplyText } from "./replyUtils";
 import { StyleTab } from "./StyleTab";
@@ -895,32 +896,41 @@ export default function ClipEditorScreen({
   // ── РЕАЛЬНЫЙ режим кадра для превью на текущий момент ──
   // Приоритет: ручной override (таб «Кадр», виден сразу) → план от /reframe (D2: единый
   // путь рендера, всегда для ТЕКУЩИХ интервалов) → дефолт fill-центр.
+  // prevFrameRef: holds the last stable FrameState so stableFrame can return the same
+  // object reference on every ~250ms timeupdate tick when the crop hasn't changed,
+  // preventing needless PreviewPlayer re-renders. Writing a ref inside useMemo is safe
+  // here because it only stabilises identity and never triggers a re-render.
+  const prevFrameRef = useRef<FrameState | null>(null);
   const frame = useMemo<FrameState | null>(() => {
     const ovs = (edit?.reframe_overrides ?? []).filter(
       (ov) => ov.source_start < outerEnd && ov.source_end > outerStart,
     );
     const ov = ovs.at(-1);
+    let next: FrameState | null = null;
     if (ov) {
       const m = ov.mode === "fit" ? "fit" : ov.mode === "split" ? "split" : "fill";
-      return {
+      next = {
         mode: m,
         cx: ov.center ?? (m === "split" ? 0.3 : 0.5),
         cxB: ov.center_b ?? 0.7,
       };
-    }
-    if (rawRegions) {
+    } else if (rawRegions) {
       const clipT = Math.max(0, nowSec - outerStart);
       const reg =
         rawRegions.find((r) => clipT >= r.t0 && clipT < r.t1) ?? rawRegions.at(-1) ?? null;
       if (reg && (reg.mode === "fit" || reg.mode === "split" || reg.mode === "fill")) {
-        return {
+        next = {
           mode: reg.mode,
           cx: cxAt(reg.points, clipT),
           cxB: cxAt(reg.points_b, clipT),
         };
       }
     }
-    return null;
+    // eslint-disable-next-line react-hooks/refs -- identity-only memo: ref read/write stabilises object reference, never triggers render
+    const stable = stableFrame(prevFrameRef.current, next);
+    // eslint-disable-next-line react-hooks/refs -- same: writing ref to cache stable identity, no state setter involved
+    prevFrameRef.current = stable;
+    return stable;
   }, [edit, outerStart, outerEnd, rawRegions, nowSec]);
 
   // T5: аспект превью-контейнера (литералы → Tailwind JIT их видит)
