@@ -1,7 +1,11 @@
 """Косметический детектор моментов (co-watch). PURE. НЕ влияет на LLM-отбор."""
 
-from app.models import Word
-from app.pipeline.preview_moments import detect_preview_moments
+from app.models import PreviewMoment, Word
+from app.pipeline.preview_moments import (
+    detect_energy_moments,
+    detect_preview_moments,
+    merge_moments,
+)
 
 
 def _w(text: str, start: float, end: float) -> Word:
@@ -72,3 +76,37 @@ def test_max_moments_cap_keeps_strongest_then_sorts_by_time() -> None:
 
 def test_empty_words_yields_nothing() -> None:
     assert detect_preview_moments([]) == []
+
+
+# ── audio-energy detector (pure peak picker over a loudness curve) ──
+
+
+def test_energy_peaks_become_emphasis_markers_at_right_times() -> None:
+    # flat baseline with two clear peaks at indices 4 and 12; hop 0.5s → t=2.0 and t=6.0.
+    rms = [-30.0] * 16
+    rms[4] = -8.0
+    rms[12] = -10.0
+    ms = detect_energy_moments(rms, hop_s=0.5, min_gap_s=1.0)
+    assert all(m.kind == "emphasis" for m in ms)
+    times = {m.t for m in ms}
+    assert 2.0 in times and 6.0 in times
+    assert all(0.0 <= m.intensity <= 1.0 for m in ms)
+
+
+def test_flat_loudness_yields_no_peaks() -> None:
+    assert detect_energy_moments([-30.0] * 20, hop_s=0.5) == []
+
+
+def test_energy_too_short_is_empty() -> None:
+    assert detect_energy_moments([-10.0, -5.0], hop_s=0.5) == []
+
+
+def test_merge_combines_and_spaces_two_groups() -> None:
+    a = [PreviewMoment(t=1.0, kind="stat", intensity=0.6)]
+    b = [
+        PreviewMoment(t=1.2, kind="emphasis", intensity=0.9),  # within min_gap of a → stronger wins
+        PreviewMoment(t=5.0, kind="question", intensity=0.7),
+    ]
+    out = merge_moments(a, b, min_gap_s=1.5)
+    assert [m.t for m in out] == [1.2, 5.0]
+    assert out[0].kind == "emphasis"  # stronger of the two near t≈1
