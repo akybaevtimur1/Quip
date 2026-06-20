@@ -1124,6 +1124,10 @@ def get_render(job_id: str, clip_id: str) -> dict[str, Any]:
             url = storage.resolve_media_url(url)
         elif not url.startswith("http"):
             url = f"media/{job_id}/{url}"
+        # Cache-bust the stable CDN URL by the edit version so a RE-render (same R2 key,
+        # overwritten) isn't served stale from Cloudflare's edge cache → the new hook size /
+        # caption edits actually reach the download. No-op for relative/local URLs.
+        url = storage.with_cache_bust(url, row.get("version"))
     return {
         "status": row.get("render_status"),
         "video_url": url or None,

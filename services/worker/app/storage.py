@@ -61,6 +61,45 @@ def public_url(public_base: str, key: str) -> str:
     return f"{public_base.rstrip('/')}/{key}"
 
 
+# Клип-объект в R2 ПЕРЕЗАПИСЫВАЕТСЯ при каждом ре-рендере (тот же ключ
+# ``{job}/{clip}_captioned.mp4``), а отдаётся со СТАБИЛЬНОГО публичного CDN-URL
+# (cdn.quip.ink). Без CacheControl Cloudflare кэширует ПЕРВЫЙ рендер на краю и
+# продолжает отдавать ПРОТУХШИЙ mp4 после правок (юзер меняет размер хука → Render →
+# скачивает старый файл, размер «не меняется»). ``no-cache`` = edge ОБЯЗАН
+# ревалидировать у origin (только что перезаписан) перед отдачей → всегда свежий
+# рендер. Egress у R2 бесплатный → условный GET ничего не стоит.
+_CLIP_CACHE_CONTROL = "no-cache, max-age=0, must-revalidate"
+
+
+def clip_upload_extra_args(clip_id: str, variant: str) -> dict[str, str]:
+    """ExtraArgs для R2-загрузки клипа (ContentType + no-cache + attachment). PURE.
+
+    CacheControl=no-cache закрывает протухание на CDN при ре-рендере (тот же ключ
+    перезаписывается, но edge отдавал бы кэшированный первый рендер). ContentDisposition=
+    attachment → «Download» из редактора реально СОХРАНЯЕТ файл (HTML download-атрибут
+    игнорируется для cross-origin cdn.quip.ink ≠ quip.ink). <video> в гриде играет как раньше.
+    """
+    return {
+        "ContentType": "video/mp4",
+        "CacheControl": _CLIP_CACHE_CONTROL,
+        "ContentDisposition": f'attachment; filename="{_clip_name(clip_id, variant)}.mp4"',
+    }
+
+
+def with_cache_bust(url: str, version: int | None) -> str:
+    """Дописать ``?v=<version>`` к http(s)-URL (CDN cache-buster). PURE.
+
+    Защита-в-глубину поверх CacheControl=no-cache: даже если у Cloudflare стоит Cache-Rule
+    «cache everything» по расширению .mp4 (игнорирует no-cache), новый ре-рендер инкрементит
+    version клип-эдита → новый URL → гарантированный CDN-miss → свежий файл. Относительные/
+    нечисловые ссылки и version=None — без изменений (нет двойного «?», локалка не трогается).
+    """
+    if version is None or not url.startswith("http"):
+        return url
+    sep = "&" if "?" in url else "?"
+    return f"{url}{sep}v={version}"
+
+
 def local_url(clip_id: str, *, variant: str = "") -> str:
     """Относительный путь клипа для локальной раздачи (/media). PURE."""
     return f"clips/{_clip_name(clip_id, variant)}.mp4"
@@ -366,13 +405,9 @@ def upload_clip(local_path: Path, job_id: str, clip_id: str, *, variant: str = "
             str(local_path),
             s.r2_bucket,
             key,
-            ExtraArgs={
-                "ContentType": "video/mp4",
-                # attachment → «Download» из редактора реально СОХРАНЯЕТ файл. HTML download-
-                # атрибут игнорируется для cross-origin (cdn.quip.ink ≠ quip.ink) → без этого
-                # заголовка браузер открывал mp4 в табе. <video> в гриде играет как раньше.
-                "ContentDisposition": f'attachment; filename="{_clip_name(clip_id, variant)}.mp4"',
-            },
+            # ContentType + CacheControl=no-cache (анти-протухание CDN при ре-рендере) +
+            # ContentDisposition=attachment. Pure-билдер под тестом (clip_upload_extra_args).
+            ExtraArgs=clip_upload_extra_args(clip_id, variant),
             Config=_transfer_config(),
         )
     except Exception as e:  # noqa: BLE001 — оборачиваем в JobError, не глотаем

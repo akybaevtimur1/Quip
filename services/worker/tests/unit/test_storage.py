@@ -2,6 +2,7 @@
 
 from app.storage import (
     R2_KEY_SCHEME,
+    clip_upload_extra_args,
     is_r2_key_ref,
     key_from_ref,
     key_ref,
@@ -10,6 +11,7 @@ from app.storage import (
     public_url,
     source_object_key,
     storage_object_key,
+    with_cache_bust,
 )
 
 
@@ -44,6 +46,47 @@ def test_variant_gives_separate_keys() -> None:
     assert local_url("clip_03", variant="captioned") == "clips/clip_03_captioned.mp4"
     # пустой variant = прежнее поведение (обратная совместимость)
     assert storage_object_key("j", "clip_01", variant="") == "j/clip_01.mp4"
+
+
+# ─── CDN-протухание ре-рендера (хук-размер «не меняется» после Render) ───
+# Корень бага: captioned-клип перезаписывается по ТОМУ ЖЕ R2-ключу и отдаётся со
+# стабильного CDN-URL (cdn.quip.ink) → Cloudflare кэшировал первый рендер и продолжал
+# отдавать его после правок. Две линии защиты: CacheControl=no-cache на загрузке +
+# ?v=<version> на read-URL. Обе — pure, под тестом.
+
+
+def test_clip_upload_sets_no_cache() -> None:
+    # БЕЗ no-cache CDN отдаёт протухший mp4 после ре-рендера (хук-размер не меняется).
+    args = clip_upload_extra_args("clip_01", "captioned")
+    assert "no-cache" in args["CacheControl"]
+    assert args["ContentType"] == "video/mp4"
+    # attachment-заголовок сохранён (download реально сохраняет файл кросс-доменно)
+    assert args["ContentDisposition"] == 'attachment; filename="clip_01_captioned.mp4"'
+
+
+def test_clip_upload_extra_args_clean_variant() -> None:
+    args = clip_upload_extra_args("clip_03", "")
+    assert "no-cache" in args["CacheControl"]
+    assert args["ContentDisposition"] == 'attachment; filename="clip_03.mp4"'
+
+
+def test_cache_bust_appends_version_to_cdn_url() -> None:
+    base = "https://cdn.quip.ink/job_x/clip_01_captioned.mp4"
+    # каждый ре-рендер инкрементит version → новый URL → CDN-miss → свежий файл
+    assert with_cache_bust(base, 1) == base + "?v=1"
+    assert with_cache_bust(base, 5) == base + "?v=5"
+    assert with_cache_bust(base, 5) != with_cache_bust(base, 1)
+
+
+def test_cache_bust_keeps_existing_query() -> None:
+    signed = "https://r2/clip.mp4?X-Amz-Signature=abc"
+    assert with_cache_bust(signed, 2) == signed + "&v=2"
+
+
+def test_cache_bust_noop_without_version_or_relative() -> None:
+    # version=None или относительная (локалка /media) → не трогаем
+    assert with_cache_bust("https://cdn/clip.mp4", None) == "https://cdn/clip.mp4"
+    assert with_cache_bust("media/job/clip_01.mp4", 3) == "media/job/clip_01.mp4"
 
 
 # ─────────────── D6: durable R2 key-ref (re-presign on read, не вечный presign) ───────────────
