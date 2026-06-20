@@ -285,6 +285,17 @@ export default function ClipEditorScreen({
     }
   }, [jobId, clipId, refreshAss]);
 
+  // clipIdRef = ВСЕГДА текущий активный clipId (синкается на каждый render, как editRef).
+  // Switch-race guard (Task 7): любой async-путь, выпущенный для клипа A (flushed PATCH,
+  // background revalidate), сверяет clipIdRef ПОСЛЕ await — если юзер уже переключился на B,
+  // результат для A НЕ применяется на B (иначе cross-clip clobber старой версией/стилем).
+  // Объявлен ДО load-эффекта (который читает clipIdRef): React Compiler запрещает мутировать
+  // ref в эффекте ПОСЛЕ того, как он прочитан в более раннем эффекте — поэтому sync-эффект тут.
+  const clipIdRef = useRef(clipId);
+  useEffect(() => {
+    clipIdRef.current = clipId;
+  }, [clipId]);
+
   // ── загрузка: edit + analysis + ASS (фатально), timeline/job (нефатально) ──
   useEffect(() => {
     let cancelled = false;
@@ -305,6 +316,13 @@ export default function ClipEditorScreen({
         setRenderState({ kind: "idle" });
         setRawRegions(null);
       }
+      // Switch-race guard (Task 7, IMPORTANT): on the instant-paint (cache-hit) path this
+      // fetch is a BACKGROUND revalidation — the user already sees painted state and CAN edit
+      // before it resolves. Capture the optimistic generation now; if a newer editCaptions
+      // landed in the gap (optGenRef bumped) we must NOT overwrite it with the stale server
+      // snapshot (same principle as refreshAss's gen guard). On the cache-MISS path no edit is
+      // possible before first paint, so this guard is a no-op there (gen never moves).
+      const paintGen = optGenRef.current;
       // Авто-ретрай с backoff: воркер мог ещё подниматься (cold start torch/MediaPipe)
       // или сетевой блип на первом запросе → не показываем ошибку сразу, тихо повторяем.
       const MAX_ATTEMPTS = 4;
@@ -316,9 +334,16 @@ export default function ClipEditorScreen({
             getClipAss(jobId, clipId).catch(() => ""),
           ]);
           if (cancelled) return;
-          setEdit(editData);
-          setWords(analysisData.words);
-          setAssText(ass);
+          // On the painted path, skip the snapshot if a newer optimistic edit happened
+          // (paintGen stale) or the user switched away (clipIdRef changed) — the optimistic
+          // state + next debounced flush reconcile it. Non-painted path: both checks pass.
+          const stale =
+            painted && (optGenRef.current !== paintGen || clipIdRef.current !== clipId);
+          if (!stale) {
+            setEdit(editData);
+            setWords(analysisData.words);
+            setAssText(ass);
+          }
           if (!ass) setError("Couldn’t load caption preview — showing a simplified mode.");
           setPhase("ready");
           getTimeline(jobId)
@@ -470,6 +495,13 @@ export default function ClipEditorScreen({
         if (!cur) return;
         try {
           const newEdit = await patchClipEdit(jobId, clipId, cur.version ?? 1, captions);
+          // Switch-race guard (Task 7, CRITICAL): этот PATCH выпущен для `clipId` из замыкания
+          // (активный клип на момент планирования flush). Если юзер переключился, пока шёл
+          // round-trip, НЕ применяем ответ старого клипа на новый — иначе editRef/setEdit
+          // перетёрли бы version/style/hook/aspect/crop НОВОГО клипа (→ старый стиль мигает +
+          // editRef.version становится старой → следующая правка 409 "Data changed").
+          // No-op на нормальном пути (без переключения): clipIdRef.current === clipId.
+          if (clipIdRef.current !== clipId) return;
           // Реконсиляция версии/полей, но СОХРАНЯЕМ свежие локальные captions: юзер мог
           // править во время раунд-трипа — нельзя откатывать его правки (баг-класс очереди).
           editRef.current = {
@@ -552,6 +584,7 @@ export default function ClipEditorScreen({
       }
       assSeq.current++; // invalidate any in-flight /ass for the outgoing clip
       optGenRef.current++; // invalidate any in-flight optimistic reconcile
+      pendingGenRef.current = optGenRef.current; // queue isolation self-evident (not just guard inequality)
       const cached = clipCacheRef.current?.get(nextId);
       if (cached) {
         // Instant paint: the user just switched and hasn't edited, so painting cached data
