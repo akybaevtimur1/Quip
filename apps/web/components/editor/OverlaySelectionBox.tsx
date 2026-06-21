@@ -108,6 +108,10 @@ export function OverlaySelectionBox({
   const widthRef = useRef<{ startX: number; centerX: number; baseHalf: number; side: 1 | -1 } | null>(
     null,
   );
+  // True while the LATEST move latched the box CENTER onto the canvas horizontal-center line.
+  // Used at commit to write an EXACT pos_x = 0.5 instead of the per-frame bbox center (the bbox
+  // is asymmetric while a word is highlighted → its center ≠ the text anchor → off-center text).
+  const snapXCenterRef = useRef(false);
 
   // ── MOVE (body) → free X/Y ──
   const onBodyDown = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -122,6 +126,7 @@ export function OverlaySelectionBox({
       baseTop: nr.top - box.top,
       moved: false,
     };
+    snapXCenterRef.current = false;
     e.currentTarget.setPointerCapture(e.pointerId);
   };
   const onBodyMove = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -159,8 +164,15 @@ export function OverlaySelectionBox({
       snapLeft = Math.min(box.width - nr.width, Math.max(0, res.left));
       snapTop = Math.min(box.height - nr.height, Math.max(0, res.top));
       guidesRef?.current?.show(res.guides, W, H);
+      // Latch a canvas-center hit ONLY when the box CENTER (not an edge) landed on a "center"
+      // guide — then commit will write an exact pos_x = 0.5.
+      const snappedCenterX = snapLeft + nr.width / 2;
+      snapXCenterRef.current = res.guides.some(
+        (g) => g.axis === "x" && g.kind === "center" && Math.abs(snappedCenterX - g.pos) < 1,
+      );
     } else {
       guidesRef?.current?.hide();
+      snapXCenterRef.current = false;
     }
     // imperative: move the box itself (no React state → no re-render on move). Always position
     // by top/left during the drag (clear the % anchor) so X and Y are free.
@@ -182,7 +194,8 @@ export function OverlaySelectionBox({
     const box = renderBoxRect(node);
     if (!box) return;
     const nr = node.getBoundingClientRect();
-    const centerX = (nr.left - box.left + nr.width / 2) / box.width;
+    // Exact center on a latched center-snap (kills the bbox-asymmetry drift); else the live box center.
+    const centerX = snapXCenterRef.current ? 0.5 : (nr.left - box.left + nr.width / 2) / box.width;
     // anchored edge fraction FROM THE TOP: caption commits its BOTTOM edge (\an2), hook its TOP.
     const edgeY = anchor === "top" ? (nr.top - box.top) / box.height : (nr.bottom - box.top) / box.height;
     onMoveCommit(clamp01(centerX), clamp01(edgeY));

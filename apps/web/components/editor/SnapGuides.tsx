@@ -36,17 +36,17 @@ const SnapGuides = forwardRef<SnapGuidesHandle, {}>(
             const pct = (line.pos / renderW) * 100;
             el.style.left = `${pct}%`;
             el.style.top = "0";
-            el.style.width = "1px";
+            el.style.width = "2px";
             el.style.height = "100%";
-            el.style.transform = "translateX(-0.5px)";
+            el.style.transform = "translateX(-1px)";
           } else {
             // Horizontal guide line: positioned at pos/renderH along the Y axis.
             const pct = (line.pos / renderH) * 100;
             el.style.top = `${pct}%`;
             el.style.left = "0";
-            el.style.height = "1px";
+            el.style.height = "2px";
             el.style.width = "100%";
-            el.style.transform = "translateY(-0.5px)";
+            el.style.transform = "translateY(-1px)";
           }
           el.style.opacity = "1";
         });
