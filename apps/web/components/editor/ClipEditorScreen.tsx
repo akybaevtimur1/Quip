@@ -49,6 +49,16 @@ import { HookTab } from "./HookTab";
 import { Inspector } from "./Inspector";
 import { OverlaySelectionBox } from "./OverlaySelectionBox";
 import type { SubRects } from "@/lib/overlayBox";
+import { SAFE_AREAS, type SafePlatform } from "@/lib/safeAreas";
+import {
+  readSafePref,
+  readSnapPref,
+  writeSafePref,
+  writeSnapPref,
+} from "@/lib/editorPrefs";
+import SnapGuides, { type SnapGuidesHandle } from "./SnapGuides";
+import { SafeAreaOverlay } from "./SafeAreaOverlay";
+import { SnapControls } from "./SnapControls";
 import { stableFrame } from "@/lib/frameIdentity";
 import { type FrameState, PreviewPlayer } from "./PreviewPlayer";
 import { buildReplyRanges, clampMargin, originalReplyText } from "./replyUtils";
@@ -1081,6 +1091,34 @@ export default function ClipEditorScreen({
     },
     [],
   );
+
+  // ── Snapping + safe-area prefs (alignment guides on the on-video drag) ──
+  // Defaults match the no-pref state (snap on, no platform). We read the persisted choice in a
+  // MOUNT effect (not the useState initializer) so SSR doesn't touch localStorage, then mirror
+  // it to state. Setters are wrapped to persist back. The guides overlay is driven imperatively
+  // by the drag via this ref → no React state on the pointermove path (zero-re-render preserved).
+  const [snapEnabled, setSnapEnabledState] = useState(true);
+  const [safePlatform, setSafePlatformState] = useState<SafePlatform | null>(null);
+  const guidesRef = useRef<SnapGuidesHandle | null>(null);
+  // Hydrate from localStorage on mount. This is a legitimate external-system sync (localStorage
+  // is undefined during SSR, so we can't read it in the useState initializer without a hydration
+  // mismatch); the one-time post-mount setState is exactly the "subscribe to external state" case
+  // the rule otherwise discourages. Empty deps → runs once.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot SSR-safe localStorage hydration
+    setSnapEnabledState(readSnapPref());
+    setSafePlatformState(readSafePref());
+  }, []);
+  const setSnapEnabled = useCallback((v: boolean) => {
+    setSnapEnabledState(v);
+    writeSnapPref(v);
+  }, []);
+  const setSafePlatform = useCallback((p: SafePlatform | null) => {
+    setSafePlatformState(p);
+    writeSafePref(p);
+  }, []);
+  const safeInsets = safePlatform ? SAFE_AREAS[safePlatform] : null;
+
   // Remount the libass instances when hook/caption presence toggles: instances are created
   // per-part at mount (we don't spin up an instance for an absent track), so enabling the
   // hook (or first captions) from nothing needs a fresh instance for that slot.
@@ -1316,6 +1354,23 @@ export default function ClipEditorScreen({
                 onTimeChange={setNowSec}
                 aspectClass={aspectClass}
               >
+                  {/* safe-area dashed rect (z-10) + imperative alignment guides (z-20). Both live
+                      INSIDE the render box so they position relative to the video (offsetParent),
+                      UNDER the selection boxes (z-30). Guides are driven by the drag via guidesRef. */}
+                  <SafeAreaOverlay platform={safePlatform} />
+                  <SnapGuides ref={guidesRef} />
+
+                  {/* snap toggle + safe-area platform picker — unobtrusive chip, top-right of the
+                      canvas, above the overlays (z-40). Persists to localStorage via the setters. */}
+                  <div className="absolute right-2 top-2 z-40">
+                    <SnapControls
+                      snapEnabled={snapEnabled}
+                      onSnapToggle={setSnapEnabled}
+                      platform={safePlatform}
+                      onPlatformChange={setSafePlatform}
+                    />
+                  </div>
+
                   {/* субтитры: libass (пиксель-в-пиксель как экспорт) ИЛИ CSS-фолбэк */}
                   {useLibass ? (
                     <LibassLayer
@@ -1370,6 +1425,10 @@ export default function ClipEditorScreen({
                         onResizeCommit={onCaptionResize}
                         onWidthCommit={onCaptionWidth}
                         onTap={openReplyEdit}
+                        otherRect={subRects.hook}
+                        safeInsets={safeInsets}
+                        snapEnabled={snapEnabled}
+                        guidesRef={guidesRef}
                       />
                     )}
 
@@ -1390,6 +1449,10 @@ export default function ClipEditorScreen({
                         onMoveCommit={onHookMove}
                         onResizeCommit={onHookResize}
                         onWidthCommit={onHookWidth}
+                        otherRect={subRects.caption}
+                        safeInsets={safeInsets}
+                        snapEnabled={snapEnabled}
+                        guidesRef={guidesRef}
                       />
                     )}
 

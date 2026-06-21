@@ -18,7 +18,8 @@ export interface SnapGuidesHandle {
 // Pool size: up to 4 simultaneous guide lines (x and y for up to 2 snap targets).
 const POOL_SIZE = 4;
 
-const SnapGuides = forwardRef<SnapGuidesHandle, Record<string, never>>(
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+const SnapGuides = forwardRef<SnapGuidesHandle, {}>(
   function SnapGuides(_props, ref) {
     // Keep refs to each pooled line div so we can mutate styles without React state.
     const lineRefs = useRef<(HTMLDivElement | null)[]>(
