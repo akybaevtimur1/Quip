@@ -118,6 +118,7 @@ export function OverlaySelectionBox({
     startSize: number;
     originX: number;
     originY: number;
+    startHeightPct: number;
   } | null>(null);
   // WIDTH (block): center + base half-width + which side is being dragged.
   const widthRef = useRef<{ startX: number; centerX: number; baseHalf: number; side: 1 | -1 } | null>(
@@ -139,6 +140,9 @@ export function OverlaySelectionBox({
   const canvasTxRef = useRef<HTMLElement | null>(null); // canvas currently holding a drag transform
   const pendingReconcileRef = useRef(false); // true between commit and the libass re-render
   const reconcileTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Predicate that returns true once the live libass bbox (`rect`) reflects the COMMITTED target
+  // (new position / new size) — gates the transform handoff so we don't clear on a stale frame.
+  const reconcileMatchRef = useRef<((r: OverlayRect) => boolean) | null>(null);
 
   const setCanvasTransform = (transform: string, origin: string) => {
     const node = boxRef.current;
@@ -156,6 +160,17 @@ export function OverlaySelectionBox({
       canvas.style.transformOrigin = "";
     }
     canvasTxRef.current = null;
+    // ALSO drop the box's OWN gesture transform (the RESIZE feedback scale) in the SAME tick, so the
+    // frame and the text lose their transforms together. The bug was: onHandleUp cleared the box
+    // scale on release while the canvas scale was held → frame snapped to the OLD (small) size while
+    // the text stayed at the NEW (big) size → "the text jumps inside the stationary frame". MOVE uses
+    // left/top (no box transform) so this is a no-op there.
+    const node = boxRef.current;
+    if (node) {
+      node.style.transform = "";
+      node.style.transformOrigin = "";
+    }
+    reconcileMatchRef.current = null;
     pendingReconcileRef.current = false;
     if (reconcileTimerRef.current) {
       clearTimeout(reconcileTimerRef.current);
@@ -165,18 +180,23 @@ export function OverlaySelectionBox({
 
   // Arm the seamless handoff: KEEP the transform through the commit, then clear it once libass has
   // re-rendered at the new \pos (next `rect` update, handled by the effect) — with a timeout net.
-  const armReconcile = () => {
+  const armReconcile = (match: (r: OverlayRect) => boolean) => {
     pendingReconcileRef.current = true;
+    reconcileMatchRef.current = match;
     if (reconcileTimerRef.current) clearTimeout(reconcileTimerRef.current);
-    reconcileTimerRef.current = setTimeout(clearCanvasTransform, 400);
+    reconcileTimerRef.current = setTimeout(clearCanvasTransform, 450);
   };
 
   // Clear the drag transform once a FRESH libass bbox arrives after a commit (text now rendered at
   // the new position → safe to drop the visual transform with no flash-back). `rect` is the live
   // bbox fractions from LibassLayer; a new object identity per libass render frame is the signal.
   useEffect(() => {
-    if (pendingReconcileRef.current) clearCanvasTransform();
-    // `rect` is the dependency — fires on every libass bbox update.
+    if (!pendingReconcileRef.current) return;
+    // Hand off ONLY once libass's bbox reflects the committed target — the first rect updates after a
+    // commit are still the OLD state (setTrack is async), so clearing on the first one snaps for a
+    // frame. The per-gesture predicate gates it; a null rect / no predicate → clear immediately.
+    const match = reconcileMatchRef.current;
+    if (!rect || !match || match(rect)) clearCanvasTransform();
   }, [rect]);
 
   // Cleanup on unmount: never leave a transform stuck on the shared canvas.
@@ -274,9 +294,12 @@ export function OverlaySelectionBox({
     const centerX = snapXCenterRef.current ? 0.5 : (nr.left - box.left + nr.width / 2) / box.width;
     // anchored edge fraction FROM THE TOP: caption commits its BOTTOM edge (\an2), hook its TOP.
     const edgeY = anchor === "top" ? (nr.top - box.top) / box.height : (nr.bottom - box.top) / box.height;
-    // Keep the canvas translate applied THROUGH the commit; clear it only once libass re-renders
-    // at the new \pos (next `rect`) → seamless, no flash-back to the old position.
-    armReconcile();
+    // Hand off when libass's bbox reaches the committed centre/edge (render-box fractions) → seamless.
+    armReconcile((r) => {
+      const cx = (r.leftPct + r.widthPct / 2) / 100;
+      const ey = anchor === "top" ? r.topPct / 100 : (r.topPct + r.heightPct) / 100;
+      return Math.abs(cx - clamp01(centerX)) < 0.04 && Math.abs(ey - clamp01(edgeY)) < 0.04;
+    });
     onMoveCommit(clamp01(centerX), clamp01(edgeY));
   };
 
@@ -295,7 +318,13 @@ export function OverlaySelectionBox({
       originX = nr.left - box.left + nr.width / 2;
       originY = anchor === "top" ? nr.top - box.top : nr.bottom - box.top;
     }
-    resizeRef.current = { startY: e.clientY, startSize: size, originX, originY };
+    resizeRef.current = {
+      startY: e.clientY,
+      startSize: size,
+      originX,
+      originY,
+      startHeightPct: rect?.heightPct ?? 0,
+    };
     clearCanvasTransform(); // supersede any in-flight reconcile
     e.currentTarget.setPointerCapture(e.pointerId);
   };
@@ -322,11 +351,12 @@ export function OverlaySelectionBox({
     if (!r) return;
     e.stopPropagation();
     const next = sizeFromEvent(e.clientY);
+    const targetH = r.startHeightPct * (next / r.startSize);
     resizeRef.current = null;
-    const node = boxRef.current;
-    if (node) node.style.transform = ""; // clear feedback scale; rect re-hugs on commit
-    // Keep the canvas scale THROUGH the commit; clear once libass re-renders at the new size.
-    armReconcile();
+    // Do NOT clear the box scale here — keep BOTH the frame scale and the canvas scale through the
+    // commit so the frame never shows a size that mismatches the text (the "text jumps inside the
+    // frame" bug). They drop together once the libass bbox height ≈ the new size's target.
+    armReconcile((rr) => targetH <= 0 || Math.abs(rr.heightPct - targetH) / targetH < 0.12);
     onResizeCommit(next);
   };
 
