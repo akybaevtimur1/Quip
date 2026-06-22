@@ -49,16 +49,8 @@ import { HookTab } from "./HookTab";
 import { Inspector } from "./Inspector";
 import { OverlaySelectionBox } from "./OverlaySelectionBox";
 import type { SubRects } from "@/lib/overlayBox";
-import { SAFE_AREAS, type SafePlatform } from "@/lib/safeAreas";
-import {
-  readSafePref,
-  readSnapPref,
-  writeSafePref,
-  writeSnapPref,
-} from "@/lib/editorPrefs";
+import { computeFittedCaptionSize } from "@/lib/captionFitBrowser";
 import SnapGuides, { type SnapGuidesHandle } from "./SnapGuides";
-import { SafeAreaOverlay } from "./SafeAreaOverlay";
-import { SnapControls } from "./SnapControls";
 import { stableFrame } from "@/lib/frameIdentity";
 import { type FrameState, PreviewPlayer } from "./PreviewPlayer";
 import { buildReplyRanges, clampMargin, originalReplyText } from "./replyUtils";
@@ -112,6 +104,13 @@ function cxAt(points: { t: number; cx: number | null }[] | undefined, clipT: num
   }
   return points[points.length - 1].cx ?? 0.5;
 }
+
+// Caption/hook font-size bounds (ASS units) — mirror the StyleTab/HookTab "Size" sliders.
+// Module-level so the caption auto-fit (refitCaption) can reference them without TDZ/deps churn.
+const CAPTION_SIZE_MIN = 40;
+const CAPTION_SIZE_MAX = 140;
+const HOOK_SIZE_MIN = 36;
+const HOOK_SIZE_MAX = 120;
 
 export default function ClipEditorScreen({
   jobId,
@@ -697,6 +696,64 @@ export default function ClipEditorScreen({
     [edit, jobId, clipId, refetchAfter, failOr409, flushPending],
   );
 
+  // Low-level: merge a style patch (and drop the active preset — customised now).
+  const setCaptionStylePatch = useCallback(
+    (patch: Partial<CaptionStyle>) => {
+      setActivePresetId(null); // кастомизация поверх пресета — пресет больше не «чистый»
+      editCaptions((captions) => ({
+        ...captions,
+        style: { ...captions.style, ...patch },
+      }));
+    },
+    [editCaptions],
+  );
+
+  // Auto-fit: choose ONE caption size so EVERY page fits the user's frame (block width ×
+  // a vertical budget). The requested size is a CEILING — the frame width is the real
+  // control (wider ⇒ bigger allowed, narrow ⇒ shrinks; text never spills out). The render
+  // already honours style.size literally, so applying the fitted size makes the CSS overlay,
+  // libass preview and ffmpeg export agree without any backend change. async only to await
+  // font loading for accurate measurement; best-effort (never throws). `wrapWidth` undefined
+  // = leave width as-is; a value (incl. null) commits the new block width too.
+  const refitCaption = useCallback(
+    async (desiredSize: number, wrapWidth?: number | null) => {
+      const cur = editRef.current;
+      if (!cur) return;
+      const styleForFit =
+        wrapWidth !== undefined
+          ? { ...cur.captions.style, wrap_width: wrapWidth }
+          : cur.captions.style;
+      const fitted = await computeFittedCaptionSize({
+        replies: cur.captions.replies ?? [],
+        words,
+        style: styleForFit,
+        assText,
+        desiredSize,
+        minSize: CAPTION_SIZE_MIN,
+        maxSize: CAPTION_SIZE_MAX,
+      });
+      setCaptionStylePatch(
+        wrapWidth !== undefined ? { size: fitted, wrap_width: wrapWidth } : { size: fitted },
+      );
+    },
+    [words, assText, setCaptionStylePatch],
+  );
+
+  // Style patch from the inspector / on-video box. A `size` change is the user's desired
+  // CEILING → route it through the auto-fit (other fields in the patch apply immediately).
+  const handleStyleChange = useCallback(
+    (patch: Partial<CaptionStyle>) => {
+      if (patch.size !== undefined) {
+        const { size, ...rest } = patch;
+        if (Object.keys(rest).length > 0) setCaptionStylePatch(rest);
+        void refitCaption(size, undefined);
+        return;
+      }
+      setCaptionStylePatch(patch);
+    },
+    [setCaptionStylePatch, refitCaption],
+  );
+
   const handleCaptionsChange = useCallback(
     (replyIndex: number, text: string | null) => {
       editCaptions((captions) => ({
@@ -706,19 +763,11 @@ export default function ClipEditorScreen({
             i === replyIndex ? { ...reply, text_override: text } : reply,
         ),
       }));
+      // Text changed → re-fit so a longer caption can't overflow the frame (size only,
+      // current size as the ceiling). editRef is already updated by editCaptions above.
+      void refitCaption(editRef.current?.captions.style.size ?? 90, undefined);
     },
-    [editCaptions],
-  );
-
-  const handleStyleChange = useCallback(
-    (patch: Partial<CaptionStyle>) => {
-      setActivePresetId(null); // кастомизация поверх пресета — пресет больше не «чистый»
-      editCaptions((captions) => ({
-        ...captions,
-        style: { ...captions.style, ...patch },
-      }));
-    },
-    [editCaptions],
+    [editCaptions, refitCaption],
   );
 
   const handleHighlightChange = useCallback(
@@ -1055,11 +1104,6 @@ export default function ClipEditorScreen({
   // Vertical anchors (PlayResY = 1920, no horizontal field — text is centered):
   //   • hook    → margin_v from the TOP  → box top    = margin_v / 1920
   //   • caption → margin_v from the BOTTOM → box bottom = margin_v / 1920
-  const CAPTION_SIZE_MIN = 40; // mirror StyleTab "Size" slider
-  const CAPTION_SIZE_MAX = 140;
-  const HOOK_SIZE_MIN = 36; // mirror HookTab "Size" slider
-  const HOOK_SIZE_MAX = 120;
-
   const hook = edit?.captions.hook ?? null;
   const hookEnabled = !!hook?.enabled;
   const hookSize = hook?.size ?? 66;
@@ -1092,32 +1136,11 @@ export default function ClipEditorScreen({
     [],
   );
 
-  // ── Snapping + safe-area prefs (alignment guides on the on-video drag) ──
-  // Defaults match the no-pref state (snap on, no platform). We read the persisted choice in a
-  // MOUNT effect (not the useState initializer) so SSR doesn't touch localStorage, then mirror
-  // it to state. Setters are wrapped to persist back. The guides overlay is driven imperatively
-  // by the drag via this ref → no React state on the pointermove path (zero-re-render preserved).
-  const [snapEnabled, setSnapEnabledState] = useState(true);
-  const [safePlatform, setSafePlatformState] = useState<SafePlatform | null>(null);
+  // ── Alignment guides for the on-video drag (always on; no toggle) ──
+  // Snapping to canvas center/edges + the other element is a fixed default (alignment can't be
+  // disabled for now). The guides overlay is driven imperatively by the drag via this ref → no
+  // React state on the pointermove path (zero-re-render preserved).
   const guidesRef = useRef<SnapGuidesHandle | null>(null);
-  // Hydrate from localStorage on mount. This is a legitimate external-system sync (localStorage
-  // is undefined during SSR, so we can't read it in the useState initializer without a hydration
-  // mismatch); the one-time post-mount setState is exactly the "subscribe to external state" case
-  // the rule otherwise discourages. Empty deps → runs once.
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot SSR-safe localStorage hydration
-    setSnapEnabledState(readSnapPref());
-    setSafePlatformState(readSafePref());
-  }, []);
-  const setSnapEnabled = useCallback((v: boolean) => {
-    setSnapEnabledState(v);
-    writeSnapPref(v);
-  }, []);
-  const setSafePlatform = useCallback((p: SafePlatform | null) => {
-    setSafePlatformState(p);
-    writeSafePref(p);
-  }, []);
-  const safeInsets = safePlatform ? SAFE_AREAS[safePlatform] : null;
 
   // Remount the libass instances when hook/caption presence toggles: instances are created
   // per-part at mount (we don't spin up an instance for an absent track), so enabling the
@@ -1133,9 +1156,12 @@ export default function ClipEditorScreen({
     (size: number) => handleStyleChange({ size }),
     [handleStyleChange],
   );
+  // Side-drag commits the block width AND re-fits the font to it (wider ⇒ bigger allowed),
+  // keeping the current size as the ceiling so a narrower frame only ever shrinks the text.
   const onCaptionWidth = useCallback(
-    (wrap_width: number) => handleStyleChange({ wrap_width }),
-    [handleStyleChange],
+    (wrap_width: number) =>
+      void refitCaption(editRef.current?.captions.style.size ?? 90, wrap_width),
+    [refitCaption],
   );
   // hook: free move → pos_x (center) + pos_y (top edge, \an8); corner → size; side → width.
   const onHookMove = useCallback(
@@ -1354,22 +1380,10 @@ export default function ClipEditorScreen({
                 onTimeChange={setNowSec}
                 aspectClass={aspectClass}
               >
-                  {/* safe-area dashed rect (z-10) + imperative alignment guides (z-20). Both live
-                      INSIDE the render box so they position relative to the video (offsetParent),
-                      UNDER the selection boxes (z-30). Guides are driven by the drag via guidesRef. */}
-                  <SafeAreaOverlay platform={safePlatform} />
+                  {/* imperative alignment guides (z-20): live INSIDE the render box so they position
+                      relative to the video (offsetParent), UNDER the selection boxes (z-30). Driven
+                      by the drag via guidesRef. Always on — no toggle, no safe-area overlay. */}
                   <SnapGuides ref={guidesRef} />
-
-                  {/* snap toggle + safe-area platform picker — unobtrusive chip, top-right of the
-                      canvas, above the overlays (z-40). Persists to localStorage via the setters. */}
-                  <div className="absolute right-2 top-2 z-40">
-                    <SnapControls
-                      snapEnabled={snapEnabled}
-                      onSnapToggle={setSnapEnabled}
-                      platform={safePlatform}
-                      onPlatformChange={setSafePlatform}
-                    />
-                  </div>
 
                   {/* субтитры: libass (пиксель-в-пиксель как экспорт) ИЛИ CSS-фолбэк */}
                   {useLibass ? (
@@ -1426,8 +1440,6 @@ export default function ClipEditorScreen({
                         onWidthCommit={onCaptionWidth}
                         onTap={openReplyEdit}
                         otherRect={subRects.hook}
-                        safeInsets={safeInsets}
-                        snapEnabled={snapEnabled}
                         guidesRef={guidesRef}
                       />
                     )}
@@ -1450,8 +1462,6 @@ export default function ClipEditorScreen({
                         onResizeCommit={onHookResize}
                         onWidthCommit={onHookWidth}
                         otherRect={subRects.caption}
-                        safeInsets={safeInsets}
-                        snapEnabled={snapEnabled}
                         guidesRef={guidesRef}
                       />
                     )}

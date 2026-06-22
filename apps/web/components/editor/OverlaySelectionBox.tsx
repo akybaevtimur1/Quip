@@ -2,7 +2,6 @@
 
 import { useRef } from "react";
 import type { OverlayRect } from "@/lib/overlayBox";
-import { safeBoxPx, type SafeInsets } from "@/lib/safeAreas";
 import { computeSnap, SNAP_THRESHOLD_PX } from "@/lib/snapEngine";
 import { buildTargets } from "@/lib/snapTargets";
 import type { SnapGuidesHandle } from "./SnapGuides";
@@ -51,8 +50,6 @@ export interface OverlaySelectionBoxProps {
   onTap?: () => void;
   /** The OTHER element's render-box-fraction rect, for element-to-element snapping (or null). */
   otherRect?: OverlayRect | null;
-  /** Active platform safe-area insets (fractions 0..1), or null when no platform picked. */
-  safeInsets?: SafeInsets | null;
   /** Whether snapping is active. Hold Alt during a drag to suspend it. Default true. */
   snapEnabled?: boolean;
   /** Imperative handle to the alignment-guide overlay (drawn during snap). */
@@ -89,7 +86,6 @@ export function OverlaySelectionBox({
   onWidthCommit,
   onTap,
   otherRect,
-  safeInsets,
   snapEnabled = true,
   guidesRef,
 }: OverlaySelectionBoxProps) {
@@ -158,8 +154,7 @@ export function OverlaySelectionBox({
             height: (otherRect.heightPct / 100) * H,
           }
         : null;
-      const safe = safeInsets ? safeBoxPx(safeInsets, W, H) : null;
-      const targets = buildTargets(W, H, other, safe);
+      const targets = buildTargets(W, H, other);
       const res = computeSnap({ left, top, width: nr.width, height: nr.height }, targets, SNAP_THRESHOLD_PX);
       snapLeft = Math.min(box.width - nr.width, Math.max(0, res.left));
       snapTop = Math.min(box.height - nr.height, Math.max(0, res.top));

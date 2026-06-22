@@ -63,3 +63,28 @@ export function originalReplyText(
 export function clampMargin(m: number): number {
   return Math.max(40, Math.min(1200, Math.round(m)));
 }
+
+/**
+ * Текст КАЖДОЙ видимой страницы субтитров (как она реально рисуется): override, иначе
+ * слова реплики, в UPPERCASE если стиль так требует. Зеркалит позиционное соответствие
+ * reply[i] ↔ words[offset..) (как buildReplyRanges / бэкенд compile_ass). Используется
+ * авто-фитом (captionFit), чтобы подобрать ОДИН кегль, при котором ВСЕ страницы влезают
+ * в рамку — скрытые/пустые реплики не дают страницы, но сдвигают offset.
+ */
+export function captionPageTexts(
+  replies: CaptionReply[],
+  words: Word[],
+  uppercase: boolean,
+): string[] {
+  const pages: string[] = [];
+  let offset = 0;
+  for (const reply of replies) {
+    const count = reply.word_refs.length;
+    const group = words.slice(offset, offset + count);
+    offset += count;
+    if (reply.hidden || count === 0 || group.length === 0) continue;
+    const text = reply.text_override ?? group.map((w) => w.text).join(" ");
+    pages.push(uppercase ? text.toUpperCase() : text);
+  }
+  return pages;
+}
