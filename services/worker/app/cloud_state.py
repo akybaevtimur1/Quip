@@ -315,6 +315,41 @@ def get_job_artifact(job_id: str, key: str) -> Any:
     return row.get(key) if row else None
 
 
+def merge_reframe_regions(job_id: str, clip_id: str, value: dict[str, Any]) -> int:
+    """Атомарно вписать reframe-регионы ОДНОГО клипа в job_artifacts.reframe_regions (домен 1).
+
+    RPC ``merge_reframe_regions`` (migrations/0013): server-side ``||``-merge внутри одного UPDATE
+    сериализуется блокировкой строки → параллельные фан-аут-контейнеры, пишущие РАЗНЫЕ clip_id,
+    не теряют запись друг друга (как set_clip_video_url). Возвращает число обновлённых строк
+    (0 = строки артефактов нет → вызыватель логирует, не глотает, правило №8)."""
+    r = httpx.post(
+        f"{_base()}/rpc/merge_reframe_regions",
+        headers=_headers(),
+        json={"p_job_id": job_id, "p_clip_id": clip_id, "p_value": value},
+        timeout=_TIMEOUT,
+    )
+    r.raise_for_status()
+    return int(r.json())
+
+
+def get_reframe_regions(job_id: str, clip_id: str) -> dict[str, Any] | None:
+    """Персистнутый reframe-payload ОДНОГО клипа (или None). Читает job_artifacts.reframe_regions
+    (словарь {clip_id: payload}) и достаёт запись клипа."""
+    r = httpx.get(
+        f"{_base()}/job_artifacts",
+        params={"job_id": f"eq.{job_id}", "select": "reframe_regions"},
+        headers=_headers(),
+        timeout=_TIMEOUT,
+    )
+    r.raise_for_status()
+    row = first_row(r.json())
+    blob = row.get("reframe_regions") if row else None
+    if not isinstance(blob, dict):
+        return None
+    entry = blob.get(clip_id)
+    return entry if isinstance(entry, dict) else None
+
+
 # ─────────────────────────── transcript_cache (бережёт Deepgram) ───────────────────────────
 
 

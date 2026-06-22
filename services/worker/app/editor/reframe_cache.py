@@ -249,6 +249,51 @@ def resolve_regions_accurate(
     return out
 
 
+def build_persist_payload(
+    regions: list[TrackRegion], default_start: float, default_end: float
+) -> dict[str, Any]:
+    """Регионы дефолтного интервала клипа → durable-payload (домен 1, batch персист). PURE.
+
+    Хранит границы дефолтного интервала (для сверки с текущими интервалами edit-state) и сами
+    регионы (interval-relative, как вернул reframe_segment). Точно тот же формат регионов, что
+    у acc_*.json / reframe_<clip>.json → фронт читает один контракт.
+    """
+    return {
+        "default_start": round(default_start, 3),
+        "default_end": round(default_end, 3),
+        "regions": [_region_to_dict(r) for r in regions],
+    }
+
+
+def intervals_match_default(
+    intervals: list[SourceInterval], default_start: float, default_end: float, *, tol: float = 0.05
+) -> bool:
+    """True, если edit-state — ОДИН интервал, совпадающий с дефолтным (нетронутый клип). PURE.
+
+    Тогда персистнутые batch-регионы валидны как есть → /reframe отдаёт их без пересчёта CV.
+    После трима/сдвига (≠1 интервал или сдвинутые границы) → False → честный on-demand пересчёт
+    (корректность важнее скорости; новые границы требуют нового анализа).
+    """
+    if len(intervals) != 1:
+        return False
+    iv = intervals[0]
+    return abs(iv.source_start - default_start) <= tol and abs(iv.source_end - default_end) <= tol
+
+
+def regions_from_persisted(
+    persisted: dict[str, Any], iv: SourceInterval, overrides: list[CropOverride]
+) -> list[dict[str, Any]]:
+    """Персистнутый payload + текущий интервал/оверрайды → регионы в КЛИП-времени. PURE.
+
+    Десериализует регионы, перекрашивает покрытые ручным override'ом шоты (apply_overrides_to_
+    regions — границы t0/t1 НЕ трогаются, инвариант кадровой сетки цел), разворачивает в клип-время.
+    Тот же путь, что у on-demand resolve_regions_accurate → результат идентичен, только без CV.
+    """
+    regions = [_region_from_dict(d) for d in persisted.get("regions", [])]
+    regions = apply_overrides_to_regions(regions, overrides, iv)
+    return regions_to_clip_time([regions], [iv])
+
+
 def regions_to_clip_time(
     region_lists: list[list[TrackRegion]], intervals: list[SourceInterval]
 ) -> list[dict[str, Any]]:

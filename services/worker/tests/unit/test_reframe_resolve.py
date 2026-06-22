@@ -6,6 +6,9 @@ from app.editor.reframe_cache import (
     _region_to_dict,
     analyze_source_range,
     apply_overrides_to_regions,
+    build_persist_payload,
+    intervals_match_default,
+    regions_from_persisted,
     regions_to_clip_time,
     resolve_regions,
 )
@@ -242,3 +245,58 @@ def test_apply_overrides_unknown_mode_unchanged():
     ov = [CropOverride(source_start=12.0, source_end=14.0, mode="bogus")]
     out = apply_overrides_to_regions(regions, ov, iv)
     assert out[1] == regions[1]  # unknown mode → region left unchanged
+
+
+# ── Домен 1: durable persist / fast-path selection (pure) ──
+
+
+def test_build_persist_payload_shape_and_rounding():
+    regions = _three_shots()
+    payload = build_persist_payload(regions, 10.0004, 16.0009)
+    assert payload["default_start"] == 10.0
+    assert payload["default_end"] == 16.001
+    # регионы сериализованы тем же форматом, что acc_*.json
+    assert [r["mode"] for r in payload["regions"]] == ["fill", "fill", "fit"]
+    back = [_region_from_dict(d) for d in payload["regions"]]
+    assert back == regions
+
+
+def test_intervals_match_default_single_matching():
+    iv = [SourceInterval(source_start=10.0, source_end=16.0)]
+    assert intervals_match_default(iv, 10.0, 16.0) is True
+    # в пределах допуска
+    assert intervals_match_default(iv, 10.02, 15.98) is True
+
+
+def test_intervals_match_default_shifted_or_trimmed():
+    # сдвинутый интервал → не дефолт
+    iv = [SourceInterval(source_start=12.0, source_end=18.0)]
+    assert intervals_match_default(iv, 10.0, 16.0) is False
+    # несколько интервалов (после trim-дырки) → не дефолт
+    iv2 = [
+        SourceInterval(source_start=10.0, source_end=13.0),
+        SourceInterval(source_start=14.0, source_end=16.0),
+    ]
+    assert intervals_match_default(iv2, 10.0, 16.0) is False
+
+
+def test_regions_from_persisted_roundtrips_without_overrides():
+    # persist → fast-path без override == прямой regions_to_clip_time исходных регионов
+    regions = _three_shots()
+    payload = build_persist_payload(regions, 10.0, 16.0)
+    iv = SourceInterval(source_start=10.0, source_end=16.0)
+    got = regions_from_persisted(payload, iv, [])
+    want = regions_to_clip_time([regions], [iv])
+    assert got == want
+
+
+def test_regions_from_persisted_applies_override_recolor():
+    # override на shot#2 (mid source 13) перекрашивает fill→fit, СОХРАНЯЯ границы (инвариант сетки)
+    regions = _three_shots()
+    payload = build_persist_payload(regions, 10.0, 16.0)
+    iv = SourceInterval(source_start=10.0, source_end=16.0)
+    ov = [CropOverride(source_start=12.0, source_end=14.0, mode="fit")]
+    got = regions_from_persisted(payload, iv, ov)
+    # три региона, те же границы; средний стал fit
+    assert [(r["t0"], r["t1"]) for r in got] == [(0.0, 2.0), (2.0, 4.0), (4.0, 6.0)]
+    assert [r["mode"] for r in got] == ["fill", "fit", "fit"]

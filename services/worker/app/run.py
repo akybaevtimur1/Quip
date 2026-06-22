@@ -20,6 +20,7 @@ from typing import Any
 
 from app import billing, db, dispatch, storage
 from app.config import get_settings
+from app.editor.reframe_cache import build_persist_payload
 from app.errors import JobError
 from app.models import ClipOut, Job, JobStatus, Metrics, Segment, Transcript, Word
 from app.pipeline.preview_moments import (
@@ -158,6 +159,15 @@ def render_one_clip(
         wide_speak_min=s.reframe_wide_speak_min,
     )  # fmt: skip
     reframe_lat = round(time.perf_counter() - t0, 2)
+    # Домен 1: персистим РЕАЛЬНЫЕ границы шотов (PySceneDetect) дефолтного интервала клипа, чтобы
+    # /reframe в редакторе отдавал их мгновенно (без пересчёта тяжёлого CV на холодном контейнере).
+    # Best-effort (cloud-only) — провал персиста НЕ должен валить рендер клипа (фолбэк = on-demand).
+    try:
+        db.put_reframe_regions(
+            out.name, clip_id, build_persist_payload(regions, seg.start, seg.end)
+        )
+    except Exception as e:  # noqa: BLE001 — персист не критичен; рендер важнее, ошибку логируем
+        print(f"  {clip_id}: WARN reframe-regions persist failed: {e}")
     # Базовый клип-аспект 9:16; free капится по меньшей стороне (1080→720). Кадровая сетка
     # (trim по SOURCE-кадрам) от out_w/out_h НЕ зависит → Δ=0 инвариант цел.
     out_w, out_h = clamp_output_dims(1080, 1920, policy.max_resolution)

@@ -1158,38 +1158,83 @@ def get_clip_reframe(job_id: str, clip_id: str) -> dict[str, Any]:
     превью-план == рендер-план, и в обоих средах, и после сдвига/трима интервала.
     """
     from app import artifacts
-    from app.editor.reframe_cache import regions_to_clip_time, resolve_regions_accurate
+    from app.editor.reframe_cache import (
+        build_persist_payload,
+        intervals_match_default,
+        regions_from_persisted,
+        regions_to_clip_time,
+        resolve_regions_accurate,
+    )
 
     try:
         edit = store.ensure_edit(job_id, clip_id)
     except (FileNotFoundError, KeyError, JobError) as e:
         raise HTTPException(status_code=404, detail="clip/segment not found") from e
+
+    # ── Домен 1: FAST-PATH — реальные границы шотов из persist (без CV, без скачивания source) ──
+    # batch-пайплайн уже посчитал PySceneDetect-границы дефолтного интервала и сохранил их. Если
+    # клип НЕ тримили/не сдвигали (один интервал == дефолт), отдаём их МГНОВЕННО (+ перекрас под
+    # ручные override'ы). Это и есть фикс «полоса шотов = равные чанки»: на холодном контейнере
+    # /reframe больше не гоняет тяжёлый CV (который тормозил/падал 500) для нетронутого клипа.
+    persisted = db.get_reframe_regions(job_id, clip_id)
+    if persisted and intervals_match_default(
+        edit.source_intervals, persisted.get("default_start", -1), persisted.get("default_end", -1)
+    ):
+        iv = edit.source_intervals[0]
+        return {"regions": regions_from_persisted(persisted, iv, edit.reframe_overrides)}
+
     out = artifacts.ensure_source(job_id).parent
     meta = artifacts.load_meta(job_id)
     s = get_settings()
-    region_lists = resolve_regions_accurate(
-        out / "source.mp4",
-        edit.source_intervals,
-        edit.reframe_overrides,
-        src_w=meta.width,
-        src_h=meta.height,
-        fps=meta.fps,
-        clip_id=clip_id,
-        out_dir=out,
-        cache_dir=out / "analysis",
-        mode_setting=s.reframe_mode,
-        speaker_crop_scale=s.reframe_speaker_crop_scale,
-        face_fps=s.reframe_face_fps,
-        smoothing=s.reframe_smoothing,
-        min_hold_sec=s.reframe_min_hold_sec,
-        speak_threshold=s.reframe_speak_threshold,
-        scene_threshold=s.reframe_scene_threshold,
-        split_enabled=s.reframe_split_enabled,
-        # WYSIWYG: тот же гибрид-порог, что у рендера/батча (render_edit_to_file его передаёт).
-        # Без него превью бралось дефолтом resolve_regions_accurate (0.3) ≠ настройке → широкий
-        # план в гриде показан горизонтально (fit), а в редакторе-превью — кропом (fill).
-        wide_speak_min=s.reframe_wide_speak_min,
-    )
+    try:
+        region_lists = resolve_regions_accurate(
+            out / "source.mp4",
+            edit.source_intervals,
+            edit.reframe_overrides,
+            src_w=meta.width,
+            src_h=meta.height,
+            fps=meta.fps,
+            clip_id=clip_id,
+            out_dir=out,
+            cache_dir=out / "analysis",
+            mode_setting=s.reframe_mode,
+            speaker_crop_scale=s.reframe_speaker_crop_scale,
+            face_fps=s.reframe_face_fps,
+            smoothing=s.reframe_smoothing,
+            min_hold_sec=s.reframe_min_hold_sec,
+            speak_threshold=s.reframe_speak_threshold,
+            scene_threshold=s.reframe_scene_threshold,
+            split_enabled=s.reframe_split_enabled,
+            # WYSIWYG: тот же гибрид-порог, что у рендера/батча (render_edit_to_file его передаёт).
+            # Без него превью бралось дефолтом resolve_regions_accurate (0.3) ≠ настройке → широкий
+            # план в гриде показан горизонтально (fit), а в редакторе-превью — кропом (fill).
+            wide_speak_min=s.reframe_wide_speak_min,
+        )
+    except Exception as e:  # noqa: BLE001 — тяжёлый CV мог упасть/таймаутнуть на холодном
+        # Явная ошибка вместо непрозрачного 500 (правило №8): фронт отличит «не смогли посчитать»
+        # от «считается». Без тихого фолбэка — состояние видно.
+        raise HTTPException(
+            status_code=503, detail="reframe analysis unavailable (try again shortly)"
+        ) from e
+
+    # Backfill (старые джобы до миграции): только что посчитали реальные регионы on-demand →
+    # сохраним, чтобы следующий (холодный) контейнер взял fast-path. ЖЁСТКИЕ условия безопасности:
+    #   • persisted is None — НИКОГДА не перетираем канонический batch-entry (или чужой shift);
+    #   • без reframe_overrides — region_lists ЧИСТЫЕ авто-регионы (fast-path наложит override сам);
+    #   • один интервал — payload хранит ровно один дефолтный интервал.
+    if persisted is None and not edit.reframe_overrides and len(region_lists) == 1:
+        iv = edit.source_intervals[0]
+        try:
+            db.put_reframe_regions(
+                job_id,
+                clip_id,
+                build_persist_payload(region_lists[0], iv.source_start, iv.source_end),
+            )
+        except Exception as e:  # noqa: BLE001 — backfill best-effort, ответ важнее
+            print(
+                f"[get_clip_reframe] WARN backfill persist failed job={job_id} clip={clip_id}: {e}"
+            )
+
     return {"regions": regions_to_clip_time(region_lists, edit.source_intervals)}
 
 

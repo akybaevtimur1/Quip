@@ -439,6 +439,25 @@ def get_job_artifact(job_id: str, key: str) -> Any:
     return None
 
 
+def put_reframe_regions(job_id: str, clip_id: str, value: dict[str, Any]) -> None:
+    """Персистнуть reframe-регионы дефолтного интервала клипа (домен 1, cloud-only).
+
+    Cross-container: batch-фан-аут (render_one_clip) считает реальные границы шотов, а /reframe
+    (web-контейнер) их читает → редактор показывает РЕАЛЬНЫЕ склейки мгновенно, без пересчёта CV.
+    Best-effort: 0 обновлённых строк логируем (не глотаем). Локально — no-op (диск analysis/*)."""
+    if cs.cloud_enabled():
+        n = cs.merge_reframe_regions(job_id, clip_id, value)
+        if not n:
+            print(f"[put_reframe_regions] WARN: no artifacts row for job={job_id} clip={clip_id}")
+
+
+def get_reframe_regions(job_id: str, clip_id: str) -> dict[str, Any] | None:
+    """Персистнутый reframe-payload клипа из Postgres (cloud); локально → None (диск)."""
+    if cs.cloud_enabled():
+        return cs.get_reframe_regions(job_id, clip_id)
+    return None
+
+
 # ── content-addressed transcript-кэш (бережёт Deepgram между контейнерами) ──
 
 
