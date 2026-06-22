@@ -145,6 +145,9 @@ export default function ClipEditorScreen({
   // reframe-план для честного превью кадра (D2: от эндпоинта /reframe = единый путь рендера;
   // отражает ТЕКУЩИЕ интервалы → не устаревает после сдвига/трима, и работает на облаке)
   const [rawRegions, setRawRegions] = useState<RawRegion[] | null>(null);
+  // Грузится ли план шотов (/reframe) → полоса показывает скелетон «Detecting shots…»
+  // вместо мгновенного фейкового фолбэка равными кусками (это и путало юзера).
+  const [reframeLoading, setReframeLoading] = useState(true);
 
   const [renderState, setRenderState] = useState<RenderState>({ kind: "idle" });
   // есть правки после последнего рендера → юзеру явно видно, что скачивание/результат
@@ -195,11 +198,14 @@ export default function ClipEditorScreen({
   // reframe-план превью: единый путь /reframe (как рендер), отражает текущие интервалы.
   // Нефатально: ошибка/таймаут → null → превью fallback в центр (как было), без поломки.
   const loadReframe = useCallback(async () => {
+    setReframeLoading(true);
     try {
       const data = await getClipReframe(jobId, clipId);
       setRawRegions((data.regions as RawRegion[]) ?? null);
     } catch {
       setRawRegions(null);
+    } finally {
+      setReframeLoading(false);
     }
   }, [jobId, clipId]);
 
@@ -324,6 +330,7 @@ export default function ClipEditorScreen({
         setEditingReply(null);
         setRenderState({ kind: "idle" });
         setRawRegions(null);
+        setReframeLoading(true);
       }
       // Switch-race guard (Task 7, IMPORTANT): on the instant-paint (cache-hit) path this
       // fetch is a BACKGROUND revalidation — the user already sees painted state and CAN edit
@@ -381,7 +388,10 @@ export default function ClipEditorScreen({
             void getClipReframe(jobId, clipId)
               .then((data) => {
                 const regions = (data.regions as RawRegion[]) ?? null;
-                if (!cancelled) setRawRegions(regions);
+                if (!cancelled) {
+                  setRawRegions(regions);
+                  setReframeLoading(false);
+                }
                 // Cache the fully-loaded current clip, then warm ±1 neighbors.
                 clipCacheRef.current?.set(clipId, {
                   edit: editData,
@@ -392,7 +402,10 @@ export default function ClipEditorScreen({
                 void prefetchNeighbors(clipId);
               })
               .catch(() => {
-                if (!cancelled) setRawRegions(null);
+                if (!cancelled) {
+                  setRawRegions(null);
+                  setReframeLoading(false);
+                }
                 // Couldn't load the frame plan → don't cache (would paint a center-crop
                 // preview on next switch); still warm neighbors so their fetch is fast.
                 void prefetchNeighbors(clipId);
@@ -603,6 +616,7 @@ export default function ClipEditorScreen({
         setWords(cached.words);
         setAssText(cached.ass);
         setRawRegions(cached.regions);
+        setReframeLoading(cached.regions === null); // нет регионов в кэше → ждём ревалидацию
         setEditingReply(null);
         setActivePresetId(null);
         setLibassFailed(false);
@@ -1345,9 +1359,11 @@ export default function ClipEditorScreen({
               Per-shot framing
             </p>
             <p className="text-xs leading-snug text-muted">
-              {usingFallbackShots
-                ? "Drag across the bar to pick the part of the clip you want, then force Wide / Tight / Auto on just that stretch. Use the playhead line to line it up with the moment."
-                : "Reframe individual shots (the cuts between camera angles), not the whole clip. Drag across the bar to pick shots, then force Wide / Tight / Auto on just those."}
+              Your clip is built from <span className="text-ink">shots</span> — the cuts between
+              camera angles. For each shot the AI decides how to fit it into 9:16. Pick shots on the
+              bar (the white line shows where you are) and force{" "}
+              <span className="text-ink">Wide</span>, <span className="text-ink">Tight</span> or{" "}
+              <span className="text-ink">Auto</span>.
             </p>
           </div>
           <FitTimeline
@@ -1356,6 +1372,8 @@ export default function ClipEditorScreen({
             overrides={edit.reframe_overrides}
             nowSec={nowSec}
             busy={busy}
+            variant={usingFallbackShots ? "manual" : "ai"}
+            loading={reframeLoading}
             onApplyRange={handleApplyRange}
           />
         </div>

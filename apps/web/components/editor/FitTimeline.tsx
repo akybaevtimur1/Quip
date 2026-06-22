@@ -1,17 +1,24 @@
 "use client";
 
+import { Loader2 } from "lucide-react";
 import { useCallback, useMemo, useRef, useState } from "react";
+import { mmss } from "@/lib/format";
 import type { CropOverride, SourceInterval } from "@/lib/types";
 
 // ────────────────────────────────────────────────────────────────────────────
-// FitTimeline — тонкая полоса под превью для РУЧНОГО форсирования кадра.
-// Один блок на reframe-регион (шот между склейками), тонированный по режиму
-// (fill/fit/split). Регионы с активным override помечены отдельно (Wide/Tight).
-// Драг по полосе → выбор СМЕЖНОГО диапазона регионов; выделение СНАПИТСЯ к
-// границам регионов (целые шоты, никогда не посреди кадра). Контрол
-// [Wide ▼] (Wide=fit / Tight=fill / Auto=clear) применяет режим к диапазону.
-// Маппинг клип-время регионов → source-время (обратный к regions_to_clip_time)
-// → колбэк onApplyRange(sourceStart, sourceEnd, mode).
+// FitTimeline — полоса шотов под превью для ПОШОТОВОГО кадрирования.
+// Видео склеено из шотов (смен ракурса камеры). Для каждого шота AI решает,
+// как уместить его в 9:16: Wide (весь кадр) / Tight (кроп на спикере) / Split.
+// Тут можно ПЕРЕОПРЕДЕЛИТЬ кадр на выбранных шотах.
+//
+// Три честных состояния (variant):
+//   • "ai"      — реальные границы шотов от CV (PySceneDetect): блок = реальная склейка.
+//   • "manual"  — AI-план недоступен → равные слоты как РУЧНАЯ разметка (честно подписано,
+//                 НЕ маскируется под реальные шоты — это была главная путаница).
+//   • loading   — план шотов ещё считается → скелетон, а не фейковые «шоты».
+//
+// Драг по полосе → выбор СМЕЖНОГО диапазона шотов (снап к границам = целый шот).
+// [Wide / Tight / Auto] применяет режим к диапазону (Auto = убрать override).
 // ────────────────────────────────────────────────────────────────────────────
 
 /** Регион reframe-плана в КЛИП-времени (совпадает с RawRegion в ClipEditorScreen). */
@@ -30,10 +37,14 @@ export interface FitTimelineProps {
   intervals: SourceInterval[];
   /** Текущие ручные override'ы — подсветить регионы с форсированным кадром. */
   overrides?: CropOverride[];
-  /** Текущее время видео (source-сек) → тонкий плейхед. */
+  /** Текущее время видео (source-сек) → плейхед + подсветка активного шота. */
   nowSec?: number;
   /** Идёт сохранение/рендер: взаимодействие заблокировано. */
   busy?: boolean;
+  /** "ai" = реальные шоты от CV; "manual" = равные слоты (AI-план недоступен). */
+  variant?: "ai" | "manual";
+  /** План шотов ещё грузится → скелетон вместо полосы. */
+  loading?: boolean;
   /** Применить режим к source-диапазону выделенных регионов. mode:"auto" чистит override. */
   onApplyRange: (sourceStart: number, sourceEnd: number, mode: ForceMode) => void;
 }
@@ -78,16 +89,21 @@ function regionOverride(
   return null;
 }
 
+/** Лейбл режима кадра в терминах юзера. */
+function modeLabel(mode: string): string {
+  return mode === "fit" ? "Wide" : mode === "fill" ? "Tight" : mode === "split" ? "Split" : mode;
+}
+
 const MODE_TINT: Record<string, string> = {
-  fill: "bg-quote/40", // tight crop (синий)
-  fit: "bg-thought/40", // wide / horizontal (зелёный)
-  split: "bg-peak/40", // split (фиолетовый)
+  fill: "bg-quote/30", // tight crop (синий)
+  fit: "bg-thought/30", // wide / horizontal (зелёный)
+  split: "bg-peak/30", // split (фиолетовый)
 };
 
-const FORCE_OPTIONS: { value: ForceMode; label: string }[] = [
-  { value: "fit", label: "Wide" },
-  { value: "fill", label: "Tight" },
-  { value: "auto", label: "Auto" },
+const FORCE_OPTIONS: { value: ForceMode; label: string; hint: string }[] = [
+  { value: "fit", label: "Wide", hint: "show the whole frame" },
+  { value: "fill", label: "Tight", hint: "crop in on the speaker" },
+  { value: "auto", label: "Auto", hint: "let AI decide" },
 ];
 
 export function FitTimeline({
@@ -96,6 +112,8 @@ export function FitTimeline({
   overrides = [],
   nowSec,
   busy = false,
+  variant = "ai",
+  loading = false,
   onApplyRange,
 }: FitTimelineProps) {
   const trackRef = useRef<HTMLDivElement>(null);
@@ -172,31 +190,62 @@ export function FitTimeline({
     setSel(null);
   }, [sel, regions, intervals, mode, busy, onApplyRange]);
 
-  // ── пусто/нет плана → крошечная подсказка (не ломаемся) ──
-  if (!regions || regions.length === 0) {
+  const unit = variant === "manual" ? "part" : "shot";
+
+  // ── loading: план шотов считается → скелетон (НЕ фейковые «шоты») ──
+  if (loading) {
     return (
-      <div className="mt-2 rounded-lg border border-dashed border-line bg-surface-2 px-3 py-1.5 text-center text-[11px] text-muted">
-        Framing follows AI
+      <div className="mt-2 space-y-1.5">
+        <div className="flex h-14 w-full gap-px overflow-hidden rounded-lg border border-line bg-surface-2">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <div key={i} className="h-full flex-1 animate-pulse bg-surface-3/60" />
+          ))}
+        </div>
+        <p className="flex items-center justify-center gap-1.5 text-[11px] text-muted">
+          <Loader2 className="size-3 animate-spin" />
+          Detecting the shots in this clip…
+        </p>
       </div>
     );
   }
 
-  const playheadFrac =
+  // ── пусто/нет плана → честная подсказка (не ломаемся) ──
+  if (!regions || regions.length === 0) {
+    return (
+      <div className="mt-2 rounded-lg border border-dashed border-line bg-surface-2 px-3 py-2 text-center text-[11px] text-muted">
+        Shot plan unavailable for this clip — framing follows the AI default.
+      </div>
+    );
+  }
+
+  const playheadClipT =
     nowSec !== undefined && intervals.length > 0
-      ? clamp((clipTimeFromSource(nowSec, intervals) - t0) / clipDur, 0, 1)
+      ? clipTimeFromSource(nowSec, intervals)
       : null;
+  const playheadFrac =
+    playheadClipT !== null ? clamp((playheadClipT - t0) / clipDur, 0, 1) : null;
+  const activeIdx =
+    playheadClipT !== null
+      ? regions.findIndex((r) => playheadClipT >= r.t0 && playheadClipT < r.t1)
+      : -1;
+
+  const selLabel = sel
+    ? sel.from === sel.to
+      ? `${unit === "shot" ? "Shot" : "Part"} ${sel.from + 1} selected`
+      : `${unit === "shot" ? "Shots" : "Parts"} ${sel.from + 1}–${sel.to + 1} selected`
+    : `Drag across the bar to pick ${unit}s`;
 
   return (
     <div className="mt-2 select-none">
-      <div className="mb-1 flex items-center justify-between gap-2">
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted">
-          Per-shot framing
+      <div className="mb-1.5 flex items-center justify-between gap-2">
+        <span className="text-[11px] font-semibold text-ink">
+          {regions.length} {unit}
+          {regions.length === 1 ? "" : "s"}
+          {variant === "manual" && (
+            <span className="ml-1.5 font-normal text-muted">· manual (no AI shot plan)</span>
+          )}
         </span>
-        <span className="text-[10px] text-muted">
-          {sel
-            ? `Shots ${sel.from + 1}–${sel.to + 1} selected`
-            : "Drag across the bar to pick shots"}
-        </span>
+        <span className="text-[10px] text-muted">{selLabel}</span>
       </div>
 
       <div
@@ -205,7 +254,7 @@ export function FitTimeline({
         onPointerMove={onPointerMove}
         onPointerUp={endDrag}
         onPointerCancel={endDrag}
-        className={`relative flex h-9 w-full gap-px overflow-hidden rounded-lg border border-line bg-surface-2 touch-none ${
+        className={`relative flex h-14 w-full gap-px overflow-hidden rounded-lg border border-line bg-surface-2 touch-none ${
           busy ? "cursor-wait opacity-60" : "cursor-pointer"
         }`}
       >
@@ -213,24 +262,41 @@ export function FitTimeline({
           const widthFrac = (reg.t1 - reg.t0) / clipDur;
           const ov = regionOverride(reg, intervals, overrides);
           const selected = sel !== null && i >= sel.from && i <= sel.to;
-          const tint = MODE_TINT[reg.mode] ?? "bg-surface-3";
+          const isActive = i === activeIdx;
+          // эффективный режим: override приоритетнее AI-плана
+          const effMode = ov ? ov.mode : reg.mode;
+          const tint = MODE_TINT[effMode] ?? "bg-surface-3";
+          const widthPct = Math.max(widthFrac * 100, 1.5);
+          const wide = widthPct > 7; // влезает ли подпись внутрь блока
           return (
             <div
               key={i}
-              className={`relative h-full ${tint}`}
-              style={{ width: `${Math.max(widthFrac * 100, 0.5)}%` }}
-              title={
-                ov
-                  ? `Override: ${ov.mode === "fit" ? "Wide" : ov.mode === "fill" ? "Tight" : ov.mode}`
-                  : `Auto: ${reg.mode}`
-              }
+              className={`relative flex h-full flex-col items-center justify-center overflow-hidden ${tint} transition`}
+              style={{ width: `${widthPct}%` }}
+              title={`${unit === "shot" ? "Shot" : "Part"} ${i + 1} · ${
+                ov ? `${modeLabel(ov.mode)} (forced)` : modeLabel(reg.mode)
+              } · ${mmss(reg.t0)}–${mmss(reg.t1)}`}
             >
-              {ov && (
-                <span className="absolute inset-x-0 top-0 h-1 bg-accent" aria-hidden />
+              {wide && (
+                <>
+                  <span className="pointer-events-none text-[10px] font-bold leading-none text-ink/80">
+                    {i + 1}
+                  </span>
+                  <span className="pointer-events-none mt-0.5 text-[8px] font-semibold uppercase leading-none tracking-wide text-ink/55">
+                    {modeLabel(effMode)}
+                  </span>
+                </>
+              )}
+              {ov && <span className="absolute inset-x-0 top-0 h-1 bg-accent" aria-hidden />}
+              {isActive && !selected && (
+                <span
+                  className="pointer-events-none absolute inset-0 ring-2 ring-inset ring-white/70"
+                  aria-hidden
+                />
               )}
               {selected && (
                 <span
-                  className="pointer-events-none absolute inset-0 bg-accent/25 ring-1 ring-inset ring-accent"
+                  className="pointer-events-none absolute inset-0 bg-accent/25 ring-2 ring-inset ring-accent"
                   aria-hidden
                 />
               )}
@@ -240,15 +306,15 @@ export function FitTimeline({
 
         {playheadFrac !== null && (
           <div
-            className="pointer-events-none absolute top-0 bottom-0 w-px bg-ink/70"
+            className="pointer-events-none absolute top-0 bottom-0 z-10 w-0.5 bg-white shadow-[0_0_4px_rgba(0,0,0,.6)]"
             style={{ left: `${playheadFrac * 100}%` }}
             aria-hidden
           />
         )}
       </div>
 
-      {/* действие: выбрать режим → применить к выделенным шотам (под полосой = понятный поток) */}
-      <div className="mt-1.5 flex items-center gap-2">
+      {/* действие: выбрать режим → применить к выделенным шотам */}
+      <div className="mt-2 flex items-center gap-2">
         <div
           className="flex gap-0.5 rounded-md border border-line bg-surface p-0.5"
           role="radiogroup"
@@ -261,6 +327,7 @@ export function FitTimeline({
               role="radio"
               aria-checked={mode === opt.value}
               disabled={busy}
+              title={opt.hint}
               onClick={() => setMode(opt.value)}
               className={`rounded px-2.5 py-1 text-[11px] font-semibold transition disabled:opacity-40 ${
                 mode === opt.value ? "bg-surface-3 text-accent" : "text-muted hover:text-ink"
@@ -278,21 +345,26 @@ export function FitTimeline({
           className="ml-auto rounded-md border border-accent/60 bg-accent/10 px-3 py-1 text-[11px] font-semibold text-accent transition enabled:hover:bg-accent/20 disabled:border-line disabled:bg-transparent disabled:text-muted disabled:opacity-50"
         >
           {sel
-            ? `Apply ${FORCE_OPTIONS.find((o) => o.value === mode)?.label ?? ""}`
-            : "Select shots first"}
+            ? `Apply ${FORCE_OPTIONS.find((o) => o.value === mode)?.label ?? ""} to ${
+                sel.from === sel.to ? "1" : sel.to - sel.from + 1
+              } ${unit}${sel && sel.from === sel.to ? "" : "s"}`
+            : `Select ${unit}s first`}
         </button>
       </div>
 
       {/* легенда */}
-      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px] text-muted">
+      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px] text-muted">
         <span className="inline-flex items-center gap-1">
-          <span className="size-2 rounded-sm bg-thought/40" /> Wide
+          <span className="size-2 rounded-sm bg-thought/40" /> Wide (full frame)
         </span>
         <span className="inline-flex items-center gap-1">
-          <span className="size-2 rounded-sm bg-quote/40" /> Tight
+          <span className="size-2 rounded-sm bg-quote/40" /> Tight (crop)
         </span>
         <span className="inline-flex items-center gap-1">
-          <span className="h-0.5 w-3 bg-accent" /> Override
+          <span className="size-2 rounded-sm bg-peak/40" /> Split
+        </span>
+        <span className="inline-flex items-center gap-1">
+          <span className="h-0.5 w-3 bg-accent" /> Forced
         </span>
       </div>
     </div>
