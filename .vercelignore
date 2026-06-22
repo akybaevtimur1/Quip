@@ -1,0 +1,21 @@
+# Vercel builds ONLY apps/web (+ packages/* workspace). The GitHub deploy sees just
+# git-tracked files; the CLI otherwise uploads the whole tree (Python .venv, spikes,
+# model caches → 1.9 GB, over the 100 MB/file limit). Exclude everything the frontend
+# build doesn't need. Media patterns are ROOT-anchored so apps/web/public assets stay.
+services/
+deploy/
+design-md/
+docs/
+**/.venv/
+.claude/
+.playwright-mcp/
+*.mp4
+*.mov
+/*.png
+/*.jpeg
+/*.jpg
+/runs.jsonl
+/.git-commit-*.txt
+/.commit-msg
+/package-lock.json
+/icon.png
