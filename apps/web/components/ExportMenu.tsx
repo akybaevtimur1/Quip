@@ -1,6 +1,6 @@
 "use client";
 
-import { Captions, ChevronDown, Download, FileText, Film } from "lucide-react";
+import { Captions, ChevronDown, Download, FileText, Film, Loader2 } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { captionedDownloadUrl } from "@/lib/api";
 
@@ -9,12 +9,29 @@ import { captionedDownloadUrl } from "@/lib/api";
 //    (быстро); иначе рендерим на лету из ТЕКУЩЕГО edit-state (всегда совпадает с превью).
 //  • Без субтитров (MP4) — чистая 9:16-вертикалка (рендер на лету, текущий edit-state).
 //  • Субтитры (.SRT)     — тайминги совпадают с видео, импорт в CapCut/Premiere/Resolve.
-// D1: «С субтитрами» НИКОГДА не указывает на чистый clips/<id>.mp4 (тот без субтитров) —
-// раньше так и было (subtitledUrl = clip.video_url = чистый клип → скачивался файл БЕЗ
-// субтитров). Все три пункта = отдельные captioned/clean артефакты, не сам клип.
-// Сервер ставит Content-Disposition → скачивание даже при кросс-доменном воркере.
+//
+// FEEDBACK: «С/без субтитрами» рендерятся на лету (десятки секунд) — раньше это были голые
+// `<a download>`, и пока сервер рендерил, НИЧЕГО не происходило → юзер кликал по 3 раза. Теперь
+// клик качает через fetch + показывает спиннер «Preparing…» и блокирует пункт, пока файл не готов;
+// при ошибке (CORS/сеть) — фолбэк на прямую ссылку. Имя файла — из Content-Disposition, иначе дефолт.
 
 const WORKER_BASE = process.env.NEXT_PUBLIC_WORKER_URL ?? "";
+
+async function downloadFile(url: string, fallbackName: string): Promise<void> {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const blob = await res.blob();
+  const cd = res.headers.get("content-disposition");
+  const name = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(cd ?? "")?.[1] ?? fallbackName;
+  const objUrl = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = objUrl;
+  a.download = decodeURIComponent(name);
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(objUrl), 10_000);
+}
 
 export function ExportMenu({
   jobId,
@@ -37,6 +54,8 @@ export function ExportMenu({
   className?: string;
 }) {
   const [open, setOpen] = useState(false);
+  // Which item is currently being prepared/downloaded (its key), or null. Disables clicks + spins.
+  const [busy, setBusy] = useState<string | null>(null);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -61,6 +80,36 @@ export function ExportMenu({
   // (юзер сменил шрифт хука и т.п.) baked устарел → on-demand рендер текущего edit-state.
   const captionedUrl = captionedDownloadUrl(WORKER_BASE, jobId, clipId, bakedUrl, dirty);
 
+  // A baked CDN render is instant (no server render) → don't bother with the fetch path. The on-demand
+  // endpoints render on the fly → fetch + spinner so the user sees progress instead of dead-clicking.
+  const captionedInstant = !!bakedUrl && !dirty;
+
+  const pick = async (key: string, url: string, fallbackName: string, instant: boolean) => {
+    if (busy) return;
+    if (instant) {
+      // Stable CDN artifact — let the browser stream it to disk natively (no render wait).
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = fallbackName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setOpen(false);
+      return;
+    }
+    setBusy(key);
+    try {
+      await downloadFile(url, fallbackName);
+      setOpen(false);
+    } catch (e) {
+      // CORS/network → fall back to a direct navigation (native download, no progress UI).
+      console.warn("[export] blob download failed, falling back to direct link:", e);
+      window.location.href = url;
+    } finally {
+      setBusy(null);
+    }
+  };
+
   return (
     <div ref={ref} className={`relative ${className}`}>
       <button
@@ -82,27 +131,31 @@ export function ExportMenu({
           } ${placement === "up" ? "bottom-full mb-1" : "mt-1"}`}
         >
           <ExportItem
-            href={captionedUrl}
             icon={<Captions className="size-4" />}
             title="With captions (MP4)"
-            sub={
-              bakedUrl && !dirty ? "Rendered clip" : "Burns current edits · ~a few sec"
-            }
-            onPick={() => setOpen(false)}
+            sub={captionedInstant ? "Rendered clip" : "Burns current edits · ~a few sec"}
+            busy={busy === "captioned"}
+            busyLabel="Preparing your clip…"
+            disabled={!!busy && busy !== "captioned"}
+            onPick={() => pick("captioned", captionedUrl, `${clipId}-captioned.mp4`, captionedInstant)}
           />
           <ExportItem
-            href={cleanUrl}
             icon={<Film className="size-4" />}
             title="No captions (MP4)"
             sub="Clean vertical · ~a few sec"
-            onPick={() => setOpen(false)}
+            busy={busy === "clean"}
+            busyLabel="Preparing your clip…"
+            disabled={!!busy && busy !== "clean"}
+            onPick={() => pick("clean", cleanUrl, `${clipId}-clean.mp4`, false)}
           />
           <ExportItem
-            href={srtUrl}
             icon={<FileText className="size-4" />}
             title="Captions (.SRT)"
             sub="For CapCut / Premiere / Resolve"
-            onPick={() => setOpen(false)}
+            busy={busy === "srt"}
+            busyLabel="Preparing…"
+            disabled={!!busy && busy !== "srt"}
+            onPick={() => pick("srt", srtUrl, `${clipId}.srt`, false)}
           />
         </div>
       )}
@@ -111,38 +164,40 @@ export function ExportMenu({
 }
 
 function ExportItem({
-  href,
-  disabled,
   icon,
   title,
   sub,
+  busy = false,
+  busyLabel,
+  disabled,
   onPick,
 }: {
-  href?: string;
-  disabled?: boolean;
   icon: ReactNode;
   title: string;
   sub: string;
+  busy?: boolean;
+  busyLabel?: string;
+  disabled?: boolean;
   onPick: () => void;
 }) {
   return (
-    <a
-      href={href}
-      download
+    <button
+      type="button"
       role="menuitem"
-      aria-disabled={disabled}
-      onClick={() => {
-        if (!disabled) onPick();
-      }}
-      className={`flex items-start gap-2.5 px-3 py-2.5 text-left transition ${
+      disabled={disabled || busy}
+      aria-busy={busy}
+      onClick={onPick}
+      className={`flex w-full items-start gap-2.5 px-3 py-2.5 text-left transition ${
         disabled ? "pointer-events-none opacity-40" : "hover:bg-surface-2"
       }`}
     >
-      <span className="mt-0.5 text-muted">{icon}</span>
+      <span className="mt-0.5 text-muted">
+        {busy ? <Loader2 className="size-4 animate-spin text-accent" /> : icon}
+      </span>
       <span className="flex flex-col">
         <span className="text-sm font-semibold text-ink">{title}</span>
-        <span className="text-xs text-muted">{sub}</span>
+        <span className="text-xs text-muted">{busy ? (busyLabel ?? "Preparing…") : sub}</span>
       </span>
-    </a>
+    </button>
   );
 }

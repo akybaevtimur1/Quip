@@ -12,8 +12,29 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal, Self
 
-from pydantic import model_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Cost guard: a moving "…-latest" alias OR any gemini-3* can silently jump to Gemini 3.x Flash
+# (~×10 the LLM cost). We refuse those and pin to this stable, cheap model. See pin_llm_model.
+_PINNED_LLM_MODEL = "gemini-2.5-flash"
+
+
+def pin_llm_model(v: str) -> str:
+    """Refuse a Gemini-3 / moving -latest model id → pin to gemini-2.5-flash. Prod
+    LLM_MODEL=``gemini-flash-latest`` now resolves to gemini-3.5-flash (~×10 cost) — coerce it.
+    NOT a silent fallback (rule #8): the coercion is logged to stderr."""
+    low = v.strip().lower()
+    if low.endswith("-latest") or low.startswith("gemini-3") or "gemini-3" in low:
+        import sys
+
+        print(
+            f"[config] cost guard: LLM_MODEL={v!r} → {_PINNED_LLM_MODEL!r} (no Gemini-3 / -latest)",
+            file=sys.stderr,
+        )
+        return _PINNED_LLM_MODEL
+    return v
+
 
 # config.py → parents: [0]=app [1]=worker [2]=services [3]=<repo root>. На Modal пакет в
 # /root/app (мельче) → parents[3] нет; .env там не нужен (секреты из env). Берём parents[3]
@@ -46,6 +67,11 @@ class Settings(BaseSettings):
     # ~$9/1M = ×10 к стоимости LLM молча. 2.5-flash стабильна на платном ключе, дёшева.
     llm_model: str = "gemini-2.5-flash"
     llm_max_output_tokens: int = 16000
+
+    @field_validator("llm_model", mode="after")
+    @classmethod
+    def _pin_llm_model(cls, v: str) -> str:
+        return pin_llm_model(v)
 
     # download: куки для обхода YouTube bot-защиты.
     # browser: "chrome" | "firefox" | "edge" | "" (пусто = не использовать).

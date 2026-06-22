@@ -22,11 +22,10 @@ AGENT_MAX_STEPS = 8
 _STAGE = "agent"
 _PROMPT_PATH = Path(__file__).resolve().parents[1] / "prompts" / "agent_clip_editor.v1.txt"
 
-# Фолбэк-цепочка моделей чата: если primary (s.llm_model, прод = gemini-flash-latest) перегружен/
-# недоступен, перебираем другие Flash-модели — цель «хоть кто-то ответит», а не падать. Берётся
-# ТОЛЬКО как фолбэк (primary остаётся пиновкой из секрета LLM_MODEL). gemini-flash-latest тут даёт
-# доступ к самой свежей Flash, когда конкретная версия временно лежит.
-_AGENT_FALLBACK_MODELS = ("gemini-flash-latest", "gemini-2.5-flash", "gemini-2.5-flash-lite")
+# Фолбэк-цепочка моделей чата: если primary (s.llm_model) перегружен/недоступен, перебираем другие
+# Flash-модели — цель «хоть кто-то ответит», а не падать. ПИНУЕМ конкретные версии: НЕ -latest
+# (он уехал на gemini-3.5-flash ≈ ×10 стоимости — cost guard в config._pin_llm_model и тут).
+_AGENT_FALLBACK_MODELS = ("gemini-2.5-flash", "gemini-2.5-flash-lite")
 
 # Глобально-перманентные коды Gemini: фолбэк на ДРУГУЮ модель их не вылечит (битый ключ/доступ/
 # схема) → роняем сразу с корнем (правило №8, не маскируем бэкоффом). 404 сюда НЕ входит — «такой
