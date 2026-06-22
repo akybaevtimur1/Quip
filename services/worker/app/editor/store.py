@@ -89,7 +89,9 @@ def ensure_edit(job_id: str, clip_id: str) -> ClipEdit:
     try:
         owner = db.get_job_owner(job_id)
         if owner:
-            parsed = style_prefs.parse_pref(db.get_style_preference(owner))
+            # Seed a NEW clip from the user's DEFAULT template (if they flagged one) — the
+            # explicit "adapt to my style" path. No default flagged → None → preset_a.
+            parsed = style_prefs.get_default_look(db.get_style_preference(owner))
             if parsed is not None:
                 pref_style, pref_highlight, pref_hook_look = parsed
     except Exception as e:  # noqa: BLE001 — сидирование стиля не должно валить создание клипа

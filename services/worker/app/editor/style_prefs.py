@@ -103,3 +103,88 @@ def parse_pref(
         else None
     ) or None
     return style, highlight, hook_look
+
+
+# ── Named templates (founder's ask: a real template system, not an implicit default) ──────
+# Stored in profiles.style_preferences jsonb as:
+#   { "templates": [ {"id": str, "name": str, "look": <pref-blob>} ], "default_id": str|None }
+# A template's "look" blob is exactly what build_pref_blob/parse_pref produce. The user saves
+# named templates and applies one to THIS clip or to ALL clips of a video. One template may be
+# flagged default → NEW clips of future jobs seed from it (the "adapt to my style" path),
+# but it's EXPLICIT (the user picked it), not a silent every-clip override.
+
+
+def list_templates(blob: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """All saved templates from the prefs blob (newest-first order as stored). PURE."""
+    if not isinstance(blob, dict):
+        return []
+    t = blob.get("templates")
+    return [x for x in t if isinstance(x, dict) and x.get("id")] if isinstance(t, list) else []
+
+
+def default_template_id(blob: dict[str, Any] | None) -> str | None:
+    """Id of the template flagged as the new-clip default, or None. PURE."""
+    if not isinstance(blob, dict):
+        return None
+    did = blob.get("default_id")
+    return did if isinstance(did, str) and did else None
+
+
+def build_template(
+    template_id: str,
+    name: str,
+    style: CaptionStyle,
+    highlight: HighlightStyle | None,
+    hook_style: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """A clip's current look → a named, storable template. `hook_style` is the look-fields
+    dict the client sends (same shape as StylePrefBody.hook_style / apply-style-all). PURE."""
+    look: dict[str, Any] = {
+        "style": style.model_dump(),
+        "highlight": highlight.model_dump() if highlight is not None else None,
+        "hook_style": (
+            {k: hook_style[k] for k in HOOK_LOOK_FIELDS if k in hook_style}
+            if isinstance(hook_style, dict)
+            else None
+        )
+        or None,
+    }
+    return {"id": template_id, "name": name, "look": look}
+
+
+def upsert_template(blob: dict[str, Any] | None, template: dict[str, Any]) -> dict[str, Any]:
+    """Add (or replace by id) a template; newest goes first. Returns a NEW blob. PURE."""
+    out: dict[str, Any] = dict(blob) if isinstance(blob, dict) else {}
+    others = [t for t in list_templates(out) if t.get("id") != template["id"]]
+    out["templates"] = [template, *others]
+    return out
+
+
+def delete_template(blob: dict[str, Any] | None, template_id: str) -> dict[str, Any]:
+    """Remove a template by id; clear default if it pointed there. Returns a NEW blob. PURE."""
+    out: dict[str, Any] = dict(blob) if isinstance(blob, dict) else {}
+    out["templates"] = [t for t in list_templates(out) if t.get("id") != template_id]
+    if out.get("default_id") == template_id:
+        out["default_id"] = None
+    return out
+
+
+def set_default_template(blob: dict[str, Any] | None, template_id: str | None) -> dict[str, Any]:
+    """Flag a template as the new-clip default (or clear with None). Returns a NEW blob. PURE."""
+    out: dict[str, Any] = dict(blob) if isinstance(blob, dict) else {}
+    out["default_id"] = template_id
+    return out
+
+
+def get_default_look(
+    blob: dict[str, Any] | None,
+) -> tuple[CaptionStyle, HighlightStyle | None, dict[str, Any] | None] | None:
+    """The default template's look for seeding a NEW clip, or None. Raises ValueError if the
+    default template exists but its look is malformed (rule #8: caller logs + preset_a). PURE."""
+    did = default_template_id(blob)
+    if did is None:
+        return None
+    for t in list_templates(blob):
+        if t.get("id") == did:
+            return parse_pref(t.get("look"))
+    return None

@@ -8,7 +8,14 @@ from app.editor.replies import default_caption_track
 from app.editor.style_prefs import (
     apply_style_to_edit,
     build_pref_blob,
+    build_template,
+    default_template_id,
+    delete_template,
+    get_default_look,
+    list_templates,
     parse_pref,
+    set_default_template,
+    upsert_template,
 )
 from app.models import (
     CaptionReply,
@@ -127,3 +134,64 @@ def test_default_caption_track_falls_back_to_preset_a() -> None:
     preset_a = next(p for p in seed_presets() if p.id == DEFAULT_PRESET_ID)
     assert track.style.font == preset_a.style.font
     assert track.style.size == preset_a.style.size
+
+
+# ── named templates (founder's template system) ──────────────────────────────────────────
+
+
+def test_build_template_carries_look_only() -> None:
+    t = build_template(
+        "t1",
+        "Bold",
+        CaptionStyle(font="Anton", size=80, color="#FF0000"),
+        HighlightStyle(color="#00FF00", animation="pop"),
+        {"font": "Rubik", "size": 50, "text": "ignored", "margin_v": 999},
+    )
+    assert t["id"] == "t1" and t["name"] == "Bold"
+    assert t["look"]["style"]["font"] == "Anton"
+    assert t["look"]["highlight"]["animation"] == "pop"
+    # hook_style keeps ONLY look fields, not content/position
+    assert t["look"]["hook_style"]["font"] == "Rubik"
+    assert "text" not in t["look"]["hook_style"]
+    assert "margin_v" not in t["look"]["hook_style"]
+
+
+def test_template_crud_newest_first_and_upsert_by_id() -> None:
+    t1 = build_template("t1", "Bold", CaptionStyle(font="Anton"), None, None)
+    t2 = build_template("t2", "Clean", CaptionStyle(font="Poppins"), None, None)
+    blob = upsert_template(upsert_template(None, t1), t2)
+    assert [t["id"] for t in list_templates(blob)] == ["t2", "t1"]  # newest first
+    # upsert replaces by id (no dup), moves it to front
+    t1b = build_template("t1", "Bold v2", CaptionStyle(font="Bebas Neue"), None, None)
+    blob = upsert_template(blob, t1b)
+    assert [t["id"] for t in list_templates(blob)] == ["t1", "t2"]
+    assert next(t for t in list_templates(blob) if t["id"] == "t1")["name"] == "Bold v2"
+
+
+def test_default_flag_seed_and_delete_clears_default() -> None:
+    t1 = build_template("t1", "Bold", CaptionStyle(font="Bebas Neue", size=99), None, None)
+    blob = upsert_template(None, t1)
+    assert default_template_id(blob) is None and get_default_look(blob) is None
+    blob = set_default_template(blob, "t1")
+    assert default_template_id(blob) == "t1"
+    look = get_default_look(blob)
+    assert look is not None and look[0].font == "Bebas Neue" and look[0].size == 99
+    # deleting the default template clears the default pointer
+    blob = delete_template(blob, "t1")
+    assert list_templates(blob) == []
+    assert default_template_id(blob) is None and get_default_look(blob) is None
+
+
+def test_get_default_look_malformed_raises() -> None:
+    blob = {
+        "templates": [{"id": "x", "name": "bad", "look": {"style": {"size": "nope", "color": 1}}}],
+        "default_id": "x",
+    }
+    with pytest.raises(ValueError):
+        get_default_look(blob)
+
+
+def test_list_templates_handles_garbage() -> None:
+    assert list_templates(None) == []
+    assert list_templates({"templates": "nope"}) == []
+    assert list_templates({"templates": [{"no_id": 1}, {"id": "ok"}]}) == [{"id": "ok"}]

@@ -1354,32 +1354,81 @@ def apply_style_all(
     return {"applied": applied, "total": len(clip_ids)}
 
 
-@app.get("/me/style-preference")
-def get_my_style_preference(
+class TemplateBody(StylePrefBody):
+    """Save a NAMED style template = the look (caption style + highlight + hook style) + a name
+    + an optional flag to make it the default that seeds new clips of future videos."""
+
+    name: str = "My style"
+    set_default: bool = False
+
+
+class DefaultFlagBody(BaseModel):
+    is_default: bool = True
+
+
+@app.get("/me/templates")
+def list_my_templates(
     authorization: str | None = Header(default=None),
     x_user_id: str | None = Header(default=None),
 ) -> dict[str, Any]:
-    """The user's saved default look (or null). New clips of future jobs seed from this."""
+    """The user's saved style templates + which one (if any) seeds new clips of future videos."""
     user_id = _resolve_user(authorization, x_user_id)
     if not user_id:
-        return {"preference": None}
-    return {"preference": db.get_style_preference(user_id)}
-
-
-@app.put("/me/style-preference")
-def put_my_style_preference(
-    body: StylePrefBody,
-    authorization: str | None = Header(default=None),
-    x_user_id: str | None = Header(default=None),
-) -> dict[str, Any]:
-    """Save the current look as the user's default → future videos start from it (not preset_a)."""
-    user_id = _resolve_user(authorization, x_user_id)
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Sign in to save a default style")
-    blob: dict[str, Any] = {
-        "style": body.style.model_dump(),
-        "highlight": body.highlight.model_dump() if body.highlight is not None else None,
-        "hook_style": body.hook_style,
+        return {"templates": [], "default_id": None}
+    blob = db.get_style_preference(user_id)
+    return {
+        "templates": style_prefs.list_templates(blob),
+        "default_id": style_prefs.default_template_id(blob),
     }
+
+
+@app.post("/me/templates")
+def save_my_template(
+    body: TemplateBody,
+    authorization: str | None = Header(default=None),
+    x_user_id: str | None = Header(default=None),
+) -> dict[str, Any]:
+    """Save the current clip's look as a NAMED template (reusable on any clip / whole video)."""
+    user_id = _resolve_user(authorization, x_user_id)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Sign in to save a template")
+    tid = uuid.uuid4().hex[:12]
+    name = body.name.strip()[:60] or "My style"
+    tpl = style_prefs.build_template(tid, name, body.style, body.highlight, body.hook_style)
+    blob = style_prefs.upsert_template(db.get_style_preference(user_id), tpl)
+    if body.set_default:
+        blob = style_prefs.set_default_template(blob, tid)
+    db.set_style_preference(user_id, blob)
+    return {"template": tpl, "default_id": style_prefs.default_template_id(blob)}
+
+
+@app.delete("/me/templates/{template_id}")
+def delete_my_template(
+    template_id: str,
+    authorization: str | None = Header(default=None),
+    x_user_id: str | None = Header(default=None),
+) -> dict[str, Any]:
+    """Delete a saved style template."""
+    user_id = _resolve_user(authorization, x_user_id)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Sign in")
+    blob = style_prefs.delete_template(db.get_style_preference(user_id), template_id)
+    db.set_style_preference(user_id, blob)
+    return {"ok": True}
+
+
+@app.put("/me/templates/{template_id}/default")
+def set_my_default_template(
+    template_id: str,
+    body: DefaultFlagBody,
+    authorization: str | None = Header(default=None),
+    x_user_id: str | None = Header(default=None),
+) -> dict[str, Any]:
+    """Flag (or unflag) a template as the default that seeds new clips of future videos."""
+    user_id = _resolve_user(authorization, x_user_id)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Sign in")
+    blob = db.get_style_preference(user_id)
+    blob = style_prefs.set_default_template(blob, template_id if body.is_default else None)
     db.set_style_preference(user_id, blob)
     return {"ok": True}
