@@ -3,6 +3,22 @@
 import { useRef, useState } from "react";
 import { cn } from "@/lib/cn";
 
+// Шрифты, доступные ОДНОВРЕМЕННО в libass-превью (public/libass/fonts) и в
+// ffmpeg-экспорте (services/worker/fonts, subtitles=:fontsdir=). Добавляя шрифт —
+// положи TTF в ОБА места, иначе превью разойдётся с экспортом. Живёт здесь (общий
+// модуль контролов), т.к. используется и в субтитрах, и в хуке.
+export const CAPTION_FONTS = [
+  "Montserrat",
+  "Unbounded",
+  "Rubik",
+  "Anton",
+  "Poppins",
+  "Bebas Neue",
+  "Archivo Black",
+  "Russo One",
+  "Luckiest Guy",
+];
+
 // ── Переиспользуемые контролы стиля (общие для таба «Стиль» субтитров и «Хук») ──
 // Оба — оптимистично-локальные: высокочастотные input-события (пипетка цвета,
 // тяга слайдера) НЕ шлют PATCH на каждый тик; коммит — на change/blur (debounce).

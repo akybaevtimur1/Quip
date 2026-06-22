@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import type { Aspect } from "@/lib/api";
-import type { ClipEdit } from "@/lib/types";
+import type { ClipEdit, CropOverride, SourceInterval } from "@/lib/types";
+import { FitTimeline, type FitRegion, type ForceMode } from "./FitTimeline";
 
 const ASPECTS: { value: Aspect; label: string; hint: string }[] = [
   { value: "9:16", label: "9:16", hint: "Reels / TikTok / Shorts" },
@@ -37,6 +38,13 @@ export function FrameTab({
   busy,
   onApply,
   onAspectChange,
+  shotRegions,
+  shotIntervals,
+  shotOverrides,
+  nowSec,
+  shotVariant,
+  shotLoading,
+  onApplyShotRange,
 }: {
   edit: ClipEdit;
   outerStart: number;
@@ -48,6 +56,14 @@ export function FrameTab({
     centerB: number | null,
   ) => Promise<void>;
   onAspectChange: (aspect: Aspect) => void;
+  // ── per-shot framing (was the separate "Shots" tab; both write reframe_overrides) ──
+  shotRegions: FitRegion[] | null;
+  shotIntervals: SourceInterval[];
+  shotOverrides?: CropOverride[];
+  nowSec?: number;
+  shotVariant?: "ai" | "manual";
+  shotLoading?: boolean;
+  onApplyShotRange: (sourceStart: number, sourceEnd: number, mode: ForceMode) => void;
 }) {
   const aspect = (edit.aspect as Aspect) ?? "9:16";
   // текущий override на интервал (последний пересекающий) → стартовое состояние
@@ -207,6 +223,30 @@ export function FrameTab({
           Reset to Auto
         </Button>
       </div>
+
+      {/* ── per-shot framing (was its own "Shots" tab) ── */}
+      <section className="space-y-1 border-t border-line pt-4">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">
+          Per-shot framing
+        </p>
+        <p className="text-xs leading-snug text-muted">
+          The mode above applies to the whole clip. Below, override individual{" "}
+          <span className="text-ink">shots</span> — the cuts between camera angles. Pick shots on
+          the bar (the white line shows where you are) and force{" "}
+          <span className="text-ink">Wide</span>, <span className="text-ink">Tight</span> or{" "}
+          <span className="text-ink">Auto</span>.
+        </p>
+        <FitTimeline
+          regions={shotRegions}
+          intervals={shotIntervals}
+          overrides={shotOverrides}
+          nowSec={nowSec}
+          busy={busy}
+          variant={shotVariant}
+          loading={shotLoading}
+          onApplyRange={onApplyShotRange}
+        />
+      </section>
     </div>
   );
 }

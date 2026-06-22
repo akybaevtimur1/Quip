@@ -37,13 +37,13 @@ import { CaptionOverlay } from "../CaptionOverlay";
 import { resolveUrl } from "../ClipCard";
 import { LibassLayer } from "../LibassLayer";
 import { AgentTab } from "./AgentTab";
-import { CaptionsTab } from "./CaptionsTab";
+import { SubtitlesTab } from "./SubtitlesTab";
 import { EditorCanvas } from "./EditorCanvas";
 import { EditorHeader, type RenderState } from "./EditorHeader";
 import { type Tab, TABS, EditorRail } from "./EditorRail";
 import { type EditorAction } from "@/lib/editorShortcuts";
 import { useEditorShortcuts } from "./useEditorShortcuts";
-import { FitTimeline, type FitRegion } from "./FitTimeline";
+import { type FitRegion } from "./FitTimeline";
 import { FrameTab } from "./FrameTab";
 import { HookTab } from "./HookTab";
 import { Inspector } from "./Inspector";
@@ -54,7 +54,6 @@ import SnapGuides, { type SnapGuidesHandle } from "./SnapGuides";
 import { stableFrame } from "@/lib/frameIdentity";
 import { type FrameState, PreviewPlayer } from "./PreviewPlayer";
 import { buildReplyRanges, clampMargin, originalReplyText } from "./replyUtils";
-import { StyleTab } from "./StyleTab";
 import TimelineV2 from "./TimelineV2";
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -127,7 +126,7 @@ export default function ClipEditorScreen({
   const [edit, setEdit] = useState<ClipEdit | null>(null);
   const [words, setWords] = useState<Word[]>([]);
   const [loadKey, setLoadKey] = useState(0);
-  const [tab, setTab] = useState<Tab>("captions");
+  const [tab, setTab] = useState<Tab>("subtitles");
   // Narrow-viewport only: the inspector opens as an overlay sheet over the canvas
   // gutter (on lg it's always visible). Opening it must NOT resize the canvas.
   const [inspectorOpen, setInspectorOpen] = useState(false);
@@ -1309,8 +1308,8 @@ export default function ClipEditorScreen({
           onAgentEdited={handleAgentEdited}
         />
       )}
-      {tab === "captions" && (
-        <CaptionsTab
+      {tab === "subtitles" && (
+        <SubtitlesTab
           words={words}
           replies={edit.captions.replies ?? []}
           activeReplyIndex={activeReplyIndex}
@@ -1320,6 +1319,12 @@ export default function ClipEditorScreen({
           onCutReply={handleCutReply}
           onSeekReply={seekToReply}
           onBurnChange={handleBurnChange}
+          edit={edit}
+          activePresetId={activePresetId}
+          onPresetApply={handlePresetApply}
+          onError={setError}
+          onStyleChange={handleStyleChange}
+          onHighlightChange={handleHighlightChange}
         />
       )}
       {tab === "hook" && (
@@ -1331,17 +1336,6 @@ export default function ClipEditorScreen({
           regenerating={regeneratingHook}
         />
       )}
-      {tab === "style" && (
-        <StyleTab
-          edit={edit}
-          activePresetId={activePresetId}
-          busy={busy}
-          onPresetApply={handlePresetApply}
-          onError={setError}
-          onStyleChange={handleStyleChange}
-          onHighlightChange={handleHighlightChange}
-        />
-      )}
       {tab === "frame" && (
         <FrameTab
           edit={edit}
@@ -1350,33 +1344,14 @@ export default function ClipEditorScreen({
           busy={busy}
           onApply={handleFrameApply}
           onAspectChange={handleAspectChange}
+          shotRegions={stripRegions}
+          shotIntervals={edit.source_intervals}
+          shotOverrides={edit.reframe_overrides}
+          nowSec={nowSec}
+          shotVariant={usingFallbackShots ? "manual" : "ai"}
+          shotLoading={reframeLoading}
+          onApplyShotRange={handleApplyRange}
         />
-      )}
-      {tab === "shots" && (
-        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pr-1">
-          <div className="space-y-1">
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">
-              Per-shot framing
-            </p>
-            <p className="text-xs leading-snug text-muted">
-              Your clip is built from <span className="text-ink">shots</span> — the cuts between
-              camera angles. For each shot the AI decides how to fit it into 9:16. Pick shots on the
-              bar (the white line shows where you are) and force{" "}
-              <span className="text-ink">Wide</span>, <span className="text-ink">Tight</span> or{" "}
-              <span className="text-ink">Auto</span>.
-            </p>
-          </div>
-          <FitTimeline
-            regions={stripRegions}
-            intervals={edit.source_intervals}
-            overrides={edit.reframe_overrides}
-            nowSec={nowSec}
-            busy={busy}
-            variant={usingFallbackShots ? "manual" : "ai"}
-            loading={reframeLoading}
-            onApplyRange={handleApplyRange}
-          />
-        </div>
       )}
     </>
   );

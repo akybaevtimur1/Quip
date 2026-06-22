@@ -1,25 +1,26 @@
 "use client";
 
-import { Captions, Clapperboard, Crop, Palette, Type, Wand2 } from "lucide-react";
+import { Captions, Crop, Type, Wand2 } from "lucide-react";
 
 // ────────────────────────────────────────────────────────────────────────────
 // EditorRail — left icon-rail (Fixed-Studio shell). Single source of truth for
 // the editor's panels: the `Tab` type and the `TABS` list live here and are
-// imported back into ClipEditorScreen (no duplication). 6 items: Agent /
-// Captions / Hook / Style / Frame / Shots. Keyboard 1-6 map to rail order.
-// "Shots" = per-shot framing (force fit/fill on individual shots between cuts);
-// "Frame" = whole-clip aspect ratio + framing mode.
+// imported back into ClipEditorScreen (no duplication). 4 items: Agent /
+// Subtitles / Hook / Frame. Keyboard 1-4 map to rail order.
+//   • "Subtitles" = caption text (lines) + caption style (was Captions + Style;
+//     they edited the SAME object so they're now one tab).
+//   • "Hook"      = the top hook overlay (text + its own style).
+//   • "Frame"     = output aspect + whole-clip framing mode + per-shot framing
+//     (was Frame + Shots; both write reframe_overrides, so they're one tab).
 // ────────────────────────────────────────────────────────────────────────────
 
-export type Tab = "captions" | "hook" | "style" | "frame" | "shots" | "agent";
+export type Tab = "subtitles" | "hook" | "frame" | "agent";
 
 export const TABS: { id: Tab; label: string; icon: typeof Captions }[] = [
   { id: "agent", label: "Agent", icon: Wand2 },
-  { id: "captions", label: "Captions", icon: Captions },
+  { id: "subtitles", label: "Subtitles", icon: Captions },
   { id: "hook", label: "Hook", icon: Type },
-  { id: "style", label: "Style", icon: Palette },
   { id: "frame", label: "Frame", icon: Crop },
-  { id: "shots", label: "Shots", icon: Clapperboard },
 ];
 
 export function EditorRail({

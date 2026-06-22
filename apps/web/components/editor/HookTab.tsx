@@ -7,8 +7,7 @@ import { Checkbox } from "@/components/ui/Checkbox";
 import { Select } from "@/components/ui/Select";
 import { HOOK_PRESETS } from "@/lib/hookPresets";
 import type { ClipEdit, HookOverlay } from "@/lib/types";
-import { CAPTION_FONTS } from "./StyleTab";
-import { ColorField, DebouncedSlider } from "./StyleControls";
+import { CAPTION_FONTS, ColorField, DebouncedSlider } from "./StyleControls";
 
 // ── Таб «Хук»: топ-текст клипа (T1, наш отличитель — объяснимый цепляющий заголовок) ──
 // Хук = ASS-событие с верхним якорем В ТОМ ЖЕ файле, что субтитры → libass-превью
