@@ -102,6 +102,43 @@ def set_user_plan(user_id: str, plan: str) -> None:
     ins.raise_for_status()
 
 
+def get_style_preference(user_id: str) -> dict[str, Any] | None:
+    """Сохранённый дефолт-стиль юзера (profiles.style_preferences) или None. Тонкая обёртка."""
+    r = httpx.get(
+        f"{_base()}/profiles",
+        params={"id": f"eq.{user_id}", "select": "style_preferences"},
+        headers=_headers(),
+        timeout=_TIMEOUT,
+    )
+    r.raise_for_status()
+    rows = r.json()
+    if not rows:
+        return None
+    pref = rows[0].get("style_preferences")
+    return pref if isinstance(pref, dict) else None
+
+
+def set_style_preference(user_id: str, blob: dict[str, Any]) -> None:
+    """Сохранить дефолт-стиль (upsert, как set_user_plan: PATCH → INSERT-фолбэк если строки нет)."""
+    r = httpx.patch(
+        f"{_base()}/profiles",
+        params={"id": f"eq.{user_id}"},
+        headers=_headers({"Prefer": "return=representation"}),
+        json={"style_preferences": blob},
+        timeout=_TIMEOUT,
+    )
+    r.raise_for_status()
+    if r.json():
+        return
+    ins = httpx.post(
+        f"{_base()}/profiles",
+        headers=_headers({"Prefer": "return=minimal"}),
+        json={"id": user_id, "plan": "free", "style_preferences": blob},
+        timeout=_TIMEOUT,
+    )
+    ins.raise_for_status()
+
+
 def add_payg_credits(user_id: str, credits: int) -> None:
     # GET текущий баланс + PATCH (вебхук последователен → гонка маловероятна).
     # return=representation → видим, обновилась ли строка. Если профиля ещё нет (триггер

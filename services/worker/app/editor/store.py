@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from app import artifacts, db
+from app.editor import style_prefs
 from app.editor.defaults import default_clip_edit
 from app.models import ClipEdit, Segment, Word
 from app.run import DATA_ROOT as DATA_ROOT  # monkeypatch-able; explicit re-export для artifacts
@@ -80,5 +81,25 @@ def ensure_edit(job_id: str, clip_id: str) -> ClipEdit:
     if idx < 0 or idx >= len(segs):
         raise KeyError(clip_id)
     seg = Segment.model_validate(segs[idx])
-    edit = default_clip_edit(clip_id, seg, load_transcript_words(job_id))
+    # Domain 5: сидим из СОХРАНЁННОГО дефолт-стиля владельца джобы (если есть), иначе preset A.
+    # Не критично для создания клипа: ошибка чтения/битый блоб → лог + фолбэк на preset A
+    # (правило №8: явный фолбэк с логом, не тихий except: pass).
+    pref_style = pref_highlight = None
+    pref_hook_look: dict[str, Any] | None = None
+    try:
+        owner = db.get_job_owner(job_id)
+        if owner:
+            parsed = style_prefs.parse_pref(db.get_style_preference(owner))
+            if parsed is not None:
+                pref_style, pref_highlight, pref_hook_look = parsed
+    except Exception as e:  # noqa: BLE001 — сидирование стиля не должно валить создание клипа
+        print(f"[ensure_edit] WARN style-pref seed skipped for {job_id}/{clip_id}: {e}")
+    edit = default_clip_edit(
+        clip_id,
+        seg,
+        load_transcript_words(job_id),
+        pref_style=pref_style,
+        pref_highlight=pref_highlight,
+        pref_hook_look=pref_hook_look,
+    )
     return save_edit(job_id, clip_id, edit, expected_version=None)

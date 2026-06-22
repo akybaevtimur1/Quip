@@ -102,6 +102,8 @@ def init_db() -> None:
         _ensure_column(c, "jobs", "source_minutes", "REAL")
         _ensure_column(c, "jobs", "transcript_words", "INTEGER")
         _ensure_column(c, "jobs", "moments_found", "INTEGER")
+        # Per-user дефолт-стиль (зеркало 0014_style_preferences.sql), jsonb→TEXT локально.
+        _ensure_column(c, "profiles", "style_preferences", "TEXT")
 
 
 def insert_job(
@@ -670,3 +672,37 @@ def get_profile(user_id: str) -> dict[str, Any]:
     if row is None:
         return {"plan": "free", "payg_credits": 0}
     return {"plan": str(row["plan"]), "payg_credits": int(row["payg_credits"])}
+
+
+def get_job_owner(job_id: str) -> str | None:
+    """user_id владельца джобы (для проверки прав + сидирования дефолт-стиля). None если нет."""
+    row = get_job_row(job_id)
+    return (row.get("user_id") or None) if row else None
+
+
+def get_style_preference(user_id: str) -> dict[str, Any] | None:
+    """Сохранённый дефолт-стиль юзера (profiles.style_preferences) или None. Dual-mode."""
+    if supa.supa_enabled():
+        return supa.get_style_preference(user_id)
+    with _conn() as c:
+        row = c.execute(
+            "SELECT style_preferences FROM profiles WHERE user_id=?", (user_id,)
+        ).fetchone()
+    if row is None or row["style_preferences"] is None:
+        return None
+    parsed = json.loads(row["style_preferences"])
+    return parsed if isinstance(parsed, dict) else None
+
+
+def set_style_preference(user_id: str, blob: dict[str, Any]) -> None:
+    """Сохранить дефолт-стиль юзера (upsert). Dual-mode (Supabase / SQLite)."""
+    if supa.supa_enabled():
+        supa.set_style_preference(user_id, blob)
+        return
+    with _conn() as c:
+        c.execute(
+            "INSERT INTO profiles (user_id, plan, style_preferences, updated_at)"
+            " VALUES (?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET"
+            " style_preferences=excluded.style_preferences, updated_at=excluded.updated_at",
+            (user_id, "free", json.dumps(blob, ensure_ascii=False), time.time()),
+        )

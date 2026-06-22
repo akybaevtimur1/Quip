@@ -39,7 +39,7 @@ from app.config import bootstrap_env, get_settings
 if "pytest" not in sys.modules:
     bootstrap_env()
 from app.editor import presets as presets_mod
-from app.editor import store
+from app.editor import store, style_prefs
 from app.editor.captions_v2 import compile_ass, compile_srt
 from app.editor.ops import (
     add_section,
@@ -1291,3 +1291,91 @@ def apply_preset_to_clip(job_id: str, clip_id: str, body: ApplyPresetBody) -> di
         raise HTTPException(status_code=404, detail="preset not found")
     edit = _load_or_404(job_id, clip_id)
     return _save_or_409(job_id, clip_id, presets_mod.apply_preset(edit, preset), body.version)
+
+
+# ──────────────────────── Style memory (domain 5) ────────────────────────
+
+
+class StylePrefBody(BaseModel):
+    """Saved/applied LOOK = caption style + karaoke highlight + hook style fields (partial dict)."""
+
+    style: CaptionStyle
+    highlight: HighlightStyle | None = None
+    hook_style: dict[str, Any] | None = None
+
+
+@app.post("/jobs/{job_id}/apply-style-all")
+def apply_style_all(
+    job_id: str,
+    body: StylePrefBody,
+    authorization: str | None = Header(default=None),
+    x_user_id: str | None = Header(default=None),
+) -> dict[str, Any]:
+    """Apply ONE clip's look (caption style + highlight + hook style) to EVERY clip of the job.
+
+    Per-clip content & position are preserved (replies, intervals, reframe, margins, hook text).
+    Owner-only. Returns how many clips were updated.
+    """
+    user_id = _resolve_user(authorization, x_user_id)
+    row = db.get_job_row(job_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="job not found")
+    owner = row.get("user_id") or None
+    if owner and user_id and owner != user_id:
+        raise HTTPException(status_code=403, detail="not your job")
+    job = db.get_job(job_id) or {}
+    clip_ids = [c["id"] for c in (job.get("clips") or []) if c.get("id")]
+    applied = 0
+    for clip_id in clip_ids:
+        # ensure_edit so a not-yet-opened clip also gets the look (lazy default created first).
+        try:
+            edit = store.ensure_edit(job_id, clip_id)
+        except (FileNotFoundError, KeyError, JobError):
+            continue  # clip without a segment artifact → skip (explicit, not silent fallback)
+        styled = style_prefs.apply_style_to_edit(edit, body.style, body.highlight, body.hook_style)
+        try:
+            store.save_edit(job_id, clip_id, styled, expected_version=edit.version)
+        except EditConflict:
+            # Concurrent edit on this clip → refetch once and reapply on the fresh version.
+            fresh = store.load_edit(job_id, clip_id)
+            if fresh is None:
+                continue
+            store.save_edit(
+                job_id,
+                clip_id,
+                style_prefs.apply_style_to_edit(fresh, body.style, body.highlight, body.hook_style),
+                expected_version=fresh.version,
+            )
+        applied += 1
+    return {"applied": applied, "total": len(clip_ids)}
+
+
+@app.get("/me/style-preference")
+def get_my_style_preference(
+    authorization: str | None = Header(default=None),
+    x_user_id: str | None = Header(default=None),
+) -> dict[str, Any]:
+    """The user's saved default look (or null). New clips of future jobs seed from this."""
+    user_id = _resolve_user(authorization, x_user_id)
+    if not user_id:
+        return {"preference": None}
+    return {"preference": db.get_style_preference(user_id)}
+
+
+@app.put("/me/style-preference")
+def put_my_style_preference(
+    body: StylePrefBody,
+    authorization: str | None = Header(default=None),
+    x_user_id: str | None = Header(default=None),
+) -> dict[str, Any]:
+    """Save the current look as the user's default → future videos start from it (not preset_a)."""
+    user_id = _resolve_user(authorization, x_user_id)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Sign in to save a default style")
+    blob: dict[str, Any] = {
+        "style": body.style.model_dump(),
+        "highlight": body.highlight.model_dump() if body.highlight is not None else None,
+        "hook_style": body.hook_style,
+    }
+    db.set_style_preference(user_id, blob)
+    return {"ok": True}

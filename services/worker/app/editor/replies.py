@@ -7,9 +7,13 @@ rebuild_replies — единственное место синхронизаци
 
 from __future__ import annotations
 
+from typing import Any
+
 from app.models import (
     CaptionReply,
+    CaptionStyle,
     CaptionTrack,
+    HighlightStyle,
     HookOverlay,
     SourceInterval,
     Word,
@@ -67,23 +71,44 @@ def rebuild_replies(
 
 
 def default_caption_track(
-    all_words: list[Word], intervals: list[SourceInterval], *, hook: str | None = None
+    all_words: list[Word],
+    intervals: list[SourceInterval],
+    *,
+    hook: str | None = None,
+    pref_style: CaptionStyle | None = None,
+    pref_highlight: HighlightStyle | None = None,
+    pref_hook_look: dict[str, Any] | None = None,
 ) -> CaptionTrack:
     """Дефолтный трек: стиль = сид-пресет A («Караоке-бокс», коралловая подсветка).
 
     Раньше брались голые дефолты моделей (HighlightStyle → жёлтый #FFE000) —
     дефолт расходился с заявленным «дефолт = preset A» (фидбек фаундера).
 
+    Domain 5: если у владельца джобы СОХРАНЁН дефолт-стиль (pref_*), сидим из НЕГО, а не из
+    preset A — так новые видео стартуют со стиля юзера (подстройка под его вкус). pref_* уже
+    провалидированы вызывающим (ensure_edit), None = нет сохранённого стиля → preset A.
+
     hook (T1) — текст топ-заголовка от Gemini: задан → сидим включённый HookOverlay
     (бренд-плашка по дефолту); None/пусто → без хука (track.hook = None).
     """
     from app.editor.preset_seeds import DEFAULT_PRESET_ID, seed_presets
 
-    default = next(p for p in seed_presets() if p.id == DEFAULT_PRESET_ID)
+    if pref_style is not None:
+        style = pref_style.model_copy()
+        highlight = pref_highlight.model_copy() if pref_highlight is not None else None
+    else:
+        default = next(p for p in seed_presets() if p.id == DEFAULT_PRESET_ID)
+        style = default.style.model_copy()
+        highlight = default.highlight.model_copy() if default.highlight else None
     hook_overlay = HookOverlay(text=hook, enabled=True) if hook and hook.strip() else None
+    if hook_overlay is not None and pref_hook_look:
+        from app.editor.style_prefs import HOOK_LOOK_FIELDS
+
+        look = {k: pref_hook_look[k] for k in HOOK_LOOK_FIELDS if k in pref_hook_look}
+        hook_overlay = hook_overlay.model_copy(update=look)
     return CaptionTrack(
-        style=default.style.model_copy(),
-        highlight=default.highlight.model_copy() if default.highlight else None,
+        style=style,
+        highlight=highlight,
         replies=rebuild_replies(all_words, intervals),
         hook=hook_overlay,
     )
