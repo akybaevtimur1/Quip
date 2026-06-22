@@ -129,8 +129,11 @@ export function ClipCard({
         )}
       </div>
 
-      {/* ── meta: структурный reasoning (объяснимость = наш отличитель) ── */}
-      <div className="flex flex-col gap-2.5 p-3">
+      {/* ── meta: структурный reasoning (объяснимость = наш отличитель) ──
+          flex-1 so every card body fills the equal-height grid cell; the action row below is
+          pinned with mt-auto and the variable text is line-clamped → the button never "jumps"
+          between cards and doesn't jitter as a clip flips rendering→ready. */}
+      <div className="flex flex-1 flex-col gap-2.5 p-3">
         <div className="flex items-center justify-between">
           <span className="font-mono text-xs text-muted">{clipRange(clip.start, clip.end)}</span>
           <span
@@ -142,36 +145,38 @@ export function ClipCard({
           </span>
         </div>
 
-        {/* хук-заголовок (топ-текст клипа) */}
+        {/* хук-заголовок (топ-текст клипа) — clamp to 2 lines so a long hook can't push the
+            footer down on one card relative to its neighbours. */}
         {clip.hook && (
           <p className="flex items-start gap-1.5 text-[15px] font-bold leading-tight text-ink">
             <Sparkles className="mt-0.5 size-4 shrink-0 text-accent" />
-            <span>«{clip.hook}»</span>
+            <span className="line-clamp-2">«{clip.hook}»</span>
           </p>
         )}
 
-        {/* почему сработает (структурно, не один blob) */}
+        {/* почему сработает (структурно, не один blob) — clamp to 3 lines for equal body height */}
         <div className="space-y-1">
           <p className="text-[10px] font-semibold uppercase tracking-wider text-muted">
             Why it works
           </p>
-          <p className="text-sm leading-snug text-ink">{clip.why_works ?? clip.reason}</p>
+          <p className="line-clamp-3 text-sm leading-snug text-ink">{clip.why_works ?? clip.reason}</p>
         </div>
 
         {clip.transcript && (
           <p className="line-clamp-2 text-xs leading-snug text-muted">«{clip.transcript}»</p>
         )}
 
-        {/* actions */}
+        {/* actions — mt-auto pins this row to the card bottom regardless of body length, so the
+            button aligns across all cards and stays put through rendering→ready. */}
         {pending ? (
           // No export / edit until the clip is rendered (no video file yet). A muted
           // "Rendering…" affordance keeps the card's footer height stable.
-          <div className="flex items-center justify-center gap-1.5 rounded-sm border border-line bg-surface-2 px-3 py-2 text-sm font-semibold text-muted">
+          <div className="mt-auto flex items-center justify-center gap-1.5 rounded-sm border border-line bg-surface-2 px-3 py-2 text-sm font-semibold text-muted">
             <Loader2 className="size-4 animate-spin" />
             Rendering…
           </div>
         ) : (
-          <div className="flex gap-2 pt-1">
+          <div className="mt-auto flex gap-2 pt-1">
             {/* Меню экспорта (с субтитрами / без / .srt) — открывается ВВЕРХ, чтобы не
                 перекрываться соседними карточками грида. На гриде нет «Рендер» → «С субтитрами»
                 рендерится на лету из текущего edit-state (bakedUrl не передаём — D1). */}

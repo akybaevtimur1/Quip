@@ -77,6 +77,17 @@ class TestBuildHookEvent:
         assert style.startswith("Style: Hook,")
         assert dialogue.startswith("Dialogue: 0,0:00:00.00,")
 
+    def test_chosen_font_in_style_for_english_hook(self) -> None:
+        # Regression guard: changing the hook font must reach the burned ASS Style line.
+        # English text → resolve_font_for_text is a no-op (no Cyrillic fallback) → the EXACT
+        # chosen family is emitted as field 1 (Fontname). The "wrong font on download" bug was
+        # NOT here (worker is correct) but in the editor flow (un-flushed edit + stale baked
+        # render); this pins the worker contract so a future change can't silently regress it.
+        style, _ = build_hook_event(
+            HookOverlay(text="This changes everything", font="Bebas Neue"), clip_duration=10.0
+        )
+        assert style.split(",")[1] == "Bebas Neue"
+
     def test_top_alignment_and_margin(self) -> None:
         style, _ = build_hook_event(HookOverlay(text="x", margin_v=150), clip_duration=10.0)
         fields = style.split(",")

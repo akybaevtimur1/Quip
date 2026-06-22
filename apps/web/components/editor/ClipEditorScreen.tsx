@@ -972,6 +972,11 @@ export default function ClipEditorScreen({
       1000,
     );
     try {
+      // CRITICAL: persist pending caption/hook edits BEFORE dispatching the render.
+      // editCaptions debounces the PATCH ~300ms; without this flush the worker reads the
+      // PRE-edit state (e.g. the OLD hook font) and burns the wrong font into the clip —
+      // every other version-bumping op (trim/interval/crop/aspect/frame/preset) flushes first.
+      await flushPending();
       await startRenderClip(jobId, clipId);
     } catch (e) {
       stopPoll();
@@ -996,7 +1001,7 @@ export default function ClipEditorScreen({
         /* keep polling */
       }
     }, 2000);
-  }, [edit, jobId, clipId, stopPoll]);
+  }, [edit, jobId, clipId, stopPoll, flushPending]);
 
   // ── keyboard shortcuts (Task 5): Space play/pause · R render · 1-5 rail · Esc close ──
   // prevClip/nextClip → in-page clip switch (Task 7). Compute neighbors from clipIds.

@@ -2,6 +2,7 @@
 
 import { Captions, ChevronDown, Download, FileText, Film } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { captionedDownloadUrl } from "@/lib/api";
 
 // Меню «Скачать» — экспорт-свобода: юзер уносит клип в любой редактор.
 //  • С субтитрами (MP4)  — прожжённый клип. Если есть СВЕЖИЙ рендер (bakedUrl) — отдаём его
@@ -19,6 +20,7 @@ export function ExportMenu({
   jobId,
   clipId,
   bakedUrl = null,
+  dirty = false,
   align = "right",
   placement = "down",
   className = "",
@@ -27,6 +29,9 @@ export function ExportMenu({
   clipId: string;
   /** Свежий прожжённый рендер (render_url после «Рендер»). null → рендерим на лету. */
   bakedUrl?: string | null;
+  /** Есть НЕ-отрендеренные правки (изменён шрифт хука и т.п.)? → bakedUrl устарел,
+   *  скачиваем свежий on-demand рендер, а не протухший CDN-снимок. */
+  dirty?: boolean;
   align?: "left" | "right";
   placement?: "up" | "down";
   className?: string;
@@ -52,9 +57,9 @@ export function ExportMenu({
 
   const cleanUrl = `${WORKER_BASE}/jobs/${jobId}/clips/${clipId}/export/clean.mp4`;
   const srtUrl = `${WORKER_BASE}/jobs/${jobId}/clips/${clipId}/export.srt`;
-  // С субтитрами: свежий baked-рендер если есть, иначе on-demand из текущего edit-state.
-  const captionedUrl =
-    bakedUrl ?? `${WORKER_BASE}/jobs/${jobId}/clips/${clipId}/export/captioned.mp4`;
+  // С субтитрами: baked-рендер ТОЛЬКО когда нет невыданных правок (dirty=false). При dirty
+  // (юзер сменил шрифт хука и т.п.) baked устарел → on-demand рендер текущего edit-state.
+  const captionedUrl = captionedDownloadUrl(WORKER_BASE, jobId, clipId, bakedUrl, dirty);
 
   return (
     <div ref={ref} className={`relative ${className}`}>
@@ -80,7 +85,9 @@ export function ExportMenu({
             href={captionedUrl}
             icon={<Captions className="size-4" />}
             title="With captions (MP4)"
-            sub={bakedUrl ? "Rendered clip" : "Burns current edits · ~a few sec"}
+            sub={
+              bakedUrl && !dirty ? "Rendered clip" : "Burns current edits · ~a few sec"
+            }
             onPick={() => setOpen(false)}
           />
           <ExportItem

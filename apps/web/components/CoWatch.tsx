@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef } from "react";
+import { mmss } from "@/lib/format";
 
 // ────────────────────────────────────────────────────────────────────────────
 // CoWatch — "watch the AI read your video" view shown DURING processing (Part 4).
@@ -44,8 +45,6 @@ export function CoWatch({
   elapsed: number;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const mm = Math.floor(elapsed / 60);
-  const ss = String(elapsed % 60).padStart(2, "0");
   // The two most recent finds — newest is the prominent one, the prior sits above it, faded,
   // giving a gentle sense of a stream without cluttering the frame.
   const recent = moments.slice(-2);
@@ -54,9 +53,7 @@ export function CoWatch({
     <div className="w-full max-w-3xl">
       <div className="mb-4 flex items-baseline justify-between gap-4">
         <h2 className="font-display text-2xl font-bold">Reading your video…</h2>
-        <span className="font-mono text-sm text-muted">
-          {mm}:{ss}
-        </span>
+        <span className="font-mono text-sm text-muted">{mmss(elapsed)}</span>
       </div>
 
       <div className="relative overflow-hidden rounded-2xl border border-line bg-black">

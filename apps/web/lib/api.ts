@@ -583,6 +583,26 @@ export async function extendClip(
   return res.json();
 }
 
+// Which URL the "With captions (MP4)" download should hit. PURE.
+//
+// `bakedUrl` is the stable CDN render produced by the last "Render" — fast, but it is a
+// SNAPSHOT: as soon as the user edits again (e.g. changes the hook font) it is STALE. The
+// editor does not clear `bakedUrl` on edit, so we must not trust it once `dirty`. When dirty
+// (un-rendered edits pending) we fall back to the on-demand `export/captioned.mp4` endpoint,
+// which synchronously burns the CURRENT persisted edit-state and streams it back (no CDN key,
+// no stale cache). Not dirty → the baked render matches the edit-state → use it (fast path).
+export function captionedDownloadUrl(
+  base: string,
+  jobId: string,
+  clipId: string,
+  bakedUrl: string | null,
+  dirty: boolean,
+): string {
+  const onDemand = `${base}/jobs/${jobId}/clips/${clipId}/export/captioned.mp4`;
+  if (dirty || !bakedUrl) return onDemand;
+  return bakedUrl;
+}
+
 export async function startRenderClip(jobId: string, clipId: string): Promise<{ status: string }> {
   const res = await fetch(`${BASE}/jobs/${jobId}/clips/${clipId}/render`, {
     method: "POST",
