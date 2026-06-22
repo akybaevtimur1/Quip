@@ -1098,6 +1098,32 @@ export default function ClipEditorScreen({
     [replyRanges, outerStart],
   );
 
+  // ── Live-seek для нижнего таймлайна (CapCut): тянешь клип/край → превью сикается на
+  // границу СРАЗУ. Троттлим через rAF (pointermove сыпется чаще кадра; лишние сики source —
+  // дёргано). Только seek; интервал коммитится на pointerup как раньше (handleSetInterval).
+  const scrubRaf = useRef(0);
+  const scrubTarget = useRef(0);
+  const handleScrub = useCallback((sourceSec: number) => {
+    scrubTarget.current = sourceSec;
+    if (scrubRaf.current) return;
+    scrubRaf.current = requestAnimationFrame(() => {
+      scrubRaf.current = 0;
+      const video = videoRef.current;
+      if (!video) return;
+      try {
+        video.currentTime = scrubTarget.current;
+      } catch {
+        /* seek может бросить, если видео ещё не готово — безвредно, следующий move повторит */
+      }
+    });
+  }, []);
+  useEffect(
+    () => () => {
+      if (scrubRaf.current) cancelAnimationFrame(scrubRaf.current);
+    },
+    [],
+  );
+
   // ── on-video direct-grab manipulation (CapCut-style selection box) ──
   // The visible selection box (OverlaySelectionBox) owns the pointer mechanics:
   // setPointerCapture + imperative box-style during move (NO React state per move →
@@ -1561,6 +1587,8 @@ export default function ClipEditorScreen({
             data={timeline}
             interval={{ source_start: outerStart, source_end: outerEnd }}
             busy={phase === "saving"}
+            nowSec={nowSec}
+            onScrub={handleScrub}
             onIntervalChange={handleSetInterval}
           />
         ) : (

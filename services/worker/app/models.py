@@ -369,7 +369,12 @@ class AgentRun(BaseModel):
 
 
 class TimelineSegment(BaseModel):
-    """Кандидат-момент ИИ на таймлайне (маркер). `clip_id`=None, если момент не стал клипом."""
+    """Кандидат-момент ИИ на таймлайне (маркер). `clip_id`=None, если момент не стал клипом.
+
+    `hook`/`why_works` (домен 3): богатый hover на таймлайне — короткий заголовок момента
+    и фраза «почему это сработает как шортс», чтобы юзер понимал, ПОЧЕМУ момент интересен
+    и стоит ли двигать клип сюда. Опциональны (старые segments.json без них валидны).
+    """
 
     clip_id: str | None = None
     start: float  # сек в координатах source
@@ -377,6 +382,8 @@ class TimelineSegment(BaseModel):
     type: ClipType
     score: float = Field(ge=0, le=1)
     reason: str
+    hook: str | None = None
+    why_works: str | None = None
 
 
 class TimelineData(BaseModel):

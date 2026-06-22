@@ -24,6 +24,8 @@ def build_timeline_data(
             type=seg.type,
             score=seg.score,
             reason=seg.reason,
+            hook=seg.hook,
+            why_works=seg.why_works,
         )
         for seg in segments
     ]

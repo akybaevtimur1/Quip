@@ -1051,7 +1051,7 @@
       "type": "object"
     },
     "TimelineSegment": {
-      "description": "Кандидат-момент ИИ на таймлайне (маркер). `clip_id`=None, если момент не стал клипом.",
+      "description": "Кандидат-момент ИИ на таймлайне (маркер). `clip_id`=None, если момент не стал клипом.\n\n`hook`/`why_works` (домен 3): богатый hover на таймлайне — короткий заголовок момента\nи фраза «почему это сработает как шортс», чтобы юзер понимал, ПОЧЕМУ момент интересен\nи стоит ли двигать клип сюда. Опциональны (старые segments.json без них валидны).",
       "properties": {
         "clip_id": {
           "anyOf": [
@@ -1067,6 +1067,17 @@
         "end": {
           "type": "number"
         },
+        "hook": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "reason": {
           "type": "string"
         },
@@ -1080,6 +1091,17 @@
         },
         "type": {
           "$ref": "#/$defs/ClipType"
+        },
+        "why_works": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [

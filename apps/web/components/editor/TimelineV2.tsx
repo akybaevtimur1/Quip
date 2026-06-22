@@ -117,6 +117,11 @@ export interface TimelineV2Props {
   interval: { source_start: number; source_end: number };
   /** Идёт сохранение интервала: драг заблокирован (иначе гонка версий → 409 → reload). */
   busy?: boolean;
+  /** Текущее время воспроизведения (sec источника) → реальный плейхед на дорожке. */
+  nowSec?: number;
+  /** Live-seek (CapCut-стиль): двигаешь/тянешь край клипа → превью сикается на границу
+   *  СРАЗУ, без round-trip. Зовётся на каждый pointermove (троттл через rAF в родителе). */
+  onScrub?: (sourceSec: number) => void;
   onIntervalChange: (start: number, end: number) => void;
 }
 
@@ -125,6 +130,8 @@ export function TimelineV2({
   data,
   interval,
   busy = false,
+  nowSec,
+  onScrub,
   onIntervalChange,
 }: TimelineV2Props) {
   const duration = Math.max(data.duration, 0.001);
@@ -263,22 +270,30 @@ export function TimelineV2({
       let start = drag.intervalStart;
       let end = drag.intervalEnd;
 
+      // focusT = граница, которую юзер сейчас «держит» → её и показываем в превью.
+      // move → начало клипа (видно, с какого кадра стартует шортс); resize-l → новый
+      // старт; resize-r → новый конец (видно последний кадр). CapCut-фидбэк без round-trip.
+      let focusT: number;
       if (drag.mode === "move") {
         const len = drag.intervalEnd - drag.intervalStart;
         start = clamp(drag.intervalStart + delta, 0, duration - len);
         end = start + len;
+        focusT = start;
       } else if (drag.mode === "resize-l") {
         const minStart = Math.max(0, end - CLIP_MAX_SEC);
         const maxStart = end - CLIP_MIN_SEC;
         start = clamp(drag.intervalStart + delta, minStart, maxStart);
+        focusT = start;
       } else {
         const minEnd = start + CLIP_MIN_SEC;
         const maxEnd = Math.min(duration, start + CLIP_MAX_SEC);
         end = clamp(drag.intervalEnd + delta, minEnd, maxEnd);
+        focusT = end;
       }
       setLive({ start, end });
+      onScrub?.(focusT);
     },
-    [duration, pxToTime],
+    [duration, pxToTime, onScrub],
   );
 
   const endDrag = useCallback(
@@ -492,7 +507,19 @@ export function TimelineV2({
             )}
           </div>
 
-          {/* плейхед-курсор */}
+          {/* реальный плейхед воспроизведения (по nowSec) — едет во время play и live-seek */}
+          {nowSec !== undefined &&
+            fracOf(nowSec) >= -0.001 &&
+            fracOf(nowSec) <= 1.001 && (
+              <div
+                className="pointer-events-none absolute top-0 bottom-0 z-10 w-0.5 bg-white shadow-[0_0_4px_rgba(0,0,0,.6)]"
+                style={{ left: pct(nowSec) }}
+              >
+                <span className="absolute -top-0.5 left-1/2 size-2 -translate-x-1/2 rounded-full bg-white" />
+              </div>
+            )}
+
+          {/* hover-курсор (следует за мышью) */}
           {hover && (
             <div
               className="pointer-events-none absolute top-0 bottom-0 w-px bg-ink/70"
@@ -527,13 +554,32 @@ export function TimelineV2({
               <p className="mb-1 line-clamp-3 text-xs leading-snug text-ink">«{hoverText}»</p>
             )}
             {hoverSeg && (
-              <p className="flex items-start gap-1.5 text-[11px] leading-snug text-muted">
-                <span
-                  className="mt-1 size-2 shrink-0 rounded-full"
-                  style={{ background: TYPE_COLOR[hoverSeg.type] }}
-                />
-                <span>{hoverSeg.reason}</span>
-              </p>
+              <div className="space-y-1">
+                <div className="flex items-center gap-1.5">
+                  <span
+                    className="size-2 shrink-0 rounded-full"
+                    style={{ background: TYPE_COLOR[hoverSeg.type] }}
+                  />
+                  <span
+                    className="text-[11px] font-semibold"
+                    style={{ color: TYPE_COLOR[hoverSeg.type] }}
+                  >
+                    {TYPE_LABEL[hoverSeg.type]}
+                  </span>
+                  <span className="ml-auto rounded bg-surface-3 px-1.5 py-0.5 font-mono text-[10px] text-muted">
+                    {Math.round(hoverSeg.score * 100)}% match
+                  </span>
+                </div>
+                {hoverSeg.hook && (
+                  <p className="text-[11px] font-semibold leading-snug text-ink">
+                    “{hoverSeg.hook}”
+                  </p>
+                )}
+                <p className="text-[11px] leading-snug text-muted">
+                  {hoverSeg.why_works || hoverSeg.reason}
+                </p>
+                <p className="text-[10px] font-medium text-accent">Click to move the clip here →</p>
+              </div>
             )}
           </div>
         )}

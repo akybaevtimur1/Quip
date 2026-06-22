@@ -338,14 +338,20 @@ export interface TimelineData {
 }
 /**
  * Кандидат-момент ИИ на таймлайне (маркер). `clip_id`=None, если момент не стал клипом.
+ *
+ * `hook`/`why_works` (домен 3): богатый hover на таймлайне — короткий заголовок момента
+ * и фраза «почему это сработает как шортс», чтобы юзер понимал, ПОЧЕМУ момент интересен
+ * и стоит ли двигать клип сюда. Опциональны (старые segments.json без них валидны).
  */
 export interface TimelineSegment {
   clip_id?: string | null;
   end: number;
+  hook?: string | null;
   reason: string;
   score: number;
   start: number;
   type: ClipType;
+  why_works?: string | null;
 }
 /**
  * Нормализованный транскрипт. `words` отсортированы по `start`.
