@@ -1320,8 +1320,12 @@ def apply_style_all(
     row = db.get_job_row(job_id)
     if row is None:
         raise HTTPException(status_code=404, detail="job not found")
+    # Owner-only массовая мутация — fail-CLOSED: при включённом auth правим ВСЕ клипы джобы
+    # ТОЛЬКО владельцу. _resolve_user уже бросает 401 без валидного токена; здесь deny, если
+    # владелец джобы не совпадает с юзером — ВКЛЮЧАЯ owner=None (ничья/legacy-джоба не
+    # принадлежит никому → массово править нельзя, иначе IDOR). В dev (auth off) — пропускаем.
     owner = row.get("user_id") or None
-    if owner and user_id and owner != user_id:
+    if auth.supabase_auth_enabled() and owner != user_id:
         raise HTTPException(status_code=403, detail="not your job")
     job = db.get_job(job_id) or {}
     clip_ids = [c["id"] for c in (job.get("clips") or []) if c.get("id")]
