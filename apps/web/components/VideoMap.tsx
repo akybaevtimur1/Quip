@@ -134,7 +134,10 @@ function Skeleton({ className = "" }: { className?: string }) {
 function PendingSkeleton() {
   return (
     <div className="space-y-3 py-4" role="status" aria-label="AI is reading the video…">
-      <p className="text-sm text-muted">AI is reading the video…</p>
+      <p className="text-sm text-muted">
+        AI is reading the whole video to map the strongest moments…{" "}
+        <span className="text-faint">usually under a minute</span>
+      </p>
       <Skeleton className="h-4 w-full" />
       <Skeleton className="h-4 w-5/6" />
       <Skeleton className="h-4 w-4/6" />
@@ -224,8 +227,13 @@ function ChapterItem({
             {mmss(chapter.start)}–{mmss(chapter.end)}
           </span>
           {clipIds.length > 0 && (
-            <span className="ml-2 text-xs text-muted">
+            <span className="ml-2 rounded bg-accent/10 px-1.5 py-0.5 text-xs font-medium text-accent">
               {clipIds.length} clip{clipIds.length === 1 ? "" : "s"}
+            </span>
+          )}
+          {moments.length > 0 && (
+            <span className="ml-1.5 text-xs text-muted">
+              {moments.length} moment{moments.length === 1 ? "" : "s"}
             </span>
           )}
         </div>
@@ -351,6 +359,19 @@ export function VideoMap({
   const hasContent =
     map?.status === "done" && (map.narrative || chapters.length > 0);
 
+  // Масштаб анализа → ощущение ценности («мы прочитали ВСЁ видео и нашли N моментов»).
+  const momentCount = chapters.reduce((n, ch) => n + (ch.moments?.length ?? 0), 0);
+  const summaryLine =
+    hasContent && (chapters.length > 0 || momentCount > 0)
+      ? [
+          chapters.length > 0 && `${chapters.length} chapter${chapters.length === 1 ? "" : "s"}`,
+          momentCount > 0 && `${momentCount} key moment${momentCount === 1 ? "" : "s"}`,
+          clips.length > 0 && `${clips.length} clip${clips.length === 1 ? "" : "s"} cut from them`,
+        ]
+          .filter(Boolean)
+          .join(" · ")
+      : null;
+
   return (
     <div className="mb-6 rounded-lg border border-line bg-surface overflow-hidden">
       {/* Top-level collapsible: closed on mobile, open on desktop */}
@@ -359,9 +380,18 @@ export function VideoMap({
           className="flex cursor-pointer list-none items-center justify-between gap-3 px-5 py-3.5 text-ink [&::-webkit-details-marker]:hidden"
           style={{ minHeight: "48px" }}
         >
-          <span className="font-display font-semibold text-sm sm:text-base tracking-tight">
-            🗺 What this video is about
-          </span>
+          <div className="min-w-0 flex-1">
+            <span className="font-display font-semibold text-sm sm:text-base tracking-tight">
+              🗺 Video map — why these clips are worth it
+            </span>
+            {summaryLine ? (
+              <span className="mt-0.5 block truncate text-xs text-muted">{summaryLine}</span>
+            ) : (
+              <span className="mt-0.5 block truncate text-xs text-muted">
+                The full picture of your video — and where every clip came from
+              </span>
+            )}
+          </div>
           <svg
             className="size-4 shrink-0 text-muted transition-transform duration-200 ease-snappy group-open:rotate-180"
             viewBox="0 0 16 16"
@@ -412,6 +442,14 @@ export function VideoMap({
           {/* Done state */}
           {hasContent && (
             <div className="px-5 py-4 space-y-5">
+              {/* Value framing: what this is + why it helps (ties the map to the clip grid) */}
+              <div className="rounded-lg border border-accent/20 bg-accent/[0.04] px-3.5 py-2.5 text-xs leading-relaxed text-muted">
+                <span className="font-semibold text-ink">We read your entire video</span>, not just
+                the parts we clipped — then mapped every strong moment. Use it to see{" "}
+                <span className="text-ink">why each clip works</span>, or to spot a great moment we
+                didn’t clip and jump straight to it.
+              </div>
+
               {/* Narrative */}
               {map!.narrative && (
                 <p className="text-sm text-muted leading-relaxed">
