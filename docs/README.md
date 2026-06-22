@@ -5,7 +5,32 @@
 > history, and what you must NOT break. If a doc contradicts this file, **this file wins** for
 > "current reality"; the older doc is kept only for the *why*/history.
 >
-> Last reality check: **2026-06-20.**
+> Last reality check: **2026-06-22.**
+
+---
+
+## 🚨 NEXT SESSION — pending / how to resume (READ FIRST, impossible to miss)
+
+> End of session **2026-06-22**. Work landed on branch **`editor-snapping`** (NOT merged to `main`)
+> and was deployed to PROD **via CLI**, bypassing GitHub (the GitHub account `Varenik-vkusny` is
+> **suspended** → `git push` = 403). Full detail → `docs/JOURNAL.md` (top three 2026-06-22 entries).
+
+**Pending tasks (do these as they unblock):**
+1. **⚠️⚠️ Merge `editor-snapping` → `main` THE MOMENT GitHub is unsuspended** — otherwise the next
+   push-to-`main` Vercel build rebuilds from OLD code and **REVERTS all 8 of this session's commits**
+   (prod is currently running CLI deploys of `editor-snapping`, not `main`).
+2. **Verify + deploy the "Shots" tab** (per-shot framing, commit `7c4508f`) — committed + gate-green
+   but NOT deployed; verify on **localhost:3000** (worker CORS only allows :3000, not :3007), then deploy.
+3. **Set the Modal `LLM_MODEL` secret to `gemini-2.5-flash`** (belt-and-suspenders for the Gemini-3
+   cost guard — the `config.pin_llm_model` validator already coerces it, but fix the secret too).
+4. **Wire the demo `<video>` into the landing hero** — assets ready in `apps/web/public/demo/`
+   (`quip-demo-pipeline.{mp4,webm}` + `-poster.jpg`); snippet exists, not yet wired.
+5. **GitHub account reinstatement** — founder action (support contacted, waiting).
+
+**How to deploy WHILE GitHub is suspended** (push-to-main is dead):
+- Frontend: `vercel deploy --prod --scope timurkas-projects` (needs `.vercelignore`, already committed —
+  a bare CLI deploy uploads 1.9 GB and hits Vercel's 100 MB/file limit).
+- Worker: `modal deploy deploy/modal/worker.py` (unchanged; set `$env:PYTHONIOENCODING="utf-8"` first).
 
 ---
 
@@ -63,6 +88,22 @@
   aspect-contain fix (9:16 в широком canvas). In-page переключение клипов без ремаунта + prefetch.
   Live Frame mode (без Apply). De-overload Hook + grouped Style + preset grids. English preset names.
   Spec/plan: `docs/superpowers/specs/2026-06-20-editor-fixed-studio-design.md`.
+- **Редактор: правки сессии 2026-06-22 (ветка `editor-snapping`, в проде через CLI, не в `main`).**
+  (1) **Субтитры авто-фитятся в рамку** — один стабильный кегль на клип, каждая страница влезает в рамку
+  (ширина блока × вертикальный бюджет); ручной Size = ПОТОЛОК, реальный контроль = ширина рамки.
+  Фронт-only, пишется в `style.size` (рендер и так чтит) — `lib/captionFit.ts` (pure+TDD) +
+  `captionFitBrowser.ts`. (2) **Safe-area UI удалён**, выравнивание/snapping = жёсткий дефолт без тумблера
+  (удалены `SafeAreaOverlay`/`SnapControls`/`lib/safeAreas.*`/`lib/editorPrefs.*`; `SnapGuides` остались).
+  (3) **Он-видео драг/ресайз:** libass-текст едет 1:1 с рамкой во время жеста (`LibassLayer` тегает канвасы
+  `data-libass-part`, `OverlaySelectionBox` накладывает translate/scale, хэндофф по предикату libass-bbox).
+  (4) **Шрифт хука теперь попадает в рендер** — НЕ кэш/воркер, а фронт-гонка: `handleRender` не делал
+  `await flushPending()` (правки на ~300мс дебаунсе) + `ExportMenu` отдавал stale baked CDN-рендер →
+  `captionedDownloadUrl(...,dirty)` роутит грязные скачивания в on-demand `export/captioned.mp4`.
+  (5) **Poppins прожигается** — нормализована name-таблица TTF (ID 1) → «Poppins» в ОБОИХ каталогах
+  (`services/worker/fonts` + `apps/web/public/libass/fonts`) + гард `test_fonts.py` (нужен был деплой
+  воркера). (6) Карточки клипов не прыгают (`ClipCard` flex/line-clamp/mt-auto) + float-время убрано
+  (общий `mmss()`). (7) Скачивание = fetch+спиннер «Preparing your clip…» (`ExportMenu`).
+  JOURNAL: записи 2026-06-22.
 - **Рендер клипов = параллельный фан-аут (perf, 2026-06-17).** `run_job` делает import→
   transcribe→select, грузит source в R2, затем фанит per-clip reframe+render по контейнерам
   `reframe_render_clip` (`starmap`) вместо последовательного цикла. **preview-прокси** (полный
@@ -78,11 +119,13 @@
 - **Billing is ON** (`BILLING_ENABLED`). Payments via **Polar** (NOT Lemon Squeezy). Webhook live
   and verified. Pricing = **credit model** (Free $0 / 2 · Starter $15 / 10 · Pro $35 / 30 · PAYG $3);
   source of truth = `services/worker/app/billing.py`, mirrored by `apps/web/lib/plans.ts`.
-- **AI-модели:** транскрипция — Deepgram **`nova-3`**; отбор/хуки/агент — **Gemini** (прод
-  `gemini-flash-latest` через Modal-секрет `LLM_MODEL`; код-дефолт `gemini-2.5-flash`). Фолбэк:
-  select/хуки → `-flash-lite`; **чат-агент** перебирает цепочку
-  `gemini-flash-latest → 2.5-flash → 2.5-flash-lite` («хоть кто-то ответит» при перегрузе primary,
-  прилипает к сработавшей). Видео в LLM не уходит — только индексированный текст транскрипта.
+- **AI-модели:** транскрипция — Deepgram **`nova-3`**; отбор/хуки/агент — **Gemini**, запинено на
+  **`gemini-2.5-flash`** (⚠️ 2026-06-22: `gemini-flash-latest` уехал на `gemini-3.5-flash` = ~×10 цена;
+  `config.pin_llm_model` коэрсит любой `*-latest`/`gemini-3*` → `gemini-2.5-flash` с логом, поэтому даже
+  Modal-секрет `LLM_MODEL=gemini-flash-latest` безопасен — но рекомендуется обновить секрет на
+  `gemini-2.5-flash`). Фолбэк: select/хуки → `-flash-lite`; **чат-агент** — цепочка
+  `gemini-2.5-flash → 2.5-flash-lite` (раньше начиналась с `-latest`; убрано тем же гардом). Гард-тест
+  `test_config_llm_guard.py`. Видео в LLM не уходит — только индексированный текст транскрипта.
 - **Язык чат-агента (2026-06-18):** ЧАТ — на языке юзера; ON-SCREEN хук — ВСЕГДА на языке
   ТРАНСКРИПЦИИ клипа (язык видео), даже если юзер пишет на другом (`set_hook_text` переводит).
   Источник: `prompts/agent_clip_editor.v1.txt` (LANGUAGE POLICY).
@@ -220,9 +263,16 @@ Pick [X] by task:
 
 ## 🏗️ Deploy & infra map
 
+> ⚠️ **2026-06-22: push-to-`main` auto-deploy is currently DEAD** — the GitHub account `Varenik-vkusny`
+> is suspended (`git push` → 403). Until reinstated, deploy the frontend with the **Vercel CLI**
+> (`vercel deploy --prod --scope timurkas-projects`, needs the committed `.vercelignore`). Prod is
+> running CLI deploys of branch **`editor-snapping`**, NOT `main` — **merge `editor-snapping` → `main`
+> the moment GitHub is back**, or push-to-main rebuilds old code and reverts the session. See the
+> "🚨 NEXT SESSION" banner at the top.
+
 | Piece | Where | How it deploys | Dashboard |
 |-------|-------|----------------|-----------|
-| Frontend (`apps/web`) | Vercel **`quip-app`** | **auto on push to `main`** | vercel.com/timurkas-projects/quip-app |
+| Frontend (`apps/web`) | Vercel **`quip-app`** | **normally auto on push to `main`** — ⚠️ TEMPORARILY via CLI `vercel deploy --prod --scope timurkas-projects` (GitHub suspended) | vercel.com/timurkas-projects/quip-app |
 | Worker (`services/worker`) | Modal **`quip-worker`** | `modal deploy deploy/modal/worker.py` | modal.com (workspace akybaevtimur7) |
 | State / auth / billing data | Supabase **`qiagetbnsssvbiowuxpp`** | SQL Editor / migrations `0001–0012` | supabase.com dashboard |
 | Clip storage | Cloudflare **R2** (`cdn.quip.ink`) | n/a | Cloudflare dashboard |
