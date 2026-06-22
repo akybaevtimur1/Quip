@@ -43,7 +43,7 @@ import { EditorHeader, type RenderState } from "./EditorHeader";
 import { type Tab, TABS, EditorRail } from "./EditorRail";
 import { type EditorAction } from "@/lib/editorShortcuts";
 import { useEditorShortcuts } from "./useEditorShortcuts";
-import { FitTimeline } from "./FitTimeline";
+import { FitTimeline, type FitRegion } from "./FitTimeline";
 import { FrameTab } from "./FrameTab";
 import { HookTab } from "./HookTab";
 import { Inspector } from "./Inspector";
@@ -1222,6 +1222,29 @@ export default function ClipEditorScreen({
     return stable;
   }, [edit, outerStart, outerEnd, rawRegions, nowSec]);
 
+  // ── Shots-таб: что рисуем в полосе пошотового кадрирования ──
+  // Нормально берём AI-шоты (rawRegions от /reframe). НО /reframe гоняет тяжёлый CV на лету
+  // (PySceneDetect + ASD) и на «холодном» клипе медленный/падает → loadReframe глотает в null →
+  // полоса показывала мёртвую плашку «Framing follows AI» и НИКАКОГО контроля. Фолбэк: режем
+  // клип на ровные временны́е чанки, чтобы юзер ВСЕГДА мог выделить момент и форснуть fit/fill —
+  // override (reframe_overrides) применяется на рендере и в превью независимо от AI-плана.
+  const usingFallbackShots = !(rawRegions && rawRegions.length > 0);
+  const stripRegions = useMemo<FitRegion[]>(() => {
+    if (rawRegions && rawRegions.length > 0) return rawRegions;
+    const clipDur = (edit?.source_intervals ?? []).reduce(
+      (a, iv) => a + (iv.source_end - iv.source_start),
+      0,
+    );
+    if (clipDur <= 0.1) return [];
+    const n = Math.max(6, Math.min(20, Math.round(clipDur / 3)));
+    const step = clipDur / n;
+    return Array.from({ length: n }, (_, i) => ({
+      t0: i * step,
+      t1: i === n - 1 ? clipDur : (i + 1) * step,
+      mode: "fill",
+    }));
+  }, [rawRegions, edit?.source_intervals]);
+
   // T5: аспект превью-контейнера (литералы → Tailwind JIT их видит)
   const aspectClass =
     { "9:16": "aspect-[9/16]", "1:1": "aspect-[1/1]", "4:5": "aspect-[4/5]", "16:9": "aspect-[16/9]" }[
@@ -1296,12 +1319,13 @@ export default function ClipEditorScreen({
               Per-shot framing
             </p>
             <p className="text-xs leading-snug text-muted">
-              Reframe individual shots (the cuts between camera angles), not the whole clip. Drag
-              across the bar to pick shots, then force Wide / Tight / Auto on just those.
+              {usingFallbackShots
+                ? "Drag across the bar to pick the part of the clip you want, then force Wide / Tight / Auto on just that stretch. Use the playhead line to line it up with the moment."
+                : "Reframe individual shots (the cuts between camera angles), not the whole clip. Drag across the bar to pick shots, then force Wide / Tight / Auto on just those."}
             </p>
           </div>
           <FitTimeline
-            regions={rawRegions}
+            regions={stripRegions}
             intervals={edit.source_intervals}
             overrides={edit.reframe_overrides}
             nowSec={nowSec}
