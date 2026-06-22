@@ -24,6 +24,11 @@
   `lib/editorPrefs.*`; снято `safeInsets`/`safePlatform`-обвязка и чип «Off·TikTok·Reels·Shorts» поверх
   клипа. Snapping/выравнивание = жёсткий дефолт `true` без UI-тумблера; `SnapGuides` (магнит-линии)
   остаются (центр/края/второй элемент). `buildTargets` потерял `safe`-параметр.
+- **Фикс слайдера-внахлёст.** `.range-touch`-ползунок = 20px, а «Show duration» (HookTab) и crop-слайдер
+  (FrameTab) клали голый `<input range-touch h-1.5>` сразу под лейблом (`gap-1`=4px) → 20px-thumb лез в
+  текст лейбла. HookTab → переведён на общий `DebouncedSlider` (как Size/Position), FrameTab → input в
+  `flex h-9 items-center`+`w-full` (центрирует thumb, как DebouncedSlider). Прочие range — плееры/таймлайн
+  (full-width seek, лейбла сверху нет) — не трогаем.
 - **Верификация:** `just check` зелёный (mypy 50 файлов, **818 pytest**, **35 vitest** вкл. 10 captionFit,
   ruff/tsc/eslint, anti-drift без диффа). ⚠️ Авторизованный визуал ветки заблокирован (OAuth-redirect
   завязан на прод-домен; перенос сессии на localhost справедливо отклонён сейф-классификатором) →

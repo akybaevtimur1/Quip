@@ -248,15 +248,18 @@ function CenterSlider({
           {value <= 0.35 ? "left" : value >= 0.65 ? "right" : "center"} · {value.toFixed(2)}
         </span>
       </span>
-      <input
-        type="range"
-        min={0}
-        max={100}
-        value={Math.round(value * 100)}
-        disabled={disabled}
-        onChange={(e) => onChange(Number(e.target.value) / 100)}
-        className="range-touch h-1.5 cursor-pointer appearance-none rounded-full bg-surface-2 accent-accent"
-      />
+      {/* h-9 row centers the 20px range-touch thumb so it can't overlap the label above. */}
+      <span className="flex h-9 items-center">
+        <input
+          type="range"
+          min={0}
+          max={100}
+          value={Math.round(value * 100)}
+          disabled={disabled}
+          onChange={(e) => onChange(Number(e.target.value) / 100)}
+          className="range-touch h-1.5 w-full cursor-pointer appearance-none rounded-full bg-surface-2 accent-accent"
+        />
+      </span>
     </label>
   );
 }

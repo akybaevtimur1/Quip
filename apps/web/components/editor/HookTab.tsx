@@ -190,23 +190,18 @@ export function HookTab({
           </button>
         </div>
         {!fullClip && (
-          <label className="flex flex-col gap-1 pt-1 text-xs text-muted">
-            <span className="flex items-center justify-between">
-              Show duration
-              <span className="font-mono text-[11px] text-ink">
-                {(hook?.duration_sec ?? 4).toFixed(0)} s
-              </span>
-            </span>
-            <input
-              type="range"
+          <div className="pt-1">
+            {/* Reuse DebouncedSlider so the 20px range-touch thumb is centered in its own
+                h-10 row (clear of the label) — a bare input here overlapped the label text. */}
+            <DebouncedSlider
+              label="Show duration (s)"
               min={1}
               max={15}
               value={Math.round(hook?.duration_sec ?? 4)}
               disabled={busy}
-              onChange={(e) => onHookChange({ duration_sec: Number(e.target.value) })}
-              className="range-touch h-1.5 cursor-pointer appearance-none rounded-full bg-surface-2 accent-accent"
+              onCommit={(v) => onHookChange({ duration_sec: v })}
             />
-          </label>
+          </div>
         )}
       </section>
 
