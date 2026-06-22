@@ -1280,26 +1280,35 @@ export default function ClipEditorScreen({
         />
       )}
       {tab === "frame" && (
-        <>
-          <FrameTab
-            edit={edit}
-            outerStart={outerStart}
-            outerEnd={outerEnd}
-            busy={busy}
-            onApply={handleFrameApply}
-            onAspectChange={handleAspectChange}
-          />
-          <div className="shrink-0 pt-3 border-t border-line">
-            <FitTimeline
-              regions={rawRegions}
-              intervals={edit.source_intervals}
-              overrides={edit.reframe_overrides}
-              nowSec={nowSec}
-              busy={busy}
-              onApplyRange={handleApplyRange}
-            />
+        <FrameTab
+          edit={edit}
+          outerStart={outerStart}
+          outerEnd={outerEnd}
+          busy={busy}
+          onApply={handleFrameApply}
+          onAspectChange={handleAspectChange}
+        />
+      )}
+      {tab === "shots" && (
+        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pr-1">
+          <div className="space-y-1">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">
+              Per-shot framing
+            </p>
+            <p className="text-xs leading-snug text-muted">
+              Reframe individual shots (the cuts between camera angles), not the whole clip. Drag
+              across the bar to pick shots, then force Wide / Tight / Auto on just those.
+            </p>
           </div>
-        </>
+          <FitTimeline
+            regions={rawRegions}
+            intervals={edit.source_intervals}
+            overrides={edit.reframe_overrides}
+            nowSec={nowSec}
+            busy={busy}
+            onApplyRange={handleApplyRange}
+          />
+        </div>
       )}
     </>
   );
