@@ -17,10 +17,12 @@
 
 **Pending tasks (do these as they unblock):**
 1. **⚠️⚠️ Merge `editor-snapping` → `main` THE MOMENT GitHub is unsuspended** — otherwise the next
-   push-to-`main` Vercel build rebuilds from OLD code and **REVERTS all 8 of this session's commits**
-   (prod is currently running CLI deploys of `editor-snapping`, not `main`).
-2. **Verify + deploy the "Shots" tab** (per-shot framing, commit `7c4508f`) — committed + gate-green
-   but NOT deployed; verify on **localhost:3000** (worker CORS only allows :3000, not :3007), then deploy.
+   push-to-`main` Vercel build rebuilds from OLD code and **REVERTS all of this session's commits**
+   (11 on the branch; prod is currently running CLI deploys of `editor-snapping`, not `main`).
+2. ✅ **DONE — "Shots" tab DEPLOYED** (2026-06-22, Vercel CLI). Per-shot framing got its own rail tab
+   (commit `7c4508f`) **plus** a manual time-slice fallback (`0132d72`) so the strip is usable even when
+   the heavy `/reframe` CV endpoint is cold/errors (it was returning `null` → dead "Framing follows AI"
+   placeholder with zero control). Live on quip.ink.
 3. **Set the Modal `LLM_MODEL` secret to `gemini-2.5-flash`** (belt-and-suspenders for the Gemini-3
    cost guard — the `config.pin_llm_model` validator already coerces it, but fix the secret too).
 4. **Wire the demo `<video>` into the landing hero** — assets ready in `apps/web/public/demo/`
