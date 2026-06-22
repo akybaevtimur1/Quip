@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import type { OverlayRect } from "@/lib/overlayBox";
 import { computeSnap, SNAP_THRESHOLD_PX } from "@/lib/snapEngine";
 import { buildTargets } from "@/lib/snapTargets";
@@ -72,6 +72,19 @@ function renderBoxRect(el: HTMLElement): DOMRect | null {
   return box;
 }
 
+/**
+ * The libass <canvas> that renders THIS box's element (hook | caption). Both canvases are
+ * `absolute inset-0 size-full` siblings inside the same render box (the box's offsetParent),
+ * so they share the box's coordinate space → a px delta/scale applied here matches the box 1:1.
+ * `data-libass-part` is set by LibassLayer. Returns null if libass isn't mounted (CSS fallback).
+ */
+function libassCanvas(boxEl: HTMLElement, anchor: "top" | "bottom"): HTMLElement | null {
+  const root = boxEl.offsetParent as HTMLElement | null;
+  if (!root) return null;
+  const part = anchor === "top" ? "hook" : "caption";
+  return root.querySelector<HTMLElement>(`canvas[data-libass-part="${part}"]`);
+}
+
 const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
 
 export function OverlaySelectionBox({
@@ -98,8 +111,14 @@ export function OverlaySelectionBox({
     baseTop: number;
     moved: boolean;
   } | null>(null);
-  // RESIZE (font): anchor the starting size + pointer Y.
-  const resizeRef = useRef<{ startY: number; startSize: number } | null>(null);
+  // RESIZE (font): anchor the starting size + pointer Y, plus the box's anchor point in render-box
+  // px (center-X + anchored edge-Y) so the canvas scales about the SAME point as the box.
+  const resizeRef = useRef<{
+    startY: number;
+    startSize: number;
+    originX: number;
+    originY: number;
+  } | null>(null);
   // WIDTH (block): center + base half-width + which side is being dragged.
   const widthRef = useRef<{ startX: number; centerX: number; baseHalf: number; side: 1 | -1 } | null>(
     null,
@@ -108,6 +127,60 @@ export function OverlaySelectionBox({
   // Used at commit to write an EXACT pos_x = 0.5 instead of the per-frame bbox center (the bbox
   // is asymmetric while a word is highlighted → its center ≠ the text anchor → off-center text).
   const snapXCenterRef = useRef(false);
+
+  // ── libass-text-follows-the-box (kills the during-drag separation + commit teleport) ──
+  // During a gesture we apply the SAME visual transform to THIS element's libass canvas as we
+  // apply to the box (translate for MOVE, scale for RESIZE), so the rendered text moves WITH the
+  // frame. We must NOT clear that transform on pointerup: libass only re-renders at the new \pos
+  // a few frames later, so clearing immediately snaps the text back to the OLD spot for a frame
+  // (flash-back). Instead we keep the transform applied and flag a pending reconcile; once the
+  // next libass bbox (`rect`) arrives reflecting the new position, the effect below clears it —
+  // a seamless handoff. A short timeout is the safety net if no new rect arrives.
+  const canvasTxRef = useRef<HTMLElement | null>(null); // canvas currently holding a drag transform
+  const pendingReconcileRef = useRef(false); // true between commit and the libass re-render
+  const reconcileTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const setCanvasTransform = (transform: string, origin: string) => {
+    const node = boxRef.current;
+    const canvas = node ? libassCanvas(node, anchor) : null;
+    if (!canvas) return;
+    canvas.style.transformOrigin = origin;
+    canvas.style.transform = transform;
+    canvasTxRef.current = canvas;
+  };
+
+  const clearCanvasTransform = () => {
+    const canvas = canvasTxRef.current;
+    if (canvas) {
+      canvas.style.transform = "";
+      canvas.style.transformOrigin = "";
+    }
+    canvasTxRef.current = null;
+    pendingReconcileRef.current = false;
+    if (reconcileTimerRef.current) {
+      clearTimeout(reconcileTimerRef.current);
+      reconcileTimerRef.current = null;
+    }
+  };
+
+  // Arm the seamless handoff: KEEP the transform through the commit, then clear it once libass has
+  // re-rendered at the new \pos (next `rect` update, handled by the effect) — with a timeout net.
+  const armReconcile = () => {
+    pendingReconcileRef.current = true;
+    if (reconcileTimerRef.current) clearTimeout(reconcileTimerRef.current);
+    reconcileTimerRef.current = setTimeout(clearCanvasTransform, 400);
+  };
+
+  // Clear the drag transform once a FRESH libass bbox arrives after a commit (text now rendered at
+  // the new position → safe to drop the visual transform with no flash-back). `rect` is the live
+  // bbox fractions from LibassLayer; a new object identity per libass render frame is the signal.
+  useEffect(() => {
+    if (pendingReconcileRef.current) clearCanvasTransform();
+    // `rect` is the dependency — fires on every libass bbox update.
+  }, [rect]);
+
+  // Cleanup on unmount: never leave a transform stuck on the shared canvas.
+  useEffect(() => () => clearCanvasTransform(), []);
 
   // ── MOVE (body) → free X/Y ──
   const onBodyDown = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -123,6 +196,8 @@ export function OverlaySelectionBox({
       moved: false,
     };
     snapXCenterRef.current = false;
+    // A fresh gesture supersedes any in-flight reconcile from the previous commit.
+    clearCanvasTransform();
     e.currentTarget.setPointerCapture(e.pointerId);
   };
   const onBodyMove = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -174,6 +249,12 @@ export function OverlaySelectionBox({
     node.style.left = `${(snapLeft / box.width) * 100}%`;
     node.style.top = `${(snapTop / box.height) * 100}%`;
     node.style.bottom = "auto";
+    // Move THIS element's libass text by the SAME px delta so the rendered glyphs track the frame
+    // 1:1 during the drag (no separation). Canvas shares the render-box coord space → identical px.
+    setCanvasTransform(
+      `translate(${snapLeft - m.baseLeft}px, ${snapTop - m.baseTop}px)`,
+      "0 0",
+    );
   };
   const onBodyUp = () => {
     const m = moveRef.current;
@@ -193,13 +274,29 @@ export function OverlaySelectionBox({
     const centerX = snapXCenterRef.current ? 0.5 : (nr.left - box.left + nr.width / 2) / box.width;
     // anchored edge fraction FROM THE TOP: caption commits its BOTTOM edge (\an2), hook its TOP.
     const edgeY = anchor === "top" ? (nr.top - box.top) / box.height : (nr.bottom - box.top) / box.height;
+    // Keep the canvas translate applied THROUGH the commit; clear it only once libass re-renders
+    // at the new \pos (next `rect`) → seamless, no flash-back to the old position.
+    armReconcile();
     onMoveCommit(clamp01(centerX), clamp01(edgeY));
   };
 
   // ── RESIZE (corner handle) → font size ──
   const onHandleDown = (e: React.PointerEvent<HTMLButtonElement>) => {
     e.stopPropagation();
-    resizeRef.current = { startY: e.clientY, startSize: size };
+    const node = boxRef.current;
+    const box = node ? renderBoxRect(node) : null;
+    // Capture the box's anchor point (render-box px): center-X, and the anchored edge-Y
+    // (top for hook \an8, bottom for caption \an2) = the box's own transform-origin. The canvas
+    // must scale about this SAME point for the text to grow/shrink exactly like the frame.
+    let originX = 0,
+      originY = 0;
+    if (node && box) {
+      const nr = node.getBoundingClientRect();
+      originX = nr.left - box.left + nr.width / 2;
+      originY = anchor === "top" ? nr.top - box.top : nr.bottom - box.top;
+    }
+    resizeRef.current = { startY: e.clientY, startSize: size, originX, originY };
+    clearCanvasTransform(); // supersede any in-flight reconcile
     e.currentTarget.setPointerCapture(e.pointerId);
   };
   const sizeFromEvent = (clientY: number): number => {
@@ -216,6 +313,9 @@ export function OverlaySelectionBox({
     const scale = sizeFromEvent(e.clientY) / r.startSize;
     node.style.transform = `scale(${scale})`;
     node.style.transformOrigin = anchor === "top" ? "center top" : "center bottom";
+    // Scale THIS element's libass text by the SAME factor about the SAME render-box anchor point,
+    // so the rendered glyphs grow/shrink locked to the frame (no lag, no commit teleport).
+    setCanvasTransform(`scale(${scale})`, `${r.originX}px ${r.originY}px`);
   };
   const onHandleUp = (e: React.PointerEvent<HTMLButtonElement>) => {
     const r = resizeRef.current;
@@ -225,6 +325,8 @@ export function OverlaySelectionBox({
     resizeRef.current = null;
     const node = boxRef.current;
     if (node) node.style.transform = ""; // clear feedback scale; rect re-hugs on commit
+    // Keep the canvas scale THROUGH the commit; clear once libass re-renders at the new size.
+    armReconcile();
     onResizeCommit(next);
   };
 
@@ -244,6 +346,10 @@ export function OverlaySelectionBox({
       baseHalf: nr.width / 2,
       side,
     };
+    // WIDTH changes line WRAPPING, not a uniform transform — no CSS transform can preview a reflow,
+    // so the text still catches up on commit here (best-effort). But supersede any in-flight
+    // reconcile from a prior move/resize so we don't leave a stale transform on the canvas.
+    clearCanvasTransform();
     e.currentTarget.setPointerCapture(e.pointerId);
   };
   const halfFromEvent = (clientX: number, box: DOMRect): number => {

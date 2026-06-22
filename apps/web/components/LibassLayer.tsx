@@ -276,13 +276,19 @@ export function LibassLayer({
 
   return (
     <>
+      {/* data-libass-part tags let OverlaySelectionBox find THIS element's canvas and apply the
+          same imperative transform DURING a gesture, so the rendered text tracks the selection box
+          1:1 (no lag / teleport on commit). The transform is cleared by the box once libass has
+          re-rendered at the committed \pos (see OverlaySelectionBox reconcile-on-rect handoff). */}
       <canvas
         ref={hookCanvasRef}
+        data-libass-part="hook"
         className="pointer-events-none absolute inset-0 z-10 size-full"
         aria-hidden
       />
       <canvas
         ref={captionCanvasRef}
+        data-libass-part="caption"
         className="pointer-events-none absolute inset-0 z-10 size-full"
         aria-hidden
       />
