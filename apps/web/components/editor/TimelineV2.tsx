@@ -346,7 +346,14 @@ export function TimelineV2({
             </span>
           ))}
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-2">
+          <span
+            className="inline-flex items-center gap-1.5 rounded-full border border-accent/40 bg-accent/10 px-2.5 py-1 font-mono text-[10px] font-semibold text-accent"
+            title="Selected clip length"
+          >
+            <span className="size-1.5 rounded-full bg-accent" />
+            {mmss(segEnd - segStart)}
+          </span>
           <button
             type="button"
             aria-label="Zoom out"
@@ -420,7 +427,7 @@ export function TimelineV2({
         {/* дорожка */}
         <div
           ref={trackRef}
-          className="relative h-20 w-full overflow-hidden rounded-xl border border-line bg-surface-2"
+          className="relative h-20 w-full overflow-hidden rounded-xl border border-line bg-gradient-to-b from-surface-2 to-surface shadow-inner"
           onPointerMove={onPointerMove}
           onPointerUp={endDrag}
           onPointerCancel={endDrag}
@@ -428,6 +435,15 @@ export function TimelineV2({
             if (!dragRef.current) setHover(null);
           }}
         >
+          {/* вертикальные грид-линии (выровнены с линейкой времени) */}
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div
+              key={`grid-${i}`}
+              className="pointer-events-none absolute inset-y-0 z-0 w-px bg-line/30"
+              style={{ left: `${(i / 5) * 100}%` }}
+              aria-hidden
+            />
+          ))}
           {/* волна (декор): рисуем только видимое окно */}
           <div className="pointer-events-none absolute inset-0 flex items-end gap-px px-px">
             {wave.map((h, i) => {
@@ -448,9 +464,10 @@ export function TimelineV2({
             })}
           </div>
 
-          {/* маркеры сегментов ИИ */}
+          {/* маркеры сегментов ИИ — наглядные капсулы по типу момента */}
           {data.segments.map((s, i) => {
             const widthFrac = Math.max((s.end - s.start) / viewLen, 0.004);
+            const c = TYPE_COLOR[s.type];
             return (
               <button
                 key={`${s.clip_id ?? "seg"}-${i}`}
@@ -462,21 +479,40 @@ export function TimelineV2({
                 }}
                 title={`${TYPE_LABEL[s.type]} · ${s.score.toFixed(2)} · ${s.reason}`}
                 aria-label={`Go to moment: ${TYPE_LABEL[s.type]}`}
-                className="absolute bottom-0 cursor-pointer rounded-sm opacity-80 transition hover:opacity-100"
+                className="group/marker absolute bottom-1.5 z-[1] cursor-pointer rounded-full opacity-90 transition hover:opacity-100"
                 style={{
                   left: pct(s.start),
                   width: `${widthFrac * 100}%`,
-                  height: "6px",
-                  background: TYPE_COLOR[s.type],
+                  height: "9px",
+                  minWidth: "3px",
+                  background: c,
+                  boxShadow: `0 0 6px ${c}66`,
                 }}
-              />
+              >
+                <span
+                  className="absolute left-1/2 top-1/2 size-1 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white/85 opacity-0 transition group-hover/marker:opacity-100"
+                  aria-hidden
+                />
+              </button>
             );
           })}
 
-          {/* блок шортса */}
+          {/* затемнение ВНЕ выбранного клипа (trim-аффорданс: выбранный кусок ярче остального) */}
+          <div
+            className="pointer-events-none absolute inset-y-0 left-0 z-[2] bg-bg/60"
+            style={{ width: `${clamp(fracOf(segStart) * 100, 0, 100)}%` }}
+            aria-hidden
+          />
+          <div
+            className="pointer-events-none absolute inset-y-0 right-0 z-[2] bg-bg/60"
+            style={{ left: `${clamp(fracOf(segEnd) * 100, 0, 100)}%` }}
+            aria-hidden
+          />
+
+          {/* блок шортса — «герой» дорожки (хватай и тяни) */}
           <div
             onPointerDown={onPointerDown("move")}
-            className={`absolute top-0 bottom-0 touch-none rounded-md border-2 border-accent bg-accent/25 ${
+            className={`absolute top-0 bottom-0 z-[3] touch-none rounded-lg border-2 border-accent bg-gradient-to-b from-accent/30 to-accent/10 shadow-[0_4px_16px_rgba(0,0,0,.45)] ring-1 ring-inset ring-white/10 ${
               busy ? "animate-pulse cursor-wait" : "cursor-grab active:cursor-grabbing"
             }`}
             style={{
@@ -485,23 +521,32 @@ export function TimelineV2({
               minWidth: "2rem",
             }}
           >
+            {/* ручка слева */}
             <div
               onPointerDown={onPointerDown("resize-l")}
-              className="absolute -left-2.5 sm:-left-1 top-0 bottom-0 flex w-5 sm:w-3 cursor-ew-resize items-center justify-center"
+              className="group/grip absolute -left-2.5 sm:-left-1.5 top-0 bottom-0 flex w-5 sm:w-3.5 cursor-ew-resize items-center justify-center"
             >
-              <span className="h-8 w-1 rounded-full bg-accent" />
+              <span className="flex h-9 items-center justify-center gap-[2px] rounded-full bg-accent px-1 shadow transition group-hover/grip:brightness-110">
+                <span className="h-4 w-px rounded-full bg-bg/70" />
+                <span className="h-4 w-px rounded-full bg-bg/70" />
+              </span>
             </div>
+            {/* ручка справа */}
             <div
               onPointerDown={onPointerDown("resize-r")}
-              className="absolute -right-2.5 sm:-right-1 top-0 bottom-0 flex w-5 sm:w-3 cursor-ew-resize items-center justify-center"
+              className="group/grip absolute -right-2.5 sm:-right-1.5 top-0 bottom-0 flex w-5 sm:w-3.5 cursor-ew-resize items-center justify-center"
             >
-              <span className="h-8 w-1 rounded-full bg-accent" />
+              <span className="flex h-9 items-center justify-center gap-[2px] rounded-full bg-accent px-1 shadow transition group-hover/grip:brightness-110">
+                <span className="h-4 w-px rounded-full bg-bg/70" />
+                <span className="h-4 w-px rounded-full bg-bg/70" />
+              </span>
             </div>
-            <span className="pointer-events-none absolute inset-x-0 top-1 text-center font-mono text-[10px] font-semibold text-accent">
+            {/* длительность — пилюля сверху */}
+            <span className="pointer-events-none absolute left-1/2 top-1 -translate-x-1/2 rounded-full bg-accent px-2 py-0.5 font-mono text-[10px] font-bold text-bg shadow">
               {busy ? "saving…" : mmss(segEnd - segStart)}
             </span>
             {!busy && segEnd - segStart <= CLIP_MIN_SEC + 0.5 && (
-              <span className="pointer-events-none absolute inset-x-0 bottom-1 text-center text-[9px] text-muted">
+              <span className="pointer-events-none absolute inset-x-0 bottom-1 text-center text-[9px] font-medium text-white/70">
                 min {CLIP_MIN_SEC}s
               </span>
             )}
@@ -512,17 +557,18 @@ export function TimelineV2({
             fracOf(nowSec) >= -0.001 &&
             fracOf(nowSec) <= 1.001 && (
               <div
-                className="pointer-events-none absolute top-0 bottom-0 z-10 w-0.5 bg-white shadow-[0_0_4px_rgba(0,0,0,.6)]"
+                className="pointer-events-none absolute top-0 bottom-0 z-[11] w-px bg-white shadow-[0_0_8px_rgba(255,255,255,.55)]"
                 style={{ left: pct(nowSec) }}
               >
-                <span className="absolute -top-0.5 left-1/2 size-2 -translate-x-1/2 rounded-full bg-white" />
+                {/* треугольная головка сверху — явно отличает плейхед от hover-курсора */}
+                <span className="absolute -top-px left-1/2 size-0 -translate-x-1/2 border-x-[5px] border-x-transparent border-t-[7px] border-t-white" />
               </div>
             )}
 
-          {/* hover-курсор (следует за мышью) */}
+          {/* hover-курсор (следует за мышью) — тонкая ink-линия, отлична от белого плейхеда */}
           {hover && (
             <div
-              className="pointer-events-none absolute top-0 bottom-0 w-px bg-ink/70"
+              className="pointer-events-none absolute top-0 bottom-0 z-[10] w-px bg-ink/60"
               style={{ left: `${hover.x}px` }}
             />
           )}

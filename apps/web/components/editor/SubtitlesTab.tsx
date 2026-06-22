@@ -1,11 +1,12 @@
 "use client";
 
-import { RotateCcw, Scissors } from "lucide-react";
+import { Check, Plus, RotateCcw, Scissors, Star, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { IconButton } from "@/components/ui/IconButton";
 import { Checkbox } from "@/components/ui/Checkbox";
 import { Select } from "@/components/ui/Select";
 import { Switch } from "@/components/ui/Switch";
+import type { StylePreferencePayload, StyleTemplate } from "@/lib/api";
 import type { CaptionReply, CaptionStyle, ClipEdit, HighlightStyle, Word } from "@/lib/types";
 import { PresetStrip } from "../PresetStrip";
 import { CAPTION_FONTS, ColorField, DebouncedSlider } from "./StyleControls";
@@ -52,8 +53,13 @@ export function SubtitlesTab({
   onError,
   onStyleChange,
   onHighlightChange,
-  onApplyAll,
-  onSaveDefault,
+  templates,
+  defaultTemplateId,
+  onApplyTemplateClip,
+  onApplyTemplateAll,
+  onSaveTemplate,
+  onDeleteTemplate,
+  onSetDefaultTemplate,
 }: {
   words: Word[];
   replies: CaptionReply[];
@@ -70,35 +76,86 @@ export function SubtitlesTab({
   onError: (msg: string) => void;
   onStyleChange: (patch: Partial<CaptionStyle>) => void;
   onHighlightChange: (patch: Partial<HighlightStyle> | null) => void;
-  /** Apply this clip's look to every clip of the video → returns how many were updated. */
-  onApplyAll: () => Promise<number>;
-  /** Save this look as the user's default → future videos start from it. */
-  onSaveDefault: () => Promise<void>;
+  /** The user's saved style templates + which one seeds new clips of future videos. */
+  templates: StyleTemplate[];
+  defaultTemplateId: string | null;
+  /** Apply a template's look to THIS clip (instant). */
+  onApplyTemplateClip: (look: StylePreferencePayload) => void;
+  /** Apply a template to ALL clips (instant on this one, rest in background) → count. */
+  onApplyTemplateAll: (look: StylePreferencePayload) => Promise<number>;
+  /** Save the current look as a NAMED template (optionally the new-clip default). */
+  onSaveTemplate: (name: string, setDefault: boolean) => Promise<void>;
+  onDeleteTemplate: (id: string) => Promise<void>;
+  onSetDefaultTemplate: (id: string, isDefault: boolean) => Promise<void>;
 }) {
   const [editing, setEditing] = useState<number | null>(null);
   const [draft, setDraft] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const activeRef = useRef<HTMLDivElement>(null);
-  // Style-memory buttons: own busy + transient confirmation (no global busy → other controls stay live).
-  const [reuseBusy, setReuseBusy] = useState<"all" | "default" | null>(null);
-  const [reuseMsg, setReuseMsg] = useState<string | null>(null);
+  // Templates: own busy keyed by action (no global busy → other controls stay live) + toast.
+  const [tplBusy, setTplBusy] = useState<string | null>(null);
+  const [tplMsg, setTplMsg] = useState<string | null>(null);
+  const [newName, setNewName] = useState("");
 
-  const runReuse = async (kind: "all" | "default") => {
-    setReuseBusy(kind);
-    setReuseMsg(null);
+  const flashTpl = (msg: string) => {
+    setTplMsg(msg);
+    setTimeout(() => setTplMsg(null), 3000);
+  };
+
+  const applyToClip = (t: StyleTemplate) => {
+    onApplyTemplateClip(t.look);
+    flashTpl(`Applied “${t.name}” to this clip`);
+  };
+
+  const applyToAll = async (t: StyleTemplate) => {
+    setTplBusy(`all:${t.id}`);
     try {
-      if (kind === "all") {
-        const n = await onApplyAll();
-        setReuseMsg(`Applied to ${n} clip${n === 1 ? "" : "s"}`);
-      } else {
-        await onSaveDefault();
-        setReuseMsg("Saved — new videos will start with this style");
-      }
-      setTimeout(() => setReuseMsg(null), 3500);
+      const n = await onApplyTemplateAll(t.look);
+      flashTpl(`Applied “${t.name}” to ${n} clip${n === 1 ? "" : "s"}`);
     } catch (e) {
-      onError(e instanceof Error ? e.message : "Something went wrong");
+      onError(e instanceof Error ? e.message : "Couldn’t apply to all clips");
     } finally {
-      setReuseBusy(null);
+      setTplBusy(null);
+    }
+  };
+
+  const saveCurrent = async () => {
+    setTplBusy("save");
+    try {
+      await onSaveTemplate(newName.trim() || `My style ${templates.length + 1}`, false);
+      setNewName("");
+      flashTpl("Template saved");
+    } catch (e) {
+      onError(e instanceof Error ? e.message : "Couldn’t save the template");
+    } finally {
+      setTplBusy(null);
+    }
+  };
+
+  const removeTpl = async (t: StyleTemplate) => {
+    setTplBusy(`del:${t.id}`);
+    try {
+      await onDeleteTemplate(t.id);
+    } catch (e) {
+      onError(e instanceof Error ? e.message : "Couldn’t delete the template");
+    } finally {
+      setTplBusy(null);
+    }
+  };
+
+  const toggleDefault = async (t: StyleTemplate) => {
+    setTplBusy(`def:${t.id}`);
+    try {
+      await onSetDefaultTemplate(t.id, defaultTemplateId !== t.id);
+      flashTpl(
+        defaultTemplateId === t.id
+          ? "No longer your default"
+          : `“${t.name}” will start new videos`,
+      );
+    } catch (e) {
+      onError(e instanceof Error ? e.message : "Couldn’t set default");
+    } finally {
+      setTplBusy(null);
     }
   };
 
@@ -261,9 +318,12 @@ export function SubtitlesTab({
         </div>
       </section>
 
-      <div className="border-t border-line" />
+      {/* ───────────── STYLE (appearance) — one clear group: how the captions LOOK ───────────── */}
+      <div className="flex items-center gap-2 border-t border-line pt-4">
+        <span className="text-[11px] font-bold uppercase tracking-wider text-ink">Style</span>
+        <span className="text-[10px] text-muted">how your captions look</span>
+      </div>
 
-      {/* ───────────── STYLE (appearance) ───────────── */}
       <section className="space-y-2">
         <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">Presets</p>
         <PresetStrip activePresetId={activePresetId} onApply={onPresetApply} onError={onError} />
@@ -384,36 +444,116 @@ export function SubtitlesTab({
         </label>
       </section>
 
-      {/* ───────────── REUSE THIS STYLE (style memory) ───────────── */}
-      <section className="space-y-2 border-t border-line pt-4">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">
-          Reuse this style
-        </p>
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+      {/* ───────────── MY TEMPLATES (save a look → reuse on any clip / whole video) ───────────── */}
+      <section className="space-y-2.5 border-t border-line pt-4">
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">
+            My templates
+          </p>
+          {tplMsg && (
+            <span className="truncate text-[10px] font-medium text-accent">{tplMsg}</span>
+          )}
+        </div>
+
+        {templates.length === 0 ? (
+          <p className="text-[11px] leading-snug text-muted">
+            Save the current look as a template, then reuse it on any clip — or apply it to a
+            whole video in one click. Star one to start every new video with it.
+          </p>
+        ) : (
+          <div className="space-y-1.5">
+            {templates.map((t) => {
+              const isDefault = defaultTemplateId === t.id;
+              const swatch = (t.look.style?.color as string) ?? "#ffffff";
+              const hi = (t.look.highlight?.color as string | undefined) ?? null;
+              const busyAll = tplBusy === `all:${t.id}`;
+              return (
+                <div
+                  key={t.id}
+                  className="flex items-center gap-2 rounded-md border border-line bg-surface-2 px-2.5 py-2"
+                >
+                  <span className="flex shrink-0 items-center -space-x-1">
+                    <span
+                      className="size-3.5 rounded-full ring-1 ring-line"
+                      style={{ background: swatch }}
+                    />
+                    {hi && (
+                      <span
+                        className="size-3.5 rounded-full ring-1 ring-line"
+                        style={{ background: hi }}
+                      />
+                    )}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => applyToClip(t)}
+                    disabled={busy}
+                    title="Apply to this clip"
+                    className="min-w-0 flex-1 truncate text-left text-xs font-semibold text-ink transition hover:text-accent disabled:opacity-50"
+                  >
+                    {t.name}
+                    {isDefault && (
+                      <span className="ml-1.5 rounded bg-accent/15 px-1 py-px text-[9px] font-bold uppercase text-accent">
+                        default
+                      </span>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void applyToAll(t)}
+                    disabled={busy || tplBusy !== null}
+                    title="Apply to ALL clips of this video"
+                    className="shrink-0 rounded border border-line px-2 py-1 text-[10px] font-semibold text-muted transition enabled:hover:border-line-strong enabled:hover:text-ink disabled:opacity-50"
+                  >
+                    {busyAll ? "Applying…" : "All clips"}
+                  </button>
+                  <IconButton
+                    size="sm"
+                    tone="accent"
+                    title={isDefault ? "Default for new videos (click to unset)" : "Use for new videos"}
+                    aria-label="Toggle default template"
+                    disabled={tplBusy !== null}
+                    onClick={() => void toggleDefault(t)}
+                  >
+                    <Star className={`size-3.5 ${isDefault ? "fill-current" : ""}`} />
+                  </IconButton>
+                  <IconButton
+                    size="sm"
+                    tone="danger"
+                    title="Delete template"
+                    aria-label="Delete template"
+                    disabled={tplBusy !== null}
+                    onClick={() => void removeTpl(t)}
+                  >
+                    <Trash2 className="size-3.5" />
+                  </IconButton>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        <div className="flex items-center gap-2">
+          <input
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            placeholder="Name this style…"
+            maxLength={60}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void saveCurrent();
+            }}
+            className="min-w-0 flex-1 rounded-md border border-line bg-surface-2 px-2.5 py-1.5 text-xs text-ink outline-none transition focus:border-accent/60"
+          />
           <button
             type="button"
-            disabled={busy || reuseBusy !== null}
-            onClick={() => void runReuse("all")}
-            className="rounded-md border border-line bg-surface-2 px-3 py-2 text-xs font-semibold text-ink transition enabled:hover:border-line-strong enabled:hover:bg-surface-3 disabled:opacity-50"
+            onClick={() => void saveCurrent()}
+            disabled={busy || tplBusy !== null}
+            className="inline-flex shrink-0 items-center gap-1 rounded-md border border-accent/60 bg-accent/10 px-2.5 py-1.5 text-[11px] font-semibold text-accent transition enabled:hover:bg-accent/20 disabled:opacity-50"
           >
-            {reuseBusy === "all" ? "Applying…" : "Apply to all clips"}
-          </button>
-          <button
-            type="button"
-            disabled={busy || reuseBusy !== null}
-            onClick={() => void runReuse("default")}
-            className="rounded-md border border-line bg-surface-2 px-3 py-2 text-xs font-semibold text-ink transition enabled:hover:border-line-strong enabled:hover:bg-surface-3 disabled:opacity-50"
-          >
-            {reuseBusy === "default" ? "Saving…" : "Save as my default"}
+            {tplBusy === "save" ? <Check className="size-3.5" /> : <Plus className="size-3.5" />}
+            Save current
           </button>
         </div>
-        <p className="text-[11px] leading-snug text-muted">
-          {reuseMsg ? (
-            <span className="font-medium text-accent">{reuseMsg}</span>
-          ) : (
-            "Apply this clip’s look to every clip of this video, or save it as the default for your future videos."
-          )}
-        </p>
       </section>
     </div>
   );

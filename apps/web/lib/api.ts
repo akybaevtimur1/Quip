@@ -713,24 +713,53 @@ export async function applyStyleToAll(
   return res.json();
 }
 
-/** The user's saved default look (or null). Future videos start from it instead of preset A. */
-export async function getStylePreference(): Promise<StylePreferencePayload | null> {
-  const res = await fetch(`${BASE}/me/style-preference`, {
+// ── Named style templates: save a look once, reuse on any clip / whole video ──
+export type StyleTemplate = {
+  id: string;
+  name: string;
+  look: StylePreferencePayload;
+};
+export type TemplatesResponse = { templates: StyleTemplate[]; default_id: string | null };
+
+/** The user's saved style templates + which one (if any) seeds new clips of future videos. */
+export async function listTemplates(): Promise<TemplatesResponse> {
+  const res = await fetch(`${BASE}/me/templates`, {
     cache: "no-store",
     headers: { ...(await authHeaders()) },
   });
-  if (!res.ok) throw new Error(`getStylePreference failed: ${res.status}`);
-  const data = (await res.json()) as { preference: StylePreferencePayload | null };
-  return data.preference;
+  if (!res.ok) throw new Error(`listTemplates failed: ${res.status}`);
+  return res.json();
 }
 
-/** Save the current look as the user's default style (cross-video memory). */
-export async function saveStylePreference(payload: StylePreferencePayload): Promise<void> {
-  const res = await fetch(`${BASE}/me/style-preference`, {
-    method: "PUT",
+/** Save the current look as a NAMED template (optionally make it the new-clip default). */
+export async function saveTemplate(
+  payload: StylePreferencePayload & { name: string; set_default?: boolean },
+): Promise<{ template: StyleTemplate; default_id: string | null }> {
+  const res = await fetch(`${BASE}/me/templates`, {
+    method: "POST",
     headers: { "Content-Type": "application/json", ...(await authHeaders()) },
     body: JSON.stringify(payload),
   });
-  if (res.status === 401) throw new Error("Sign in to save a default style");
-  if (!res.ok) throw new Error(`saveStylePreference failed: ${res.status}`);
+  if (res.status === 401) throw new Error("Sign in to save a template");
+  if (!res.ok) throw new Error(`saveTemplate failed: ${res.status}`);
+  return res.json();
+}
+
+/** Delete a saved template. */
+export async function deleteTemplate(templateId: string): Promise<void> {
+  const res = await fetch(`${BASE}/me/templates/${templateId}`, {
+    method: "DELETE",
+    headers: { ...(await authHeaders()) },
+  });
+  if (!res.ok) throw new Error(`deleteTemplate failed: ${res.status}`);
+}
+
+/** Flag (or unflag) a template as the default that seeds new clips of future videos. */
+export async function setDefaultTemplate(templateId: string, isDefault: boolean): Promise<void> {
+  const res = await fetch(`${BASE}/me/templates/${templateId}/default`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...(await authHeaders()) },
+    body: JSON.stringify({ is_default: isDefault }),
+  });
+  if (!res.ok) throw new Error(`setDefaultTemplate failed: ${res.status}`);
 }

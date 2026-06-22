@@ -7,7 +7,11 @@ import {
   type Aspect,
   applyPreset,
   applyStyleToAll,
-  saveStylePreference,
+  listTemplates,
+  saveTemplate,
+  deleteTemplate,
+  setDefaultTemplate,
+  type StyleTemplate,
   type StylePreferencePayload,
   getClipAnalysis,
   getClipAss,
@@ -124,6 +128,9 @@ const HOOK_LOOK_KEYS = [
   "animation",
 ] as const;
 
+// Caption style fields that are POSITION (per-clip, preserved when applying a template look).
+const STYLE_POSITION_KEYS = ["margin_v", "alignment", "pos_x", "pos_y", "wrap_width"];
+
 const CAPTION_SIZE_MIN = 40;
 const CAPTION_SIZE_MAX = 140;
 const HOOK_SIZE_MIN = 36;
@@ -148,6 +155,9 @@ export default function ClipEditorScreen({
   // Narrow-viewport only: the inspector opens as an overlay sheet over the canvas
   // gutter (on lg it's always visible). Opening it must NOT resize the canvas.
   const [inspectorOpen, setInspectorOpen] = useState(false);
+  // Desktop only: expand the inspector into a wide translucent overlay over the video
+  // (founder ask: stretch settings over the preview to keep the whole picture in view).
+  const [inspectorExpanded, setInspectorExpanded] = useState(false);
 
   const [timeline, setTimeline] = useState<TimelineData | null>(null);
   const [clipIds, setClipIds] = useState<string[]>([]);
@@ -159,6 +169,9 @@ export default function ClipEditorScreen({
   }, [clipIds]);
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
   const [activePresetId, setActivePresetId] = useState<string | null>(null);
+  // Style templates (founder's template system): the user's saved looks + which one is default.
+  const [templates, setTemplates] = useState<StyleTemplate[]>([]);
+  const [defaultTemplateId, setDefaultTemplateId] = useState<string | null>(null);
   // reframe-план для честного превью кадра (D2: от эндпоинта /reframe = единый путь рендера;
   // отражает ТЕКУЩИЕ интервалы → не устаревает после сдвига/трима, и работает на облаке)
   const [rawRegions, setRawRegions] = useState<RawRegion[] | null>(null);
@@ -899,18 +912,93 @@ export default function ClipEditorScreen({
     };
   }, [edit]);
 
-  // «Применить ко всем клипам»: flush pending → POST → счётчик. Возвращает число клипов.
-  const handleApplyStyleAll = useCallback(async (): Promise<number> => {
-    await flushPending();
-    const { applied } = await applyStyleToAll(jobId, buildStylePayload());
-    return applied;
-  }, [jobId, buildStylePayload, flushPending]);
+  // Apply a template's LOOK to the CURRENT clip INSTANTLY (optimistic libass + debounced
+  // persist via editCaptions). Per-clip POSITION is preserved (margin_v/alignment/pos_*/
+  // wrap_width never overwritten) — mirrors the backend apply_style_to_edit rule.
+  const applyLookLocal = useCallback(
+    (look: StylePreferencePayload) => {
+      setActivePresetId(null);
+      const styleLook = Object.fromEntries(
+        Object.entries(look.style as Record<string, unknown>).filter(
+          ([k]) => !STYLE_POSITION_KEYS.includes(k),
+        ),
+      ) as Partial<CaptionStyle>;
+      editCaptions((caps) => ({
+        ...caps,
+        style: { ...caps.style, ...styleLook },
+        highlight: look.highlight ? { ...look.highlight } : null,
+        hook:
+          caps.hook && look.hook_style
+            ? { ...caps.hook, ...(look.hook_style as Partial<HookOverlay>) }
+            : caps.hook,
+      }));
+    },
+    [editCaptions],
+  );
 
-  // «Сохранить как мой стиль»: текущий look → per-user дефолт (будущие видео стартуют с него).
-  const handleSaveStyleDefault = useCallback(async (): Promise<void> => {
-    await flushPending();
-    await saveStylePreference(buildStylePayload());
-  }, [buildStylePayload, flushPending]);
+  // Apply a template to THIS clip only (instant).
+  const handleApplyTemplateClip = useCallback(
+    (look: StylePreferencePayload) => applyLookLocal(look),
+    [applyLookLocal],
+  );
+
+  // Apply a template to ALL clips: INSTANT on the current clip, the rest in the BACKGROUND
+  // (so the button doesn't make the user wait for the whole video).
+  const handleApplyTemplateAll = useCallback(
+    async (look: StylePreferencePayload): Promise<number> => {
+      applyLookLocal(look); // instant feedback on the clip you're looking at
+      await flushPending(); // persist the current clip first
+      const { applied } = await applyStyleToAll(jobId, look); // background: the other clips
+      return applied;
+    },
+    [applyLookLocal, flushPending, jobId],
+  );
+
+  // Save the current clip's look as a NAMED template (optionally the new-clip default).
+  const handleSaveTemplate = useCallback(
+    async (name: string, setDefault: boolean): Promise<void> => {
+      await flushPending();
+      const { template, default_id } = await saveTemplate({
+        ...buildStylePayload(),
+        name,
+        set_default: setDefault,
+      });
+      setTemplates((prev) => [template, ...prev.filter((t) => t.id !== template.id)]);
+      setDefaultTemplateId(default_id);
+    },
+    [buildStylePayload, flushPending],
+  );
+
+  const handleDeleteTemplate = useCallback(async (id: string): Promise<void> => {
+    await deleteTemplate(id);
+    setTemplates((prev) => prev.filter((t) => t.id !== id));
+    setDefaultTemplateId((d) => (d === id ? null : d));
+  }, []);
+
+  const handleSetDefaultTemplate = useCallback(
+    async (id: string, isDef: boolean): Promise<void> => {
+      await setDefaultTemplate(id, isDef);
+      setDefaultTemplateId(isDef ? id : null);
+    },
+    [],
+  );
+
+  // Load the user's saved templates once (best-effort: no templates / guest → empty list).
+  useEffect(() => {
+    let cancelled = false;
+    listTemplates()
+      .then((r) => {
+        if (cancelled) return;
+        setTemplates(r.templates);
+        setDefaultTemplateId(r.default_id);
+      })
+      .catch((e) => {
+        if (!cancelled) console.warn("[editor] templates load failed:", e);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // ── W4: перегенерация хука под текущий интервал (узкий Gemini-вызов, явный opt-in) ──
   // В ТОЙ ЖЕ очереди мутаций (свежая версия). Меняет только hook.text; стиль не трогает.
@@ -1374,8 +1462,13 @@ export default function ClipEditorScreen({
           onError={setError}
           onStyleChange={handleStyleChange}
           onHighlightChange={handleHighlightChange}
-          onApplyAll={handleApplyStyleAll}
-          onSaveDefault={handleSaveStyleDefault}
+          templates={templates}
+          defaultTemplateId={defaultTemplateId}
+          onApplyTemplateClip={handleApplyTemplateClip}
+          onApplyTemplateAll={handleApplyTemplateAll}
+          onSaveTemplate={handleSaveTemplate}
+          onDeleteTemplate={handleDeleteTemplate}
+          onSetDefaultTemplate={handleSetDefaultTemplate}
         />
       )}
       {tab === "hook" && (
@@ -1606,7 +1699,13 @@ export default function ClipEditorScreen({
           {/* ── ПРАВО: контекстный inspector. На lg всегда виден; на узком — overlay-шит
               поверх gutter'а (canvas НЕ ужимается). ── */}
           <div className="hidden lg:flex lg:min-h-0">
-            <Inspector active={tab}>{activePanel}</Inspector>
+            <Inspector
+              active={tab}
+              expanded={inspectorExpanded}
+              onToggleExpand={() => setInspectorExpanded((v) => !v)}
+            >
+              {activePanel}
+            </Inspector>
           </div>
 
           {/* narrow viewport: inspector как overlay-шит (canvas позади не ужимается) */}
