@@ -13,9 +13,18 @@ const STEPS: { key: JobStatus; label: string }[] = [
   { key: "rendering", label: "Rendering" },
 ];
 
+const STAGE_HINT: Partial<Record<JobStatus, string>> = {
+  queued: "Warming up the engine…",
+  downloading: "Getting your video ready…",
+  transcribing: "Listening to every word…",
+  selecting: "Finding the moments worth posting…",
+  rendering: "Cutting your vertical clips…",
+};
+
 export function JobProgress({
   status,
   elapsed,
+  progress = null,
   cancellable = false,
   onStop,
   sourceMinutes = null,
@@ -24,6 +33,8 @@ export function JobProgress({
 }: {
   status: JobStatus;
   elapsed: number;
+  // Серверный прогресс 0–100 (от воркера) → настоящий прогресс-бар, не только степпер.
+  progress?: number | null;
   // Stop-кнопка: показываем ТОЛЬКО когда воркер сообщил cancellable (FREE-фаза до транскрипции).
   cancellable?: boolean;
   onStop?: () => void;
@@ -39,9 +50,14 @@ export function JobProgress({
   // double-click can't fire two cancels.
   const [stopping, setStopping] = useState(false);
 
+  // Прогресс-бар: серверный progress, с полом по стадии чтобы бар никогда не выглядел
+  // застрявшим на 0, и не дёргался назад (берём максимум из server и стадийного пола).
+  const stageFloor = [0, 8, 35, 60, 80, 100][Math.min(cur, 5)] ?? 8;
+  const pct = Math.min(99, Math.max(progress ?? 0, stageFloor));
+
   return (
     <div className="w-full max-w-3xl">
-      <div className="mb-6 flex items-baseline justify-between gap-4">
+      <div className="mb-4 flex items-baseline justify-between gap-4">
         <h2 className="font-display text-2xl font-bold">Cutting your video…</h2>
         <div className="flex items-center gap-3">
           <span className="font-mono text-sm text-muted" aria-live="polite">
@@ -62,6 +78,24 @@ export function JobProgress({
             </button>
           )}
         </div>
+      </div>
+
+      {/* прогресс-бар (серверный %) + текущая стадия + успокаивающая подсказка */}
+      <div className="mb-6">
+        <div className="mb-1.5 flex items-baseline justify-between gap-3 text-sm">
+          <span className="font-medium text-ink">{STAGE_HINT[status] ?? "Working…"}</span>
+          <span className="font-mono text-xs text-muted">{Math.round(pct)}%</span>
+        </div>
+        <div className="h-2 overflow-hidden rounded-full bg-surface-2">
+          <div
+            className="h-full rounded-full bg-accent transition-[width] duration-700 ease-out"
+            style={{ width: `${Math.max(4, pct)}%` }}
+          />
+        </div>
+        <p className="mt-2 text-xs text-faint">
+          You can close this tab — processing keeps running, and your clips will be waiting in
+          Recent projects.
+        </p>
       </div>
 
       <ol className="flex flex-col gap-3">

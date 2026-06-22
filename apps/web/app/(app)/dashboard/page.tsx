@@ -14,7 +14,12 @@ import { ErrorPanel } from "@/components/ErrorPanel";
 import { JobProgress } from "@/components/JobProgress";
 import { SourceForm } from "@/components/SourceForm";
 import { cancelJob, createJob, createUploadJob } from "@/lib/api";
-import { addRecentProject } from "@/lib/recent";
+import {
+  addRecentProject,
+  type JobStatusLite,
+  markReviewed,
+  updateRecentProject,
+} from "@/lib/recent";
 import { useJob } from "@/lib/useJob";
 
 /** Friendly label for the recent-projects list (no PII, just a hint). */
@@ -86,6 +91,19 @@ function DashboardInner() {
     if (jobParam) start(jobParam);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jobParam]);
+
+  // Keep the recent-projects entry in sync with the live job: cache the latest status +
+  // clip count (so the list shows "Processing… / Ready · N clips" instantly), and mark the
+  // job reviewed once its results are on screen (clears the "New" badge). updateRecentProject
+  // is a no-op when nothing changed, so this is cheap.
+  useEffect(() => {
+    if (!job) return;
+    updateRecentProject(job.id, {
+      status: job.status as JobStatusLite,
+      nclips: job.clips?.length || undefined,
+    });
+    if (job.status === "done") markReviewed(job.id);
+  }, [job?.id, job?.status, job?.clips?.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handleSubmit(url: string, maxClips: number) {
     if (submitting) return; // guard: не плодим параллельные джобы двойным сабмитом
@@ -244,6 +262,7 @@ function DashboardInner() {
               <JobProgress
                 status={job?.status ?? "queued"}
                 elapsed={elapsed}
+                progress={job?.progress ?? null}
                 cancellable={job?.cancellable ?? false}
                 onStop={handleStop}
                 sourceMinutes={job?.source_minutes ?? null}
