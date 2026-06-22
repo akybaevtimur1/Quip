@@ -18,11 +18,15 @@
 **Pending tasks (do these as they unblock):**
 1. **⚠️⚠️ Merge `editor-snapping` → `main` THE MOMENT GitHub is unsuspended** — otherwise the next
    push-to-`main` Vercel build rebuilds from OLD code and **REVERTS all of this session's commits**
-   (11 on the branch; prod is currently running CLI deploys of `editor-snapping`, not `main`).
-2. ✅ **DONE — "Shots" tab DEPLOYED** (2026-06-22, Vercel CLI). Per-shot framing got its own rail tab
-   (commit `7c4508f`) **plus** a manual time-slice fallback (`0132d72`) so the strip is usable even when
-   the heavy `/reframe` CV endpoint is cold/errors (it was returning `null` → dead "Framing follows AI"
-   placeholder with zero control). Live on quip.ink.
+   (**~20 on the branch** now; prod is running CLI deploys of `editor-snapping`, not `main`).
+2. ✅ **DONE — BIG EDITOR SWEEP (7 domains) DEPLOYED** (2026-06-22, Vercel CLI + Modal). Commits
+   `7dc4f5b…fcba7f2`. Full detail → `docs/JOURNAL.md` (top "БОЛЬШОЙ СВИП РЕДАКТОРА" entry). Summary:
+   D3 timeline live-seek/playhead/rich tooltip · D1 real shot cuts + **persisted shot boundaries**
+   (migration **0013** `job_artifacts.reframe_regions`) · D2 tabs 6→4 (Agent/Subtitles/Hook/Frame) ·
+   D4 agent +9 tools (montage/style/frame) + full clip context · D6 VideoMap value reframing ·
+   D7 dashboard live status/progress/reviewed · D5 style memory (migration **0014**
+   `profiles.style_preferences`: apply-to-all-clips + per-user default). Migrations 0013/0014 applied.
+   The earlier standalone "Shots" tab (`7c4508f`/`0132d72`) is subsumed by D1+D2.
 3. **Set the Modal `LLM_MODEL` secret to `gemini-2.5-flash`** (belt-and-suspenders for the Gemini-3
    cost guard — the `config.pin_llm_model` validator already coerces it, but fix the secret too).
 4. **Wire the demo `<video>` into the landing hero** — assets ready in `apps/web/public/demo/`
@@ -112,10 +116,12 @@
   транскод source→720p) снят с критического пути — отдельная `preview_job` строит его ПАРАЛЛЕЛЬНО
   с клипами (редактор фолбэчит на source, пока не готов). Локально (dev) — старый цикл + inline
   preview. Не трогает stage3/stage5 (инвариант кадровой сетки цел). См. JOURNAL 2026-06-17.
-- **State:** Supabase Postgres project **`qiagetbnsssvbiowuxpp`**, migrations **0001–0012 applied**
+- **State:** Supabase Postgres project **`qiagetbnsssvbiowuxpp`**, migrations **0001–0014 applied**
   (0009 = RLS на agent_runs; 0010 = RPC `set_clip_video_url` для incremental-выдачи клипов;
   0011 = `jobs.source_minutes/transcript_words/moments_found` для live-narration счётчиков;
-  0012 = `job_artifacts.preview_moments` для co-watch-маркеров)
+  0012 = `job_artifacts.preview_moments` для co-watch-маркеров;
+  0013 = `job_artifacts.reframe_regions` + RPC `merge_reframe_regions` (персист реальных границ шотов);
+  0014 = `profiles.style_preferences` (per-user дефолтный стиль субтитров/хука))
   (billing, credits, usage-idempotency, feedback, promo codes, job-cancel, agent-runs, **video-map**). Clips in **Cloudflare R2**
   (`cdn.quip.ink`).
 - **Billing is ON** (`BILLING_ENABLED`). Payments via **Polar** (NOT Lemon Squeezy). Webhook live

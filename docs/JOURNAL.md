@@ -4,6 +4,42 @@
 > «как и почему так сделано». Актуальное состояние проекта = docs/README.md. Правила = CLAUDE.md.
 > Новые заметные решения дописывай СЮДА (не в CLAUDE.md).
 
+### 2026-06-22 — 🎯 БОЛЬШОЙ СВИП РЕДАКТОРА: 7 доменов (коммиты 7dc4f5b…fcba7f2) — ЗАДЕПЛОЕНО
+Семь продуктовых направлений по фидбэку фаундера, оркестрация параллельными саб-агентами (форками),
+все через зелёный `just check`, задеплоено в обход GitHub (Vercel CLI + Modal CLI). Ветка
+`editor-snapping`.
+- **Д3 — нижний таймлайн (`TimelineV2`/`ClipEditorScreen`):** live-seek как в CapCut (превью сикается
+  на границу клипа во время драга/ресайза, `onScrub`+rAF-троттл, без round-trip), реальный плейхед по
+  `nowSec`, богатый тултип момента (тип + «% match» + хук + «почему сработает» + CTA «перенести клип
+  сюда»). Бэк: `TimelineSegment` += `hook`/`why_works` (`models.py`/`editor/timeline.py`, codegen).
+- **Д1 — пер-шот кадрирование:** фронт — `FitTimeline` показывает РЕАЛЬНЫЕ шоты (не равные куски),
+  номера/режимы/подсветка активного, честные состояния `ai`/`manual`/`loading` (фейк-фолбэк больше не
+  маскируется под шоты). Бэк — персист реальных границ сцен (миграция **0013** `job_artifacts.reframe_regions`
+  + merge-RPC): `/reframe` для дефолтного интервала отдаёт их мгновенно (без тяжёлого CV), 503 вместо
+  немого 500. Инвариант кадровой сетки Δ=0 цел.
+- **Д2 — табы 6→4 (Agent/Subtitles/Hook/Frame):** `Captions`+`Style` слиты в `SubtitlesTab` (текст
+  сверху, стиль снизу), `Shots` ушёл внутрь `Frame`. Убрана путаница «Style vs Hook». (Фикс вёрстки:
+  `SubtitlesTab` не должен дублировать flex-1/min-h-0 скролл — `Inspector` уже скроллит → иначе пресеты
+  наезжали на список реплик.)
+- **Д4 — супер-агент (`agent/tools.py`, `clip_agent.py`, промпт):** +9 тулзов — монтаж (`trim_words`/
+  `add_section`/`extend_edge`), стиль (`set_caption_style`/`set_hook_style`/`apply_preset`/`list_presets`),
+  кадр (`set_crop`/`set_aspect`); `get_clip_state` теперь видит стиль/хук/aspect/burn + слова с глоб.
+  индексами. Фронт менять не пришлось (`AgentTab` рендерит действия дженерик). models.py не тронут.
+- **Д6 — VideoMap:** ценностный посыл («Video map — why these clips are worth it» + «N chapters · M key
+  moments · K clips cut from them»), врезка «мы прочитали ВСЁ видео…», счётчики моментов/клипов в главах,
+  ETA в pending.
+- **Д7 — процессинг/дашборд:** живые статусы в `RecentProjects` (poll getJob, StatusBadge:
+  Processing→New·N clips→✓), прогресс-бар в `JobProgress`, reassurance «можно закрыть таб», флаг
+  `reviewed` (готово-но-не-проверено). Долговечность джобы (Modal+Postgres) уже была — сделали видимой.
+- **Д5 — память настроек (миграция 0014 `profiles.style_preferences`, `editor/style_prefs.py`):** три
+  уровня стиля — на клип (было) → на видео («Apply to all clips», `/jobs/{id}/apply-style-all`) → на все
+  будущие видео («Save as my default», `/me/style-preference` → `ensure_edit` сидит новый клип стилем
+  юзера вместо `preset_a`). models.py не тронут.
+- **Оркестрация:** домены с общим центральным файлом (`ClipEditorScreen`) делались последовательно;
+  изолированные — параллельными форками с РАЗДЕЛЕНИЕМ ПО ГЕЙТАМ (worker mypy/pytest ‖ web tsc — не
+  мешают; два web-форка — мешают). Коммиты сериализованы (pre-commit `just check` глобален). Миграции
+  0013/0014 применены на прод ДО деплоя воркера.
+
 ### 2026-06-22 — ⚠️ ДЕПЛОЙ В ОБХОД GITHUB (аккаунт `Varenik-vkusny` ЗАБАНЕН) + `.vercelignore`
 **Большая инфра-реальность сессии.** GitHub-аккаунт `Varenik-vkusny` **SUSPENDED** → `git push`
 возвращает **403** → штатный флоу (push в `main` → авто-деплой Vercel) **МЁРТВ**. Фаундер написал в
