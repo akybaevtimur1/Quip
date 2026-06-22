@@ -3,9 +3,11 @@ import { isSupabaseConfigured } from "./supabase/config";
 import type {
   AgentRun,
   CaptionPreset,
+  CaptionStyle,
   CaptionTrack,
   ChaptersData,
   ClipEdit,
+  HighlightStyle,
   Job,
   TimelineData,
   VideoMap,
@@ -687,4 +689,48 @@ export async function applyPreset(
   if (res.status === 409) throw new Error("Edit conflict — reload and retry");
   if (!res.ok) throw new Error(`applyPreset failed: ${res.status}`);
   return res.json();
+}
+
+// ── Style memory (domain 5): apply a look to all clips + per-user default style ──
+export type StylePreferencePayload = {
+  style: CaptionStyle;
+  highlight: HighlightStyle | null;
+  hook_style: Record<string, unknown> | null;
+};
+
+/** Apply the given look (caption style + highlight + hook style) to EVERY clip of the job. */
+export async function applyStyleToAll(
+  jobId: string,
+  payload: StylePreferencePayload,
+): Promise<{ applied: number; total: number }> {
+  const res = await fetch(`${BASE}/jobs/${jobId}/apply-style-all`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(await authHeaders()) },
+    body: JSON.stringify(payload),
+  });
+  if (res.status === 403) throw new Error("This isn’t your project");
+  if (!res.ok) throw new Error(`applyStyleToAll failed: ${res.status}`);
+  return res.json();
+}
+
+/** The user's saved default look (or null). Future videos start from it instead of preset A. */
+export async function getStylePreference(): Promise<StylePreferencePayload | null> {
+  const res = await fetch(`${BASE}/me/style-preference`, {
+    cache: "no-store",
+    headers: { ...(await authHeaders()) },
+  });
+  if (!res.ok) throw new Error(`getStylePreference failed: ${res.status}`);
+  const data = (await res.json()) as { preference: StylePreferencePayload | null };
+  return data.preference;
+}
+
+/** Save the current look as the user's default style (cross-video memory). */
+export async function saveStylePreference(payload: StylePreferencePayload): Promise<void> {
+  const res = await fetch(`${BASE}/me/style-preference`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...(await authHeaders()) },
+    body: JSON.stringify(payload),
+  });
+  if (res.status === 401) throw new Error("Sign in to save a default style");
+  if (!res.ok) throw new Error(`saveStylePreference failed: ${res.status}`);
 }

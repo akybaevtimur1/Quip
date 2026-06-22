@@ -6,6 +6,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   type Aspect,
   applyPreset,
+  applyStyleToAll,
+  saveStylePreference,
+  type StylePreferencePayload,
   getClipAnalysis,
   getClipAss,
   getClipEdit,
@@ -106,6 +109,21 @@ function cxAt(points: { t: number; cx: number | null }[] | undefined, clipT: num
 
 // Caption/hook font-size bounds (ASS units) — mirror the StyleTab/HookTab "Size" sliders.
 // Module-level so the caption auto-fit (refitCaption) can reference them without TDZ/deps churn.
+// Hook "look" fields copied by style memory (mirror backend HOOK_LOOK_FIELDS) — module-level
+// so it's a stable reference (not a hook dependency).
+const HOOK_LOOK_KEYS = [
+  "font",
+  "size",
+  "color",
+  "outline_color",
+  "outline_w",
+  "shadow",
+  "box_color",
+  "box_opacity",
+  "uppercase",
+  "animation",
+] as const;
+
 const CAPTION_SIZE_MIN = 40;
 const CAPTION_SIZE_MAX = 140;
 const HOOK_SIZE_MIN = 36;
@@ -863,6 +881,37 @@ export default function ClipEditorScreen({
     [jobId, clipId, refreshAss, failOr409, flushPending],
   );
 
+  // ── Style memory (домен 5): собрать «look» текущего клипа (стиль + караоке + стиль хука) ──
+  // Только ВИД, не текст/тайминг/позиция хука — бэкенд их сохраняет на каждом клипе.
+  const buildStylePayload = useCallback((): StylePreferencePayload => {
+    const cur = editRef.current ?? edit;
+    const caps = cur?.captions;
+    const hook = caps?.hook ?? null;
+    const hook_style = hook
+      ? Object.fromEntries(
+          HOOK_LOOK_KEYS.map((k) => [k, (hook as Record<string, unknown>)[k]]),
+        )
+      : null;
+    return {
+      style: caps?.style as StylePreferencePayload["style"],
+      highlight: (caps?.highlight ?? null) as StylePreferencePayload["highlight"],
+      hook_style,
+    };
+  }, [edit]);
+
+  // «Применить ко всем клипам»: flush pending → POST → счётчик. Возвращает число клипов.
+  const handleApplyStyleAll = useCallback(async (): Promise<number> => {
+    await flushPending();
+    const { applied } = await applyStyleToAll(jobId, buildStylePayload());
+    return applied;
+  }, [jobId, buildStylePayload, flushPending]);
+
+  // «Сохранить как мой стиль»: текущий look → per-user дефолт (будущие видео стартуют с него).
+  const handleSaveStyleDefault = useCallback(async (): Promise<void> => {
+    await flushPending();
+    await saveStylePreference(buildStylePayload());
+  }, [buildStylePayload, flushPending]);
+
   // ── W4: перегенерация хука под текущий интервал (узкий Gemini-вызов, явный opt-in) ──
   // В ТОЙ ЖЕ очереди мутаций (свежая версия). Меняет только hook.text; стиль не трогает.
   const [regeneratingHook, setRegeneratingHook] = useState(false);
@@ -1325,6 +1374,8 @@ export default function ClipEditorScreen({
           onError={setError}
           onStyleChange={handleStyleChange}
           onHighlightChange={handleHighlightChange}
+          onApplyAll={handleApplyStyleAll}
+          onSaveDefault={handleSaveStyleDefault}
         />
       )}
       {tab === "hook" && (

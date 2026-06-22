@@ -52,6 +52,8 @@ export function SubtitlesTab({
   onError,
   onStyleChange,
   onHighlightChange,
+  onApplyAll,
+  onSaveDefault,
 }: {
   words: Word[];
   replies: CaptionReply[];
@@ -68,11 +70,37 @@ export function SubtitlesTab({
   onError: (msg: string) => void;
   onStyleChange: (patch: Partial<CaptionStyle>) => void;
   onHighlightChange: (patch: Partial<HighlightStyle> | null) => void;
+  /** Apply this clip's look to every clip of the video → returns how many were updated. */
+  onApplyAll: () => Promise<number>;
+  /** Save this look as the user's default → future videos start from it. */
+  onSaveDefault: () => Promise<void>;
 }) {
   const [editing, setEditing] = useState<number | null>(null);
   const [draft, setDraft] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const activeRef = useRef<HTMLDivElement>(null);
+  // Style-memory buttons: own busy + transient confirmation (no global busy → other controls stay live).
+  const [reuseBusy, setReuseBusy] = useState<"all" | "default" | null>(null);
+  const [reuseMsg, setReuseMsg] = useState<string | null>(null);
+
+  const runReuse = async (kind: "all" | "default") => {
+    setReuseBusy(kind);
+    setReuseMsg(null);
+    try {
+      if (kind === "all") {
+        const n = await onApplyAll();
+        setReuseMsg(`Applied to ${n} clip${n === 1 ? "" : "s"}`);
+      } else {
+        await onSaveDefault();
+        setReuseMsg("Saved — new videos will start with this style");
+      }
+      setTimeout(() => setReuseMsg(null), 3500);
+    } catch (e) {
+      onError(e instanceof Error ? e.message : "Something went wrong");
+    } finally {
+      setReuseBusy(null);
+    }
+  };
 
   const st = edit.captions.style;
   const hl = edit.captions.highlight ?? null;
@@ -354,6 +382,38 @@ export function SubtitlesTab({
             <option value="off">Highlight off</option>
           </Select>
         </label>
+      </section>
+
+      {/* ───────────── REUSE THIS STYLE (style memory) ───────────── */}
+      <section className="space-y-2 border-t border-line pt-4">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">
+          Reuse this style
+        </p>
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <button
+            type="button"
+            disabled={busy || reuseBusy !== null}
+            onClick={() => void runReuse("all")}
+            className="rounded-md border border-line bg-surface-2 px-3 py-2 text-xs font-semibold text-ink transition enabled:hover:border-line-strong enabled:hover:bg-surface-3 disabled:opacity-50"
+          >
+            {reuseBusy === "all" ? "Applying…" : "Apply to all clips"}
+          </button>
+          <button
+            type="button"
+            disabled={busy || reuseBusy !== null}
+            onClick={() => void runReuse("default")}
+            className="rounded-md border border-line bg-surface-2 px-3 py-2 text-xs font-semibold text-ink transition enabled:hover:border-line-strong enabled:hover:bg-surface-3 disabled:opacity-50"
+          >
+            {reuseBusy === "default" ? "Saving…" : "Save as my default"}
+          </button>
+        </div>
+        <p className="text-[11px] leading-snug text-muted">
+          {reuseMsg ? (
+            <span className="font-medium text-accent">{reuseMsg}</span>
+          ) : (
+            "Apply this clip’s look to every clip of this video, or save it as the default for your future videos."
+          )}
+        </p>
       </section>
     </div>
   );
