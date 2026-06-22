@@ -41,10 +41,11 @@ class TestWordsInWindow:
         assert "w20" in texts
         assert "w21" not in texts  # w21 = [21, 21.8] — целиком вне (start > 20)
 
-    def test_word_shape_text_start_end_rounded(self) -> None:
-        words = [Word(text="hi", start=1.23456, end=2.98765)]
-        got = words_in_window(words, 0.0, 5.0, max_words=400)
-        assert got == [{"text": "hi", "start": 1.23, "end": 2.99}]
+    def test_word_shape_includes_global_index(self) -> None:
+        words = [Word(text="a", start=0.0, end=0.5), Word(text="hi", start=1.23456, end=2.98765)]
+        got = words_in_window(words, 1.0, 5.0, max_words=400)
+        # `i` = global index in the passed list (here 1 for "hi"); needed by trim_words.
+        assert got == [{"i": 1, "text": "hi", "start": 1.23, "end": 2.99}]
 
     def test_max_words_cap_respected(self) -> None:
         words = self._words(100)
@@ -306,3 +307,147 @@ def test_get_video_map_narrative_truncated(monkeypatch, tmp_path):
     r = apply_tool("get_video_map", {}, job_id=job, clip_id="clip_01")
     assert r["ok"] is True
     assert len(r["narrative"]) <= 601  # 600 chars + ellipsis
+
+
+# ─────────────────────── domain 4: superman agent — new tools ───────────────────────
+
+
+def test_get_clip_state_extended_context(monkeypatch, tmp_path):
+    """get_clip_state now exposes style/hook_style/aspect/intervals/words-with-index."""
+    job = _setup(monkeypatch, tmp_path)
+    r = apply_tool("get_clip_state", {}, job_id=job, clip_id="clip_01")
+    assert r["aspect"] == "9:16"
+    assert r["source_intervals"] == [[0.0, 50.0]]
+    assert "font" in r["caption_style"] and "size" in r["caption_style"]
+    # words carry global transcript indices for trim_words
+    assert isinstance(r["words"], list) and r["words"]
+    assert r["words"][0]["i"] == 0 and r["words"][0]["text"] == "w0"
+    # captions_burned default True; hook absent here
+    assert r["captions_burned"] is True
+    assert r["hook"] is None and r["hook_style"] is None
+
+
+def test_trim_words_cuts_span(monkeypatch, tmp_path):
+    job = _setup(monkeypatch, tmp_path)  # clip [0,50], words w0..w49 inside
+    r = apply_tool("trim_words", {"word_indices": [10, 11, 12]}, job_id=job, clip_id="clip_01")
+    assert r["ok"] is True
+    state = apply_tool("get_clip_state", {}, job_id=job, clip_id="clip_01")
+    # a hole was punched → clip is now two source intervals
+    assert len(state["source_intervals"]) == 2
+
+
+def test_trim_words_out_of_range_errors(monkeypatch, tmp_path):
+    job = _setup(monkeypatch, tmp_path)
+    r = apply_tool("trim_words", {"word_indices": [9999]}, job_id=job, clip_id="clip_01")
+    assert "error" in r
+
+
+def test_trim_words_empty_errors(monkeypatch, tmp_path):
+    job = _setup(monkeypatch, tmp_path)
+    r = apply_tool("trim_words", {"word_indices": []}, job_id=job, clip_id="clip_01")
+    assert "error" in r
+
+
+def test_extend_edge_sets_exact_end(monkeypatch, tmp_path):
+    job = _setup(monkeypatch, tmp_path)
+    r = apply_tool(
+        "extend_edge", {"edge": "end", "new_value_sec": 40.0}, job_id=job, clip_id="clip_01"
+    )
+    assert r["ok"] is True
+    assert apply_tool("get_clip_state", {}, job_id=job, clip_id="clip_01")["interval"] == [
+        0.0,
+        40.0,
+    ]
+
+
+def test_add_section_appends_interval(monkeypatch, tmp_path):
+    job = _setup(monkeypatch, tmp_path)  # clip [0,50], source 120
+    r = apply_tool(
+        "add_section", {"source_start": 60.0, "source_end": 70.0}, job_id=job, clip_id="clip_01"
+    )
+    assert r["ok"] is True
+    assert (
+        len(apply_tool("get_clip_state", {}, job_id=job, clip_id="clip_01")["source_intervals"])
+        == 2
+    )
+
+
+def test_add_section_overlap_errors(monkeypatch, tmp_path):
+    job = _setup(monkeypatch, tmp_path)
+    r = apply_tool(
+        "add_section", {"source_start": 10.0, "source_end": 20.0}, job_id=job, clip_id="clip_01"
+    )
+    assert "error" in r  # overlaps existing [0,50]
+
+
+def test_set_caption_style_partial_merge(monkeypatch, tmp_path):
+    job = _setup(monkeypatch, tmp_path)
+    r = apply_tool(
+        "set_caption_style",
+        {"font": "Anton", "size": 120, "uppercase": False},
+        job_id=job,
+        clip_id="clip_01",
+    )
+    assert r["ok"] is True
+    st = apply_tool("get_clip_state", {}, job_id=job, clip_id="clip_01")["caption_style"]
+    assert st["font"] == "Anton" and st["size"] == 120 and st["uppercase"] is False
+    assert st["color"] == "#FFFFFF"  # untouched field keeps its value
+
+
+def test_set_caption_style_invalid_enum_errors(monkeypatch, tmp_path):
+    job = _setup(monkeypatch, tmp_path)
+    r = apply_tool(
+        "set_caption_style", {"highlight_animation": "nonsense"}, job_id=job, clip_id="clip_01"
+    )
+    assert "error" in r
+
+
+def test_set_caption_style_highlight_off(monkeypatch, tmp_path):
+    job = _setup(monkeypatch, tmp_path)
+    # first enable a karaoke animation, then turn highlight off
+    apply_tool("set_caption_style", {"highlight_animation": "pop"}, job_id=job, clip_id="clip_01")
+    assert apply_tool("get_clip_state", {}, job_id=job, clip_id="clip_01")["highlight"] is not None
+    r = apply_tool("set_caption_style", {"highlight_off": True}, job_id=job, clip_id="clip_01")
+    assert r["ok"] is True
+    assert apply_tool("get_clip_state", {}, job_id=job, clip_id="clip_01")["highlight"] is None
+
+
+def test_list_and_apply_preset(monkeypatch, tmp_path):
+    job = _setup(monkeypatch, tmp_path)
+    lst = apply_tool("list_presets", {}, job_id=job, clip_id="clip_01")
+    assert lst["ok"] is True and len(lst["presets"]) > 0
+    pid = lst["presets"][0]["id"]
+    r = apply_tool("apply_preset", {"preset_id": pid}, job_id=job, clip_id="clip_01")
+    assert r["ok"] is True
+    bad = apply_tool("apply_preset", {"preset_id": "no_such_preset"}, job_id=job, clip_id="clip_01")
+    assert "error" in bad
+
+
+def test_set_aspect(monkeypatch, tmp_path):
+    job = _setup(monkeypatch, tmp_path)
+    r = apply_tool("set_aspect", {"aspect": "1:1"}, job_id=job, clip_id="clip_01")
+    assert r["ok"] is True
+    assert apply_tool("get_clip_state", {}, job_id=job, clip_id="clip_01")["aspect"] == "1:1"
+    assert "error" in apply_tool("set_aspect", {"aspect": "3:2"}, job_id=job, clip_id="clip_01")
+
+
+def test_set_hook_style_requires_hook_then_applies(monkeypatch, tmp_path):
+    job = _setup(monkeypatch, tmp_path)  # no hook by default
+    assert "error" in apply_tool("set_hook_style", {"size": 80}, job_id=job, clip_id="clip_01")
+    apply_tool("set_hook_text", {"text": "Хук"}, job_id=job, clip_id="clip_01")
+    r = apply_tool(
+        "set_hook_style", {"size": 80, "animation": "pop"}, job_id=job, clip_id="clip_01"
+    )
+    assert r["ok"] is True
+    hs = apply_tool("get_clip_state", {}, job_id=job, clip_id="clip_01")["hook_style"]
+    assert hs["size"] == 80 and hs["animation"] == "pop"
+
+
+def test_set_crop_force_and_auto(monkeypatch, tmp_path):
+    job = _setup(monkeypatch, tmp_path)
+    r = apply_tool("set_crop", {"mode": "fill", "center": 0.4}, job_id=job, clip_id="clip_01")
+    assert r["ok"] is True and "Tight" in r["summary"]
+    # auto clears
+    r2 = apply_tool("set_crop", {"mode": "auto"}, job_id=job, clip_id="clip_01")
+    assert r2["ok"] is True
+    assert "error" in apply_tool("set_crop", {"mode": "bogus"}, job_id=job, clip_id="clip_01")

@@ -45,16 +45,24 @@ def _model_chain(
 
 
 DEFAULT_AGENT_PROMPT = """\
-You are Quip's in-editor clip assistant. You refine ONE short clip by calling tools that change its
-timing (set_interval/nudge_interval) or its on-screen hook (regenerate_hook/set_hook_text), then
-call request_render. You CANNOT change subtitles or framing (say so if asked). You are NOT a general
-chatbot — decline anything unrelated to this clip in one sentence. Be concise; give one short
-sentence of reasoning before each tool call.
-LANGUAGE: talk to the user in the USER's language. But on-screen text (the hook) MUST be written in
-the clip's TRANSCRIPTION language (the `language` in the context), NOT the chat language — if the
-user dictates exact hook words in another language, translate their wording into the transcription
-language before calling set_hook_text. The video is in that language; a hook in another language
-looks broken.
+You are Quip's in-editor clip assistant — a near-full editor for ONE short clip. You can do almost
+anything to it by calling tools:
+- TIMING / MONTAGE: set_interval, nudge_interval, extend_edge, trim_words (cut filler/slow words),
+  add_section (splice in another part of the source).
+- HOOK: regenerate_hook, set_hook_text (the words), set_hook_style (font/size/color/box/animation).
+- SUBTITLES: set_caption_style (font/size/color/outline/position/uppercase/karaoke animation),
+  apply_preset (a complete look — list_presets to see ids).
+- FRAMING: set_crop (force Tight/Wide/Split/Auto on a range), set_aspect (9:16/1:1/4:5/16:9).
+Then call request_render so the user gets the updated file.
+Ground your edits in reality FIRST: call get_clip_state (current interval, transcript with word
+indices, current caption/hook STYLE, aspect) and, when the request is about the whole video or where
+this clip sits, get_video_map. Don't guess current values — read them. Be concise; give one short
+sentence of reasoning before each tool call. You are NOT a general chatbot — decline anything
+unrelated to editing this clip in one sentence.
+LANGUAGE: talk to the user in the USER's language. But on-screen text (the hook, caption text) MUST
+be in the clip's TRANSCRIPTION language (the `language` in the context), NOT the chat language — if
+the user dictates exact words in another language, translate them into the transcription language
+first. The video is in that language; on-screen text in another language looks broken.
 """
 
 # Gemini function declarations (схема тулзов). Имена ⇄ app.agent.tools._DISPATCH.
@@ -128,6 +136,157 @@ _FN_DECLS: list[dict[str, Any]] = [
             "type": "object",
             "properties": {"text": {"type": "string"}},
             "required": ["text"],
+        },
+    },
+    {
+        "name": "trim_words",
+        "description": "Cut a span of words OUT of the clip (e.g. remove a filler phrase or a slow "
+        "stretch). word_indices are GLOBAL transcript indices — read them from get_clip_state "
+        "'words' (or get_surrounding_transcript 'words', each has an 'i'). The span from the first "
+        "to the last index is removed.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "word_indices": {"type": "array", "items": {"type": "integer"}},
+            },
+            "required": ["word_indices"],
+        },
+    },
+    {
+        "name": "add_section",
+        "description": "Splice in a non-contiguous chunk of the SOURCE video (montage) at "
+        "[source_start, source_end] seconds. Optional at_index = position in the clip's interval "
+        "list (default: append at the end). Must not overlap an existing part of the clip.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "source_start": {"type": "number"},
+                "source_end": {"type": "number"},
+                "at_index": {"type": "integer"},
+            },
+            "required": ["source_start", "source_end"],
+        },
+    },
+    {
+        "name": "extend_edge",
+        "description": "Set the clip's start or end edge to an EXACT source-second value (grow or "
+        "shrink). Unlike set_interval it keeps multi-part (trimmed/montaged) clips intact.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "edge": {"type": "string", "enum": ["start", "end"]},
+                "new_value_sec": {"type": "number"},
+            },
+            "required": ["edge", "new_value_sec"],
+        },
+    },
+    {
+        "name": "set_caption_style",
+        "description": "Change how the SUBTITLES look. Pass only the fields you want to change. "
+        "Read current values from get_clip_state.caption_style first. Colors are #RRGGBB. "
+        "highlight_animation sets the active-word effect; highlight_off=true disables karaoke.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "font": {"type": "string"},
+                "size": {"type": "integer"},
+                "color": {"type": "string"},
+                "outline_color": {"type": "string"},
+                "outline_w": {"type": "integer"},
+                "margin_v": {"type": "integer"},
+                "uppercase": {"type": "boolean"},
+                "box_color": {"type": "string"},
+                "box_opacity": {"type": "number"},
+                "emphasis_color": {"type": "string"},
+                "highlight_color": {"type": "string"},
+                "highlight_animation": {
+                    "type": "string",
+                    "enum": [
+                        "none",
+                        "karaoke_fill",
+                        "pop",
+                        "bounce",
+                        "punch",
+                        "fade",
+                        "spring",
+                        "blur_in",
+                        "color_sweep",
+                        "drop_in",
+                        "glow_pulse",
+                        "shake",
+                        "slide_up",
+                        "flash",
+                    ],
+                },
+                "highlight_off": {"type": "boolean"},
+            },
+        },
+    },
+    {
+        "name": "set_hook_style",
+        "description": "Change how the HOOK (top title) looks. Pass only the fields to change. "
+        "Read current values from get_clip_state.hook_style first. Requires a hook to exist (call "
+        "set_hook_text first if none). animation is the hook's entrance. full_clip=false shows it "
+        "for duration_sec seconds only.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "font": {"type": "string"},
+                "size": {"type": "integer"},
+                "color": {"type": "string"},
+                "outline_color": {"type": "string"},
+                "outline_w": {"type": "integer"},
+                "margin_v": {"type": "integer"},
+                "uppercase": {"type": "boolean"},
+                "box_color": {"type": "string"},
+                "box_opacity": {"type": "number"},
+                "animation": {"type": "string", "enum": ["none", "pop", "fade", "bounce"]},
+                "full_clip": {"type": "boolean"},
+                "duration_sec": {"type": "number"},
+            },
+        },
+    },
+    {
+        "name": "list_presets",
+        "description": "List the available caption style presets (id + name) so you can apply one "
+        "with apply_preset. No parameters.",
+        "parameters": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "apply_preset",
+        "description": "Apply a complete caption look by preset id (call list_presets first to see "
+        "valid ids). Keeps the current subtitle position.",
+        "parameters": {
+            "type": "object",
+            "properties": {"preset_id": {"type": "string"}},
+            "required": ["preset_id"],
+        },
+    },
+    {
+        "name": "set_aspect",
+        "description": "Change the output aspect ratio.",
+        "parameters": {
+            "type": "object",
+            "properties": {"aspect": {"type": "string", "enum": ["9:16", "1:1", "4:5", "16:9"]}},
+            "required": ["aspect"],
+        },
+    },
+    {
+        "name": "set_crop",
+        "description": "Force the framing on a source-second range (default: the whole clip). "
+        "mode: 'fill' = tight crop on the speaker, 'fit' = wide/full frame with blurred bars, "
+        "'split' = two speakers stacked, 'auto' = clear the override and let the AI decide. "
+        "center / center_b are 0..1 horizontal positions for fill/split.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "mode": {"type": "string", "enum": ["fill", "fit", "split", "auto"]},
+                "source_start": {"type": "number"},
+                "source_end": {"type": "number"},
+                "center": {"type": "number"},
+                "center_b": {"type": "number"},
+            },
+            "required": ["mode"],
         },
     },
     {
