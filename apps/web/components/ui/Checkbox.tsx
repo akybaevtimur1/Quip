@@ -30,11 +30,12 @@ export function Checkbox({ label, className, id, disabled, ...props }: CheckboxP
       <span
         aria-hidden
         className={cn(
+          // checked = ink fill (engaged), not coral — keeps the scarce accent scarce.
           "grid size-[18px] shrink-0 place-items-center rounded-sm border border-line-strong bg-surface-2",
           "transition duration-200 ease-snappy [&>svg]:opacity-0 peer-checked:[&>svg]:opacity-100",
-          "peer-checked:border-accent peer-checked:bg-accent",
+          "peer-checked:border-ink peer-checked:bg-ink",
           "peer-focus-visible:shadow-[0_0_0_2px_var(--color-bg),0_0_0_4px_var(--color-accent-line)]",
-          !disabled && "group-hover:border-line-strong peer-checked:group-hover:bg-accent-2",
+          !disabled && "group-hover:border-line-strong peer-checked:group-hover:bg-ink/90",
         )}
       >
         <Check

@@ -28,9 +28,11 @@ export function Switch({ label, className, id, disabled, ...props }: SwitchProps
       <span
         aria-hidden
         className={cn(
+          // "on" reads as engaged/ink, NOT coral — coral stays the one scarce accent
+          // (see DESIGN.md). A toggled-on track lights to near-white with a dark knob.
           "relative h-[22px] w-[38px] shrink-0 rounded-pill border border-line-strong bg-surface-3",
           "transition-colors duration-200 ease-snappy",
-          "peer-checked:border-accent peer-checked:bg-accent",
+          "peer-checked:border-ink peer-checked:bg-ink",
           "peer-focus-visible:shadow-[0_0_0_2px_var(--color-bg),0_0_0_4px_var(--color-accent-line)]",
           "after:absolute after:left-[2px] after:top-1/2 after:size-4 after:-translate-y-1/2 after:rounded-pill after:bg-ink",
           "after:transition-transform after:duration-200 after:ease-snappy after:content-['']",
