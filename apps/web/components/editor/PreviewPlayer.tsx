@@ -168,6 +168,55 @@ export function PreviewPlayer({
     };
   }, [outerStart, outerEnd, clipDur, videoRef, onTimeChange]);
 
+  // ── ПОКАДРОВО-ТОЧНАЯ синхронизация времени/режима (фикс мелька на tight↔wide) ──
+  // `timeupdate` срабатывает лишь ~4Hz, поэтому режим (`frame.mode`, который РОДИТЕЛЬ выводит из
+  // onTimeChange→nowSec) ОТСТАВАЛ от показанного кадра до ~250мс: на склейке НОВЫЙ шот успевал
+  // отрисоваться в СТАРОМ кропе на четверть секунды = мельк («сначала флеш, потом переключилось»), и
+  // это НЕ зависит от границы/кэша → мелькал даже свежий аплоад. `requestVideoFrameCallback` зовётся
+  // на КАЖДЫЙ показанный кадр (media-time кадра) → режим приклеен к кадру. rAF-фолбэк, если API нет.
+  // Частые апдейты безопасны: `frame` мемоизирован + `stableFrame` отдаёт тот же объект, пока кроп
+  // не сменился → PreviewPlayer ре-рендерится ТОЛЬКО на реальной смене шота.
+  useEffect(() => {
+    const video = videoRef.current as
+      | (HTMLVideoElement & {
+          requestVideoFrameCallback?: (
+            cb: (now: number, meta: { mediaTime: number }) => void,
+          ) => number;
+          cancelVideoFrameCallback?: (id: number) => void;
+        })
+      | null;
+    if (!video) return;
+    let stopped = false;
+    let rafId = 0;
+    let vfcId = 0;
+    const push = (t: number) => {
+      setClipNow(Math.max(0, Math.min(clipDur, t - outerStart)));
+      onTimeChange?.(t);
+    };
+    const rvfc = video.requestVideoFrameCallback;
+    if (typeof rvfc === "function") {
+      const onFrame = (_now: number, meta: { mediaTime: number }) => {
+        if (stopped) return;
+        push(meta.mediaTime);
+        vfcId = rvfc.call(video, onFrame);
+      };
+      vfcId = rvfc.call(video, onFrame);
+    } else {
+      const tick = () => {
+        if (stopped) return;
+        if (!video.paused) push(video.currentTime);
+        rafId = requestAnimationFrame(tick);
+      };
+      rafId = requestAnimationFrame(tick);
+    }
+    return () => {
+      stopped = true;
+      if (rafId) cancelAnimationFrame(rafId);
+      const cancel = video.cancelVideoFrameCallback;
+      if (vfcId && typeof cancel === "function") cancel.call(video, vfcId);
+    };
+  }, [videoRef, clipDur, outerStart, onTimeChange]);
+
   // ── fullscreen на контейнере ──
   useEffect(() => {
     const onFsChange = () => setIsFullscreen(!!document.fullscreenElement);
