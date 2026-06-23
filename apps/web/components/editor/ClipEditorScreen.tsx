@@ -162,6 +162,43 @@ export default function ClipEditorScreen({
   // (founder ask: stretch settings over the preview to keep the whole picture in view).
   const [inspectorExpanded, setInspectorExpanded] = useState(false);
 
+  // Resizable inspector width (drag the divider). The canvas is minmax(0,1fr) and the 9:16 video
+  // is height-bound (EditorCanvas), so widening the panel reflows the canvas WITHOUT breaking the
+  // video frame. Persisted across clips/sessions.
+  const [inspectorW, setInspectorW] = useState<number>(() => {
+    if (typeof window === "undefined") return 360;
+    const v = Number(window.localStorage.getItem("quip:inspectorW"));
+    return v >= 300 && v <= 680 ? v : 360;
+  });
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("quip:inspectorW", String(inspectorW));
+    } catch {
+      /* private mode / quota — non-fatal */
+    }
+  }, [inspectorW]);
+  const inspectorResizeRef = useRef<{ startX: number; startW: number } | null>(null);
+  const onInspectorResizeDown = (e: React.PointerEvent) => {
+    e.preventDefault();
+    inspectorResizeRef.current = { startX: e.clientX, startW: inspectorW };
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  };
+  const onInspectorResizeMove = (e: React.PointerEvent) => {
+    const d = inspectorResizeRef.current;
+    if (!d) return;
+    // drag LEFT (toward the canvas) = wider inspector
+    setInspectorW(Math.max(300, Math.min(680, d.startW - (e.clientX - d.startX))));
+  };
+  const onInspectorResizeUp = (e: React.PointerEvent) => {
+    if (!inspectorResizeRef.current) return;
+    inspectorResizeRef.current = null;
+    try {
+      (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+    } catch {
+      /* capture may not be set */
+    }
+  };
+
   const [timeline, setTimeline] = useState<TimelineData | null>(null);
   const [clipIds, setClipIds] = useState<string[]>([]);
   // The current clip's confidence readout (score / type / why_works) — Quip's signature.
@@ -1611,7 +1648,7 @@ export default function ClipEditorScreen({
       ) : (
         <main
           className="relative grid min-h-0 grid-cols-1 gap-4 overflow-y-auto lg:overflow-hidden p-4 lg:grid-cols-[auto_minmax(0,1fr)_var(--inspector-w)]"
-          style={{ "--inspector-w": "360px" } as React.CSSProperties}
+          style={{ "--inspector-w": `${inspectorW}px` } as React.CSSProperties}
         >
           {/* ── ЛЕВО: icon-rail (Fixed-Studio shell). Заменяет верхний таб-бар. ── */}
           <EditorRail active={tab} onSelect={(t) => { setTab(t); setInspectorOpen(true); }} />
@@ -1751,7 +1788,21 @@ export default function ClipEditorScreen({
 
           {/* ── ПРАВО: контекстный inspector. На lg всегда виден; на узком — overlay-шит
               поверх gutter'а (canvas НЕ ужимается). ── */}
-          <div className="hidden lg:flex lg:min-h-0">
+          <div className="relative hidden lg:flex lg:min-h-0">
+            {/* drag divider — resize the inspector. Canvas reflows; the 9:16 frame stays stable
+                (canvas is 1fr + the video is height-bound). Sits in the gutter at the panel's edge. */}
+            <div
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize panel"
+              title="Drag to resize"
+              onPointerDown={onInspectorResizeDown}
+              onPointerMove={onInspectorResizeMove}
+              onPointerUp={onInspectorResizeUp}
+              className="group/resize absolute -left-4 top-0 bottom-0 z-20 flex w-4 cursor-col-resize touch-none items-center justify-center"
+            >
+              <span className="h-10 w-1 rounded-pill bg-line-strong transition duration-150 ease-snappy group-hover/resize:h-16 group-hover/resize:bg-accent" />
+            </div>
             <Inspector
               active={tab}
               expanded={inspectorExpanded}

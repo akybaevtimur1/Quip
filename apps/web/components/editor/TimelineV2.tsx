@@ -380,11 +380,11 @@ export function TimelineV2({
         </div>
       </div>
 
-      {/* ── полоса AI-глав — distinct instrument band, set apart with a labeled hairline ── */}
-      <Eyebrow tone="faint" className="mb-1 block leading-none">
-        AI chapters
+      {/* ── chapters band — the GLOBAL themes of the whole video (clip = a slice of one) ── */}
+      <Eyebrow tone="faint" className="mb-1.5 block leading-none">
+        Chapters
       </Eyebrow>
-      <div className="relative mb-2.5 h-7 w-full overflow-hidden rounded-lg border border-line bg-surface-2">
+      <div className="relative mb-2.5 h-8 w-full overflow-hidden rounded-md border border-line bg-surface-2/50">
         {chapters === null || chapters.status === "pending" ? (
           <div className="flex h-full items-center gap-2 px-3">
             <span className="size-2 animate-pulse rounded-full bg-accent" />
@@ -416,12 +416,15 @@ export function TimelineV2({
                 type="button"
                 onClick={() => jumpTo(c.start, c.end)}
                 title={`${c.title}\n${c.summary}`}
-                className={`absolute top-0 h-full truncate border-r border-line/60 px-1.5 text-left text-[10px] leading-7 transition hover:bg-surface-3 hover:text-ink ${
-                  i % 2 === 0 ? "bg-surface text-muted" : "bg-surface-2 text-muted"
-                }`}
+                className="group/ch absolute top-0 flex h-full items-center gap-1.5 truncate border-l border-line px-2 text-left text-[11px] leading-none text-muted transition hover:bg-surface-3 hover:text-ink"
                 style={{ left: pct(c.start), width: `${Math.max(widthFrac * 100, 0.5)}%` }}
               >
-                {c.title}
+                {/* start-of-chapter tick → clear boundary; lights coral on hover */}
+                <span
+                  className="h-3 w-0.5 shrink-0 rounded-pill bg-line-strong transition group-hover/ch:bg-accent"
+                  aria-hidden
+                />
+                <span className="truncate">{c.title}</span>
               </button>
             );
           })
