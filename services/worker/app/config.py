@@ -122,9 +122,10 @@ class Settings(BaseSettings):
     # ГИБРИД (фаундер): на широком плане, если кто-то говорит с speak ≥ этого → кропим спикера
     # (fill), а не fit. Шкала ASD speak ≈ [-2..+1]; 0.3 = «явно говорит». Ниже → split/fit.
     reframe_wide_speak_min: float = 0.3
-    # split-screen (v3): ровно 2 устойчивых разнесённых лица → верх/низ (вместо fit);
-    # 3+ лиц / нестабильные треки → fit как раньше. false = всегда fit (старое поведение).
-    reframe_split_enabled: bool = True
+    # split-screen УДАЛЁН из MVP (2026-06-24): авто НИКОГДА не выбирает split — любой «не одно
+    # лицо» шот → fit (wide). Флаг оставлен = False (выкл) для совместимости сигнатур планировщиков;
+    # UI-опции split нет; легаси split (persist/override) коэрсится в fit (editor/reframe_cache).
+    reframe_split_enabled: bool = False
     # perf (#2): при ОДНОЙ дорожке лиц пропускать дорогой ASD (crop+torch) — говорящий
     # однозначен, скор не влияет на регионы (см. stage3_speaker.should_score_asd). Kill-switch:
     # REFRAME_SKIP_ASD_SINGLE_TRACK=false → всегда считать ASD (прежнее поведение, мгновенный

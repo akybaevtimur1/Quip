@@ -1092,7 +1092,7 @@ export default function ClipEditorScreen({
   // ── кадр (таб «Кадр») ──
   const handleFrameApply = useCallback(
     async (
-      mode: "auto" | "fill" | "fit" | "split",
+      mode: "auto" | "fill" | "fit",
       center: number | null,
       centerB: number | null,
     ) => {

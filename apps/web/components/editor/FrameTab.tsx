@@ -16,19 +16,16 @@ const ASPECTS: { value: Aspect; label: string; hint: string }[] = [
 ];
 
 // ── Таб «Кадр»: режим кадрирования клипа вручную ──
-// Auto = решает ИИ (per-shot: лицо→тайт, пейзаж→широко, 2 спикера→split).
-// Вручную: широко (fit, блюр-рамки) / тайт (fill, кроп на центре) /
-// split (два человека: верх/низ, как в OpusClip). Применяется на ВЕСЬ клип
-// (override на интервал) → POST /edit/crop. Изменения применяются live с
-// debounce 250ms — как остальные контролы редактора.
+// Auto = решает ИИ (per-shot: одно лицо→тайт, иначе→широко). Вручную: широко (fit, блюр-рамки) /
+// тайт (fill, кроп на центре). Применяется на ВЕСЬ клип (override на интервал) → POST /edit/crop.
+// Изменения live с debounce 250ms. (Split удалён из MVP 2026-06-24.)
 
-type FrameMode = "auto" | "fill" | "fit" | "split";
+type FrameMode = "auto" | "fill" | "fit";
 
 const MODES: { value: FrameMode; title: string; desc: string }[] = [
-  { value: "auto", title: "Auto (AI)", desc: "Decides per shot: tight / wide / split" },
+  { value: "auto", title: "Auto (AI)", desc: "Decides per shot: tight or wide" },
   { value: "fill", title: "Tight", desc: "Vertical crop on the person, full-bleed" },
   { value: "fit", title: "Wide", desc: "Full frame + blurred bars (landscape look)" },
-  { value: "split", title: "Split (2 speakers)", desc: "Screen split: one on top, one below" },
 ];
 
 const DEBOUNCE_MS = 250;
@@ -72,9 +69,10 @@ export function FrameTab({
   const current = (edit.reframe_overrides ?? [])
     .filter((ov) => ov.source_start < outerEnd && ov.source_end > outerStart)
     .at(-1);
-  const [mode, setMode] = useState<FrameMode>((current?.mode as FrameMode) ?? "auto");
-  const [center, setCenter] = useState(current?.center ?? 0.3);
-  const [centerB, setCenterB] = useState(current?.center_b ?? 0.7);
+  // legacy split override → показываем Auto (split удалён из MVP)
+  const cm = current?.mode;
+  const [mode, setMode] = useState<FrameMode>(cm === "fill" || cm === "fit" ? cm : "auto");
+  const [center, setCenter] = useState(current?.center ?? 0.5);
 
   // touched guard — only apply on user-initiated changes, not initial mount
   const touchedRef = useRef(false);
@@ -91,17 +89,13 @@ export function FrameTab({
 
   // Schedule a debounced apply with the given values (captured at call time from handlers)
   const scheduleApply = useCallback(
-    (m: FrameMode, c: number, cb: number) => {
+    (m: FrameMode, c: number) => {
       if (debounceRef.current !== null) {
         clearTimeout(debounceRef.current);
       }
       debounceRef.current = setTimeout(() => {
         debounceRef.current = null;
-        void onApply(
-          m,
-          m === "fill" || m === "split" ? c : null,
-          m === "split" ? cb : null,
-        );
+        void onApply(m, m === "fill" ? c : null, null);
       }, DEBOUNCE_MS);
     },
     [onApply],
@@ -110,26 +104,19 @@ export function FrameTab({
   const handleModeChange = (m: FrameMode) => {
     setMode(m);
     touchedRef.current = true;
-    // Use current center/centerB state values alongside the new mode
-    scheduleApply(m, center, centerB);
+    scheduleApply(m, center);
   };
 
   const handleCenterChange = (v: number) => {
     setCenter(v);
     touchedRef.current = true;
-    scheduleApply(mode, v, centerB);
-  };
-
-  const handleCenterBChange = (v: number) => {
-    setCenterB(v);
-    touchedRef.current = true;
-    scheduleApply(mode, center, v);
+    scheduleApply(mode, v);
   };
 
   const handleResetToAuto = () => {
     setMode("auto");
     touchedRef.current = true;
-    scheduleApply("auto", center, centerB);
+    scheduleApply("auto", center);
   };
 
   return (
@@ -191,22 +178,14 @@ export function FrameTab({
         </p>
       </section>
 
-      {(mode === "fill" || mode === "split") && (
+      {mode === "fill" && (
         <section className="space-y-3">
           <CenterSlider
-            label={mode === "split" ? "Top speaker (position in frame)" : "Crop center"}
+            label="Crop center"
             value={center}
             disabled={busy}
             onChange={handleCenterChange}
           />
-          {mode === "split" && (
-            <CenterSlider
-              label="Bottom speaker (position in frame)"
-              value={centerB}
-              disabled={busy}
-              onChange={handleCenterBChange}
-            />
-          )}
         </section>
       )}
 

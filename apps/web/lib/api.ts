@@ -392,7 +392,7 @@ export async function setCropOverride(
   body: {
     source_start: number;
     source_end: number;
-    mode: "fill" | "fit" | "split" | "auto";
+    mode: "fill" | "fit" | "auto";
     center?: number | null;
     center_b?: number | null;
   },

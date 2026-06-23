@@ -34,6 +34,15 @@
   РАЗБРОС по всему видео; скип rambling / setup-без-пейоффа / small-talk; score = реальная сила, не
   раздувать). Дефолт `max_clips` 8→12 (UI Auto и так шлёт 30). На реальном видео клипы разбросаны
   16:28–53:03, все конкретные/сильные.
+- **A — split-режим УДАЛЁН (MVP-упрощение).** Авто теперь: РОВНО одно лицо → fill (тайт), ЛЮБОЙ
+  другой случай (>1 лица / нет лиц / объекты) → fit (wide). `config.reframe_split_enabled` True→False
+  (авто НИКОГДА не отдаёт split; сигнатуры планировщиков и dead split-код оставлены как safety-net —
+  можно удалить позже). UI: тайл «Split (2 speakers)» убран из `FrameTab` (+ узкие типы FrameMode/
+  setCropOverride; `CropBody.mode` Literal без split → API 422 на split). Легаси split (persist-регион
+  ИЛИ ручной override) gracefully коэрсится в fit: `reframe_cache._region_from_dict/_manual_region/
+  _recolor_region`. Кадровая сетка/инвариант не тронуты. Тесты обновлены (split→fit / 422), 896 зелёных.
+  ⚠️ Чат-агент тех. ещё принимает mode=split в тулзе, но он коэрсится в fit на рендере → безвреден
+  (можно вычистить из tools.py/clip_agent позже).
 
 ### 2026-06-23 (свип №5) — 🎯 ФЛЕШ tight↔wide: 1-кадровый offset склейки (fps-зависимый) + зум превью
 Фаундер: «переход из вертикального вида в горизонтальный мелькает; должно быть мгновенно по cut, без

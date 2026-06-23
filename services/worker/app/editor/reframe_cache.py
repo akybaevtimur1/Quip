@@ -46,22 +46,10 @@ def _override_for(overrides: list[CropOverride], iv: SourceInterval) -> CropOver
 def _manual_region(ov: CropOverride, dur: float) -> list[TrackRegion]:
     """Ручной override → один регион на весь интервал (новых границ нет — инвариант цел).
 
-    split: два статичных центра (center/center_b; не заданы → явные дефолты 0.3/0.7).
+    MVP (2026-06-24): split удалён → легаси split-override трактуем как fit (wide).
     """
-    if ov.mode == "fit":
+    if ov.mode in ("fit", "split"):
         return [TrackRegion(t0=0.0, t1=dur, mode="fit", points=())]
-    if ov.mode == "split":
-        cx_a = min(1.0, max(0.0, ov.center if ov.center is not None else 0.3))
-        cx_b = min(1.0, max(0.0, ov.center_b if ov.center_b is not None else 0.7))
-        return [
-            TrackRegion(
-                t0=0.0,
-                t1=dur,
-                mode="split",
-                points=(TrackPoint(t=0.0, mode="split", cx=cx_a),),
-                points_b=(TrackPoint(t=0.0, mode="split", cx=cx_b),),
-            )
-        ]
     cx = ov.center if ov.center is not None else 0.5
     pt = TrackPoint(t=0.0, mode="fill", cx=cx)
     return [TrackRegion(t0=0.0, t1=dur, mode="fill", points=(pt,))]
@@ -71,23 +59,15 @@ def _recolor_region(r: TrackRegion, ov: CropOverride) -> TrackRegion:
     """Регион → ручной режим override'а, СОХРАНЯЯ t0/t1 (инвариант кадровой сетки).
 
     Меняется ТОЛЬКО mode/points — границы (кадры склеек) не трогаются → флешей нет.
-    Неизвестный mode → регион не меняется.
+    MVP (2026-06-24): split удалён → легаси split-override трактуем как fit. Неизвестный mode → r.
     """
-    if ov.mode == "fit":
+    if ov.mode in ("fit", "split"):
         return TrackRegion(t0=r.t0, t1=r.t1, mode="fit", points=())
     if ov.mode == "fill":
         cx = ov.center if ov.center is not None else 0.5
         return TrackRegion(
             t0=r.t0, t1=r.t1, mode="fill",
             points=(TrackPoint(t=r.t0, mode="fill", cx=cx),),
-        )  # fmt: skip
-    if ov.mode == "split":
-        cx_a = min(1.0, max(0.0, ov.center if ov.center is not None else 0.3))
-        cx_b = min(1.0, max(0.0, ov.center_b if ov.center_b is not None else 0.7))
-        return TrackRegion(
-            t0=r.t0, t1=r.t1, mode="split",
-            points=(TrackPoint(t=r.t0, mode="split", cx=cx_a),),
-            points_b=(TrackPoint(t=r.t0, mode="split", cx=cx_b),),
         )  # fmt: skip
     return r
 
@@ -232,6 +212,10 @@ def _region_from_dict(d: dict[str, Any]) -> TrackRegion:
     def pts(arr: list[dict[str, Any]]) -> tuple[TrackPoint, ...]:
         return tuple(TrackPoint(t=p["t"], mode=p["mode"], cx=p["cx"]) for p in arr)
 
+    # MVP (2026-06-24): split удалён → легаси persisted split-регион трактуем как fit (wide),
+    # границы (t0/t1) сохраняем (кадровая сетка цела).
+    if d["mode"] == "split":
+        return TrackRegion(t0=d["t0"], t1=d["t1"], mode="fit", points=())
     return TrackRegion(
         t0=d["t0"], t1=d["t1"], mode=d["mode"],
         points=pts(d["points"]), points_b=pts(d.get("points_b", [])),

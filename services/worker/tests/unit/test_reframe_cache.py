@@ -100,16 +100,15 @@ def test_override_on_exact_boundary_no_zero_length_slivers():
     # zero/negative-length pieces. Override = exactly shot#2 [2,4) (source 12..14).
     iv = SourceInterval(source_start=10.0, source_end=16.0)
     regions = _three_shots()
-    ov = [CropOverride(source_start=12.0, source_end=14.0, mode="split", center=0.25, center_b=0.8)]
+    ov = [CropOverride(source_start=12.0, source_end=14.0, mode="fit")]
     out = apply_overrides_to_regions(regions, ov, iv, fps=FPS_2997)
 
     # exactly 3 regions — no slivers from the touching boundaries of shot#1 / shot#3
     assert len(out) == 3
     for r in out:
         assert r.t1 > r.t0, f"zero/negative-length sliver: ({r.t0}, {r.t1})"
-    # shot#2 fully covered → recolored to split (not re-cut)
-    assert out[1].mode == "split"
-    assert out[1].points[0].cx == 0.25 and out[1].points_b[0].cx == 0.8
+    # shot#2 fully covered → recolored (not re-cut)
+    assert out[1].mode == "fit"
     assert (out[1].t0, out[1].t1) == (2.0, 4.0)
     # shots #1/#3 untouched (no slivers introduced)
     assert out[0] == regions[0]

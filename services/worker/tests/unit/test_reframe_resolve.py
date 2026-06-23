@@ -43,14 +43,18 @@ def test_region_json_roundtrip():
     assert back == r
 
 
-def test_region_json_roundtrip_split():
+def test_region_json_roundtrip_split_coerced_to_fit():
+    # MVP (2026-06-24): split удалён → персист split-регион при чтении трактуется как fit (wide),
+    # границы (t0/t1) сохранены (кадровая сетка цела).
     r = TrackRegion(
         t0=0.0, t1=5.0, mode="split",
         points=(TrackPoint(t=0.0, mode="split", cx=0.3),),
         points_b=(TrackPoint(t=0.0, mode="split", cx=0.7),),
     )  # fmt: skip
     back = _region_from_dict(json.loads(json.dumps(_region_to_dict(r))))
-    assert back == r
+    assert back.mode == "fit"
+    assert (back.t0, back.t1) == (0.0, 5.0)
+    assert back.points == ()
 
 
 SRC_W, SRC_H = 1920, 1080  # crop_w = 607.5→608; crop_w_frac ≈ 0.316
@@ -91,7 +95,8 @@ def test_override_fit_replaces_interval():
     assert len(out[0]) == 1 and out[0][0].mode == "fit"
 
 
-def test_override_split_two_centers():
+def test_override_split_coerced_to_fit():
+    # MVP: split удалён → split-override = fit (wide), границы интервала целы.
     intervals = [SourceInterval(source_start=10.0, source_end=12.0)]
     raw = [RawReframe(faces=_faces_centered(10), cuts=[])]
     ov = [CropOverride(source_start=10.0, source_end=12.0, mode="split", center=0.25, center_b=0.8)]
@@ -99,22 +104,18 @@ def test_override_split_two_centers():
         intervals, raw, ov, src_w=SRC_W, src_h=SRC_H, smoothing=0.15, min_hold_sec=1.5
     )
     reg = out[0][0]
-    assert reg.mode == "split"
-    assert reg.points[0].cx == 0.25
-    assert reg.points_b[0].cx == 0.8
+    assert reg.mode == "fit"
+    assert reg.points == ()
 
 
-def test_override_split_default_centers():
-    # center/center_b не заданы → явные дефолты 0.3/0.7
+def test_override_split_no_centers_also_fit():
     intervals = [SourceInterval(source_start=10.0, source_end=12.0)]
     raw = [RawReframe(faces=_faces_centered(10), cuts=[])]
     ov = [CropOverride(source_start=10.0, source_end=12.0, mode="split")]
     out = resolve_regions(
         intervals, raw, ov, src_w=SRC_W, src_h=SRC_H, smoothing=0.15, min_hold_sec=1.5
     )
-    reg = out[0][0]
-    assert reg.mode == "split"
-    assert reg.points[0].cx == 0.3 and reg.points_b[0].cx == 0.7
+    assert out[0][0].mode == "fit"
 
 
 def test_override_fill_center():
@@ -205,14 +206,14 @@ def test_apply_overrides_fill_center():
     assert out[0] == regions[0] and out[1] == regions[1]
 
 
-def test_apply_overrides_split_clamps_centers():
+def test_apply_overrides_split_coerced_to_fit():
+    # MVP (2026-06-24): split-override на под-диапазон → fit (wide); границы под-региона целы.
     iv = SourceInterval(source_start=10.0, source_end=16.0)
     regions = _three_shots()
     ov = [CropOverride(source_start=12.0, source_end=14.0, mode="split", center=0.25, center_b=0.8)]
     out = apply_overrides_to_regions(regions, ov, iv)
-    assert out[1].mode == "split"
-    assert out[1].points[0].cx == 0.25
-    assert out[1].points_b[0].cx == 0.8
+    assert out[1].mode == "fit"
+    assert out[1].points == ()
     assert (out[1].t0, out[1].t1) == (2.0, 4.0)
 
 

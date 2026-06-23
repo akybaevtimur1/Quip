@@ -714,9 +714,9 @@ class CropBody(BaseModel):
     version: int
     source_start: float
     source_end: float
-    mode: Literal["fill", "fit", "split", "auto"]  # auto = снять override (вернуть авто)
+    mode: Literal["fill", "fit", "auto"]  # split удалён (MVP); auto = снять override (вернуть авто)
     center: float | None = Field(default=None, ge=0.0, le=1.0)
-    center_b: float | None = Field(default=None, ge=0.0, le=1.0)  # split: нижняя половина
+    center_b: float | None = Field(default=None, ge=0.0, le=1.0)  # legacy split (не используется)
 
 
 class SetIntervalBody(BaseModel):
