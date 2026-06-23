@@ -36,7 +36,7 @@ _MIN_FACE_FRAC = 0.08
 # 0.258/0.272/0.284/0.288) — ВСЕ ниже 0.317 → ИИ кропил одного, терял второго. Половина ширины
 # кропа (0.5) = граница, за которой второе лицо физически вне центрированного кропа; 0.70 — с
 # запасом против дрожания детектора: ловит 0.26+ как wide, отвергает кластер/одно лицо (~0.13).
-_WIDE_SPREAD_RATIO = 0.70
+_WIDE_SPREAD_RATIO = 0.55
 
 
 # ─────────────────────────── Dataclasses ───────────────────────────
@@ -232,12 +232,31 @@ def _track_cx_in_shot(t: SpeakerTrack, f0: int, f1: int) -> list[float]:
     return [t.cx[f - t.f0] for f in range(lo, hi)]
 
 
-def _is_wide_shot(active: list[SpeakerTrack], f0: int, f1: int, spread_min: float) -> bool:
-    """2+ дорожек, разнесённых по X сильнее spread_min (доля кадра) → широкий план (fit). PURE."""
+def _is_wide_shot(
+    active: list[SpeakerTrack],
+    f0: int,
+    f1: int,
+    spread_min: float,
+    *,
+    coverage_min: float = 0.25,
+    min_width: float = _MIN_FACE_FRAC,
+) -> bool:
+    """2+ СТАБИЛЬНЫХ лица (покрытие ≥ coverage_min кадров шота И реальная ширина), разнесённых
+    по X сильнее spread_min → широкий план (fit/split). PURE.
+
+    ⚠️ Coverage-гейт ОБЯЗАТЕЛЕН (репро на реальном видео Tom Holland×Jay Shetty): трекер почти на
+    КАЖДОМ одиночном плане плодит КОРОТКИЙ спурьез-трек (отражение/фон/мелькнувшее лицо/разрыв IOU
+    одного лица на два) с покрытием 0–6%, тогда как настоящие лица покрывают 35–100%. Без гейта
+    спурьез подделывал 2-shot → ЛОЖНЫЙ wide на ОДНОМ человеке (жалоба фаундера). Width-гейт
+    отсекает крошечные фоновые лица. Чистый разрыв 6%↔35% → coverage_min=0.25 разделяет надёжно.
+    """
+    shot_len = f1 - f0
+    if shot_len <= 0:
+        return False
     reps: list[float] = []
     for t in active:
         cxs = _track_cx_in_shot(t, f0, f1)
-        if cxs:
+        if len(cxs) >= coverage_min * shot_len and t.width >= min_width:
             reps.append(sum(cxs) / len(cxs))
     return len(reps) >= 2 and (max(reps) - min(reps)) > spread_min
 
@@ -574,7 +593,7 @@ def detect_scene_cuts(
     fps: float,
     *,
     threshold: float = 27.0,
-    min_scene_sec: float = 0.25,
+    min_scene_sec: float = 0.4,
 ) -> list[int]:
     """Frame-accurate склейки сегмента (PySceneDetect ContentDetector), КЛИП-относительные КАДРЫ.
 
@@ -758,10 +777,10 @@ def reframe_segment(
     speaker_crop_scale: float = 0.55,
     face_fps: float = 25.0,
     smoothing: float = 0.15,
-    min_hold_sec: float = 0.8,
+    min_hold_sec: float = 1.5,
     speak_threshold: float = 0.0,
     scene_threshold: float = 27.0,
-    min_scene_sec: float = 0.25,
+    min_scene_sec: float = 0.4,
     split_enabled: bool = False,
     wide_speak_min: float = 0.3,
 ) -> tuple[list[TrackRegion], bool]:

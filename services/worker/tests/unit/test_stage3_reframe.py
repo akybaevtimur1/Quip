@@ -407,6 +407,19 @@ class TestPlanRegions:
         regions = plan_regions([(0, 50)], tracks, fps=25.0, crop_w_frac=0.3167, speak_threshold=0.0)
         assert regions[0].mode == "fit"  # WIDE, не tight-кроп на одном
 
+    def test_ghost_short_track_does_not_fake_wide(self) -> None:
+        # Реальный кейс (репро на Tom Holland): одиночный план, но трекер плодит КОРОТКИЙ
+        # спурьез-трек (покрытие ~10% шота: отражение/фон/разрыв IOU) → раньше подделывал 2-shot
+        # → ЛОЖНЫЙ wide на ОДНОМ человеке. Coverage-гейт его отбрасывает → fill (tight на субъекте).
+        from app.pipeline.stage3_reframe import plan_regions
+
+        real = self._track(0, 50, 0.5, 0.12, 0.8)
+        ghost = self._track(0, 5, 0.15, 0.12, 0.0)  # покрытие 5/50 = 10% < 25% → спурьез
+        regions = plan_regions(
+            [(0, 50)], [real, ghost], fps=25.0, crop_w_frac=0.3167, speak_threshold=0.0
+        )
+        assert regions[0].mode == "fill"  # призрак отброшен → один субъект → tight
+
     def test_wide_clear_speaker_below_min_stays_fit(self) -> None:
         # говорит, но слабо (< wide_speak_min) → не «явный» → fit (широкий план).
         from app.pipeline.stage3_reframe import plan_regions
@@ -554,14 +567,15 @@ class TestPlanRegions:
     def test_split_requires_stable_coverage(self) -> None:
         from app.pipeline.stage3_reframe import plan_regions
 
-        # Второй трек живёт лишь 6 кадров из 30 (<60% шота) → НЕ устойчив; никто явно не говорит
-        # (speak<0.3) → fit как раньше.
+        # Второй трек живёт лишь 6 кадров из 30 (20% < coverage_min 25%) → coverage-гейт
+        # _is_wide_shot его ОТБРАСЫВАЕТ → один реальный субъект (cx0.2) → fill (tight на нём),
+        # а НЕ ложный wide на спурьез-треке. (Раньше считался любой трек → fit.)
         tracks = [
             self._track(0, 30, 0.2, 0.1, 0.1),
             self._track(0, 6, 0.8, 0.1, 0.1),
         ]
         regions = plan_regions([(0, 30)], tracks, fps=30.0, crop_w_frac=0.32, split_enabled=True)
-        assert regions[0].mode == "fit"
+        assert regions[0].mode == "fill"
 
     def test_split_cluster_not_split(self) -> None:
         from app.pipeline.stage3_reframe import plan_regions
@@ -834,9 +848,7 @@ class TestDetectSceneCutsMinSceneLen:
         assert captured.get("min_scene_len") == 7
         assert captured.get("threshold") == 27.0  # порог не трогаем (H1 исключён)
 
-    def test_min_scene_len_defaults_to_quarter_second(
-        self, monkeypatch: "pytest.MonkeyPatch"
-    ) -> None:
+    def test_min_scene_len_default_from_sec(self, monkeypatch: "pytest.MonkeyPatch") -> None:
         import scenedetect
 
         from app.pipeline.stage3_reframe import detect_scene_cuts
@@ -864,9 +876,9 @@ class TestDetectSceneCutsMinSceneLen:
         monkeypatch.setattr(scenedetect, "SceneManager", lambda: _SM())
         monkeypatch.setattr(scenedetect, "ContentDetector", _spy_detector)
 
-        # без явного min_scene_sec → дефолт 0.25с @30fps = round(30*0.25)=8 (< библ. 15)
+        # без явного min_scene_sec → дефолт 0.4с @30fps = round(30*0.4)=12 (< библ. 15)
         detect_scene_cuts(__import__("pathlib").Path("x.mp4"), 0.0, 1.0, 30.0)
-        assert captured.get("min_scene_len") == 8
+        assert captured.get("min_scene_len") == 12
 
 
 class TestMergeShortRegionsFounderCut:
