@@ -1,6 +1,6 @@
 "use client";
 
-import { Loader2 } from "lucide-react";
+import { Loader2, Scissors } from "lucide-react";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { mmss } from "@/lib/format";
 import type { CropOverride, SourceInterval } from "@/lib/types";
@@ -19,6 +19,13 @@ import type { CropOverride, SourceInterval } from "@/lib/types";
 //
 // Драг по полосе → выбор СМЕЖНОГО диапазона шотов (снап к границам = целый шот).
 // [Wide / Tight / Auto] применяет режим к диапазону (Auto = убрать override).
+//
+// «Split here»: детектор/мердж мог склеить два шота в один — границы внутри нет, форснуть
+// половину нельзя. Кнопка вставляет КЛИЕНТСКУЮ границу на текущем плейхеде: время реза
+// копится в локальном `userSplits` (НЕ мутируем пришедший `regions`), а отображаемые блоки
+// выводятся из regions + userSplits. Выделение/apply работают по этим блокам, поэтому можно
+// выбрать пол-региона и форснуть Tight/Wide — apply шлёт source-диапазон именно подблока через
+// тот же onApplyRange. Бэкенд режет регион по этим границам (снап к нативным кадрам на сервере).
 // ────────────────────────────────────────────────────────────────────────────
 
 /** Регион reframe-плана в КЛИП-времени (совпадает с RawRegion в ClipEditorScreen). */
@@ -122,9 +129,13 @@ export function FitTimeline({
   onApplyRange,
 }: FitTimelineProps) {
   const trackRef = useRef<HTMLDivElement>(null);
-  // выделенный диапазон регионов [from, to] (индексы, оба включительно) или null
+  // выделенный диапазон БЛОКОВ [from, to] (индексы по отображаемым блокам, оба включительно) или null
   const [sel, setSel] = useState<{ from: number; to: number } | null>(null);
   const [mode, setMode] = useState<ForceMode>("fit");
+  // КЛИЕНТСКИЕ резы (клип-время). Дробят пришедшие регионы на подблоки чисто для
+  // отображения/выделения — НЕ мутируем `regions`. Округляем до мс, чтобы не плодить
+  // почти-совпадающие резы и не делать нулевых блоков.
+  const [userSplits, setUserSplits] = useState<number[]>([]);
   const dragRef = useRef<{ anchor: number } | null>(null);
 
   // суммарная клип-длительность = конец последнего региона (= длина клипа в reframe-плане)
@@ -135,19 +146,51 @@ export function FitTimeline({
 
   const t0 = regions && regions.length > 0 ? regions[0].t0 : 0;
 
-  // индекс региона под clientX (снап к границам регионов = целый шот)
+  // Пришёл новый план шотов (другой клип / перечитанный /reframe) → старые резы больше не
+  // относятся к этим регионам. Сброс в ФАЗЕ РЕНДЕРА при смене prop (паттерн React "adjust state
+  // on prop change", НЕ эффект) — без каскадного ре-рендера и до первой отрисовки новых регионов.
+  const [prevRegions, setPrevRegions] = useState(regions);
+  if (prevRegions !== regions) {
+    setPrevRegions(regions);
+    setUserSplits([]);
+  }
+
+  // Отображаемые блоки = регионы, порезанные клиентскими резами. БЕЗ резов список блоков
+  // 1:1 совпадает с regions (тот же t0/t1/mode) → путь «выбрать целый шот» не меняется.
+  // Каждый блок наследует mode своего региона и помнит, что он подблок (для подписи).
+  const blocks = useMemo<{ t0: number; t1: number; mode: string; split: boolean }[]>(() => {
+    if (!regions || regions.length === 0) return [];
+    if (userSplits.length === 0) {
+      return regions.map((r) => ({ t0: r.t0, t1: r.t1, mode: r.mode, split: false }));
+    }
+    const out: { t0: number; t1: number; mode: string; split: boolean }[] = [];
+    for (const reg of regions) {
+      // резы строго ВНУТРИ региона, по возрастанию
+      const cuts = userSplits.filter((s) => s > reg.t0 + 1e-4 && s < reg.t1 - 1e-4).sort((a, b) => a - b);
+      const wasSplit = cuts.length > 0;
+      let start = reg.t0;
+      for (const c of cuts) {
+        out.push({ t0: start, t1: c, mode: reg.mode, split: true });
+        start = c;
+      }
+      out.push({ t0: start, t1: reg.t1, mode: reg.mode, split: wasSplit });
+    }
+    return out;
+  }, [regions, userSplits]);
+
+  // индекс БЛОКА под clientX (снап к границам блоков)
   const regionAtX = useCallback(
     (clientX: number): number | null => {
       const el = trackRef.current;
-      if (!el || !regions || regions.length === 0) return null;
+      if (!el || blocks.length === 0) return null;
       const r = el.getBoundingClientRect();
       const clipT = t0 + clamp((clientX - r.left) / r.width, 0, 1) * clipDur;
-      for (let i = 0; i < regions.length; i++) {
-        if (clipT >= regions[i].t0 && clipT < regions[i].t1) return i;
+      for (let i = 0; i < blocks.length; i++) {
+        if (clipT >= blocks[i].t0 && clipT < blocks[i].t1) return i;
       }
-      return regions.length - 1; // хвост → последний регион
+      return blocks.length - 1; // хвост → последний блок
     },
-    [regions, t0, clipDur],
+    [blocks, t0, clipDur],
   );
 
   const onPointerDown = useCallback(
@@ -185,15 +228,49 @@ export function FitTimeline({
   }, []);
 
   const apply = useCallback(() => {
-    if (!sel || !regions || regions.length === 0 || busy) return;
-    const lo = regions[sel.from];
-    const hi = regions[sel.to];
+    if (!sel || blocks.length === 0 || busy) return;
+    const lo = blocks[sel.from];
+    const hi = blocks[sel.to];
+    if (!lo || !hi) return;
+    // Берём source-границы ВЫДЕЛЕННОГО подблока (его t0/t1), а не целого региона —
+    // так apply на пол-региона шлёт диапазон именно этой половины.
     const sourceStart = clipTimeToSource(lo.t0, intervals);
     const sourceEnd = clipTimeToSource(hi.t1, intervals);
     if (sourceEnd <= sourceStart) return;
     onApplyRange(sourceStart, sourceEnd, mode);
     setSel(null);
-  }, [sel, regions, intervals, mode, busy, onApplyRange]);
+  }, [sel, blocks, intervals, mode, busy, onApplyRange]);
+
+  // «Split here»: вставить клиентский рез на текущем плейхеде. Рез валиден, только если
+  // плейхед СТРОГО внутри какого-то блока (не на его границе) — иначе резать нечего.
+  const splitHere = useCallback(() => {
+    if (busy || blocks.length === 0) return;
+    const phClipT =
+      nowSec !== undefined && intervals.length > 0
+        ? clipTimeFromSource(nowSec, intervals)
+        : null;
+    if (phClipT === null) return;
+    const rounded = Math.round(phClipT * 1000) / 1000; // мс-точность отображаемого реза
+    const inside = blocks.some((b) => rounded > b.t0 + 1e-3 && rounded < b.t1 - 1e-3);
+    if (!inside) return;
+    // не дублируем почти совпадающий рез
+    if (userSplits.some((s) => Math.abs(s - rounded) < 1e-3)) return;
+    setUserSplits((prev) => [...prev, rounded].sort((a, b) => a - b));
+    setSel(null); // границы блоков сдвинулись → старое выделение неактуально
+  }, [busy, blocks, nowSec, intervals, userSplits]);
+
+  // можно ли резать на текущем плейхеде (для disabled-состояния кнопки)
+  const canSplit = useMemo(() => {
+    if (blocks.length === 0) return false;
+    const phClipT =
+      nowSec !== undefined && intervals.length > 0
+        ? clipTimeFromSource(nowSec, intervals)
+        : null;
+    if (phClipT === null) return false;
+    const rounded = Math.round(phClipT * 1000) / 1000;
+    if (userSplits.some((s) => Math.abs(s - rounded) < 1e-3)) return false;
+    return blocks.some((b) => rounded > b.t0 + 1e-3 && rounded < b.t1 - 1e-3);
+  }, [blocks, nowSec, intervals, userSplits]);
 
   const unit = variant === "manual" ? "part" : "shot";
 
@@ -231,14 +308,18 @@ export function FitTimeline({
     playheadClipT !== null ? clamp((playheadClipT - t0) / clipDur, 0, 1) : null;
   const activeIdx =
     playheadClipT !== null
-      ? regions.findIndex((r) => playheadClipT >= r.t0 && playheadClipT < r.t1)
+      ? blocks.findIndex((b) => playheadClipT >= b.t0 && playheadClipT < b.t1)
       : -1;
 
+  // подпись выделения. Без резов блок = шот/часть → старый текст. С резами в наборе есть
+  // подблоки → нейтральное «part(s)», чтобы номера-блоков не путались с номерами шотов.
+  const hasSplits = userSplits.length > 0;
+  const selUnit = hasSplits ? "part" : unit;
   const selLabel = sel
     ? sel.from === sel.to
-      ? `${unit === "shot" ? "Shot" : "Part"} ${sel.from + 1} selected`
-      : `${unit === "shot" ? "Shots" : "Parts"} ${sel.from + 1}–${sel.to + 1} selected`
-    : `Drag across the bar to pick ${unit}s`;
+      ? `${selUnit === "shot" ? "Shot" : "Part"} ${sel.from + 1} selected`
+      : `${selUnit === "shot" ? "Shots" : "Parts"} ${sel.from + 1}–${sel.to + 1} selected`
+    : `Drag across the bar to pick ${selUnit}s`;
 
   return (
     <div className="mt-2 select-none">
@@ -246,6 +327,11 @@ export function FitTimeline({
         <span className="text-[11px] font-semibold text-ink">
           {regions.length} {unit}
           {regions.length === 1 ? "" : "s"}
+          {hasSplits && (
+            <span className="ml-1.5 font-normal text-muted">
+              · {blocks.length} part{blocks.length === 1 ? "" : "s"}
+            </span>
+          )}
           {variant === "manual" && (
             <span className="ml-1.5 font-normal text-muted">· manual (no AI shot plan)</span>
           )}
@@ -263,24 +349,27 @@ export function FitTimeline({
           busy ? "cursor-wait opacity-60" : "cursor-pointer"
         }`}
       >
-        {regions.map((reg, i) => {
-          const widthFrac = (reg.t1 - reg.t0) / clipDur;
-          const ov = regionOverride(reg, intervals, overrides);
+        {blocks.map((blk, i) => {
+          const widthFrac = (blk.t1 - blk.t0) / clipDur;
+          // regionOverride принимает {t0,t1,mode} — блок этой формы, подсветка override по
+          // пересечению source-окна работает и для подблока.
+          const ov = regionOverride(blk, intervals, overrides);
           const selected = sel !== null && i >= sel.from && i <= sel.to;
           const isActive = i === activeIdx;
           // эффективный режим: override приоритетнее AI-плана
-          const effMode = ov ? ov.mode : reg.mode;
+          const effMode = ov ? ov.mode : blk.mode;
           const tint = MODE_TINT[effMode] ?? "bg-surface-3";
           const widthPct = Math.max(widthFrac * 100, 1.5);
           const wide = widthPct > 7; // влезает ли подпись внутрь блока
+          const blockNoun = hasSplits ? "Part" : unit === "shot" ? "Shot" : "Part";
           return (
             <div
               key={i}
               className={`relative flex h-full flex-col items-center justify-center overflow-hidden ${tint} transition`}
               style={{ width: `${widthPct}%` }}
-              title={`${unit === "shot" ? "Shot" : "Part"} ${i + 1} · ${
-                ov ? `${modeLabel(ov.mode)} (forced)` : modeLabel(reg.mode)
-              } · ${mmss(reg.t0)}–${mmss(reg.t1)}`}
+              title={`${blockNoun} ${i + 1}${blk.split ? " (split)" : ""} · ${
+                ov ? `${modeLabel(ov.mode)} (forced)` : modeLabel(blk.mode)
+              } · ${mmss(blk.t0)}–${mmss(blk.t1)}`}
             >
               {wide && (
                 <>
@@ -293,6 +382,13 @@ export function FitTimeline({
                 </>
               )}
               {ov && <span className="absolute inset-x-0 top-0 h-1 bg-accent" aria-hidden />}
+              {/* подблок (результат «Split here») — пунктирная левая кромка как маркер реза */}
+              {blk.split && i > 0 && (
+                <span
+                  className="pointer-events-none absolute inset-y-0 left-0 w-px bg-peak/70"
+                  aria-hidden
+                />
+              )}
               {isActive && !selected && (
                 <span
                   className="pointer-events-none absolute inset-0 ring-2 ring-inset ring-white/70"
@@ -315,6 +411,40 @@ export function FitTimeline({
             style={{ left: `${playheadFrac * 100}%` }}
             aria-hidden
           />
+        )}
+      </div>
+
+      {/* Split here: вставить клиентскую границу на плейхеде, чтобы форснуть половину
+          склеенного шота. Сброс резов рядом, появляется только когда они есть. */}
+      <div className="mt-2 flex items-center gap-2">
+        <button
+          type="button"
+          disabled={busy || !canSplit}
+          onClick={splitHere}
+          title={
+            canSplit
+              ? "Split the shot under the playhead into two so you can force each half"
+              : "Move the playhead inside a shot to split it here"
+          }
+          aria-label="Split the shot at the playhead"
+          className="inline-flex items-center gap-1.5 rounded-md border border-line bg-surface px-2.5 py-1 text-[11px] font-semibold text-muted transition enabled:hover:border-line-strong enabled:hover:text-ink disabled:opacity-40"
+        >
+          <Scissors className="size-3" aria-hidden />
+          Split here
+        </button>
+        {hasSplits && (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => {
+              setUserSplits([]);
+              setSel(null);
+            }}
+            title="Remove the manual split boundaries you added"
+            className="rounded-md px-2 py-1 text-[11px] font-semibold text-muted transition enabled:hover:text-ink disabled:opacity-40"
+          >
+            Clear splits
+          </button>
         )}
       </div>
 
@@ -352,8 +482,8 @@ export function FitTimeline({
           {sel
             ? `Apply ${FORCE_OPTIONS.find((o) => o.value === mode)?.label ?? ""} to ${
                 sel.from === sel.to ? "1" : sel.to - sel.from + 1
-              } ${unit}${sel && sel.from === sel.to ? "" : "s"}`
-            : `Select ${unit}s first`}
+              } ${selUnit}${sel && sel.from === sel.to ? "" : "s"}`
+            : `Select ${selUnit}s first`}
         </button>
       </div>
 

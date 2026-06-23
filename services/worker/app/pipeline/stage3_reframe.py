@@ -547,14 +547,37 @@ def detect_cuts(video: Path, start: float, end: float, *, threshold: float = 0.3
     return cuts
 
 
+def _min_scene_frames(fps: float, min_scene_sec: float) -> int:
+    """min_scene_len для ContentDetector, привязанный к НАТИВНОМУ fps. PURE.
+
+    PySceneDetect-дефолт min_scene_len=15 кадров = 0.5с@30fps + FlashFilter.MERGE дропает
+    ЛЮБУЮ склейку короче 15 нативных кадров ДО того, как она станет границей сцены — так
+    глотался быстрый реакционный рез на лицо. Привязываем порог к секундам (0.25с дефолт):
+    короткий рез выживает, саб-четвертьсекундный строб всё ещё душится. Пол = 2 кадра
+    (ContentDetector требует ≥1; 2 — минимальный осмысленный шот). Δ=0 инвариант не трогаем:
+    это фильтр ДЕТЕКЦИИ, границы по-прежнему = реальные нативные кадры склеек.
+    """
+    return max(2, round(fps * min_scene_sec))
+
+
 def detect_scene_cuts(
-    video: Path, start: float, end: float, fps: float, *, threshold: float = 27.0
+    video: Path,
+    start: float,
+    end: float,
+    fps: float,
+    *,
+    threshold: float = 27.0,
+    min_scene_sec: float = 0.25,
 ) -> list[int]:
     """Frame-accurate склейки сегмента (PySceneDetect ContentDetector), КЛИП-относительные КАДРЫ.
 
     Сегмент режется ffmpeg в temp h264 (декодит AV1, старт=0 → seek-точность), затем
     PySceneDetect на нём. Возвращает номера кадров склеек (0-based от старта сегмента).
     Нет склеек → []. JobError при сбое (№8).
+
+    min_scene_sec: минимальная длина сцены (сек) → min_scene_len кадров в НАТИВНОЙ сетке.
+    Явный, чтобы короткий рез не дропался библиотечным дефолтом 15 кадров (см.
+    _min_scene_frames).
     """
     from scenedetect import ContentDetector, SceneManager, open_video  # noqa: PLC0415
 
@@ -589,7 +612,11 @@ def detect_scene_cuts(
         try:
             vid = open_video(str(seg))
             sm = SceneManager()
-            sm.add_detector(ContentDetector(threshold=threshold))
+            sm.add_detector(
+                ContentDetector(
+                    threshold=threshold, min_scene_len=_min_scene_frames(fps, min_scene_sec)
+                )
+            )
             sm.detect_scenes(vid)
             scenes = sm.get_scene_list()
         except Exception as e:
@@ -724,9 +751,10 @@ def reframe_segment(
     speaker_crop_scale: float = 0.55,
     face_fps: float = 25.0,
     smoothing: float = 0.15,
-    min_hold_sec: float = 1.5,
+    min_hold_sec: float = 0.8,
     speak_threshold: float = 0.0,
     scene_threshold: float = 27.0,
+    min_scene_sec: float = 0.25,
     split_enabled: bool = False,
     wide_speak_min: float = 0.3,
 ) -> tuple[list[TrackRegion], bool]:
@@ -746,7 +774,9 @@ def reframe_segment(
     total_frames = round(duration * fps)
     crop_w_frac = round(src_h * _ASPECT_W / _ASPECT_H) / src_w
 
-    cuts = detect_scene_cuts(video, aligned_start, end, fps, threshold=scene_threshold)
+    cuts = detect_scene_cuts(
+        video, aligned_start, end, fps, threshold=scene_threshold, min_scene_sec=min_scene_sec
+    )
     shots = build_shots_frames(cuts, total_frames)
 
     tracks_native = score_tracks_in_segment(

@@ -1177,14 +1177,19 @@ def get_clip_reframe(job_id: str, clip_id: str) -> dict[str, Any]:
     # ручные override'ы). Это и есть фикс «полоса шотов = равные чанки»: на холодном контейнере
     # /reframe больше не гоняет тяжёлый CV (который тормозил/падал 500) для нетронутого клипа.
     persisted = db.get_reframe_regions(job_id, clip_id)
+    # meta.json — лёгкий JSON-ридер (НЕ скачивание source); нужен fast-path'у для frame-snap
+    # границ override-split в нативном fps (инвариант кадровой сетки). Тяжёлый ensure_source
+    # остаётся ниже, на slow-path.
+    meta = artifacts.load_meta(job_id)
     if persisted and intervals_match_default(
         edit.source_intervals, persisted.get("default_start", -1), persisted.get("default_end", -1)
     ):
         iv = edit.source_intervals[0]
-        return {"regions": regions_from_persisted(persisted, iv, edit.reframe_overrides)}
+        return {
+            "regions": regions_from_persisted(persisted, iv, edit.reframe_overrides, fps=meta.fps)
+        }
 
     out = artifacts.ensure_source(job_id).parent
-    meta = artifacts.load_meta(job_id)
     s = get_settings()
     try:
         region_lists = resolve_regions_accurate(
@@ -1204,6 +1209,7 @@ def get_clip_reframe(job_id: str, clip_id: str) -> dict[str, Any]:
             min_hold_sec=s.reframe_min_hold_sec,
             speak_threshold=s.reframe_speak_threshold,
             scene_threshold=s.reframe_scene_threshold,
+            min_scene_sec=s.reframe_min_scene_sec,
             split_enabled=s.reframe_split_enabled,
             # WYSIWYG: тот же гибрид-порог, что у рендера/батча (render_edit_to_file его передаёт).
             # Без него превью бралось дефолтом resolve_regions_accurate (0.3) ≠ настройке → широкий

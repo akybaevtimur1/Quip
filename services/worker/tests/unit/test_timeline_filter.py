@@ -77,3 +77,46 @@ def test_timeline_cmd_full_input_no_ss():
     assert cmd[:3] == ["ffmpeg", "-y", "-i"]
     assert "-map" in cmd and "[outv]" in cmd and "[outa]" in cmd
     assert cmd[-1] == "clips/clip_01.mp4"
+
+
+def test_flatten_aligns_boundary_to_native_cut_frame_non25fps():
+    """Regression — мульти-интервальный editor-флеш (REFRAME_FPS_GRID_INVARIANT, editor-путь).
+
+    flatten_timeline ОБЯЗАН якорить source-кадры на тот же aligned origin, что reframe_segment
+    (round(source_start*fps)/fps), а НЕ на сырой source_start. Реальная склейка на относительном
+    кадре 23 у 23.976fps-клипа с интервалом, начинающимся НЕ на границе кадра (0.146с), должна
+    лечь на ИСТИННЫЙ нативный кадр round(0.146*fps)+23 — ровно как одно-интервальный render_clip.
+    Старый код (сырой source_start + округление до 3 знаков) клал на кадр раньше → флеш в 1 кадр.
+    """
+    fps = 23.976
+    cut = 23
+    t0 = cut / fps
+    intervals = [
+        SourceInterval(source_start=0.146, source_end=5.0),
+        SourceInterval(source_start=30.0, source_end=31.0),
+    ]
+    regions = [[_fill(0.0, t0, 0.5), _fit(t0, 2.0)], [_fit(0.0, 1.0)]]
+    segs = flatten_timeline(intervals, regions, fps)
+    truth = round(0.146 * fps) + cut  # = 27; ровно туда садится render_clip
+    assert segs[1].src_f0 == truth  # был 26 (на кадр раньше) до фикса
+    assert segs[0].src_f1 == truth  # смежная граница держится на реальной склейке
+
+
+def test_flatten_frame_grid_invariant_across_fps():
+    """Δ=0 кадровая сетка timeline-пути на КАЖДОМ fps + off-grid старте.
+
+    Та самая матрица фикстур, за которой прятался баг: 25fps + целые старты всегда удовлетворяли
+    сломанному допущению. На любом f(ps) и любом 3-десятичном source_start кадр границы региона
+    обязан равняться round(source_start*fps)+round(t*fps) — абсолютному кадру, на который садится
+    render_clip (-ss aligned_start + trim round(t*fps)).
+    """
+    for fps in (23.976, 24.0, 25.0, 29.97, 30.0, 59.94, 60.0):
+        for source_start in (0.146, 4.788, 17.35, 33.337):
+            for cut in (0, 7, 50, 101, 499):
+                t0 = cut / fps
+                t1 = t0 + 1.0
+                iv = SourceInterval(source_start=source_start, source_end=source_start + t1 + 1.0)
+                segs = flatten_timeline([iv], [[_fill(t0, t1, 0.5)]], fps)
+                base = round(source_start * fps)
+                assert segs[0].src_f0 == base + round(t0 * fps), (fps, source_start, cut)
+                assert segs[0].src_f1 == base + round(t1 * fps), (fps, source_start, cut)

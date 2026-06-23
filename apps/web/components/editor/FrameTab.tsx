@@ -234,7 +234,9 @@ export function FrameTab({
           <span className="text-ink">shots</span> — the cuts between camera angles. Pick shots on
           the bar (the white line shows where you are) and force{" "}
           <span className="text-ink">Wide</span>, <span className="text-ink">Tight</span> or{" "}
-          <span className="text-ink">Auto</span>.
+          <span className="text-ink">Auto</span>. Need a boundary the detector merged away? Use{" "}
+          <span className="text-ink">Split here</span> to cut a shot at the playhead, then force
+          either half.
         </p>
         <FitTimeline
           regions={shotRegions}

@@ -224,7 +224,9 @@ def test_apply_overrides_no_overrides_unchanged():
 
 
 def test_apply_overrides_last_wins():
-    # two overlapping overrides over shot#2 → LAST one wins
+    # Painting semantics: overrides REPAINT the sub-ranges they cover; where two overlap, the
+    # LAST one wins. ov1=fit (source 11..15 = rel 1..5), ov2=fill0.9 (source 12..14 = rel 2..4).
+    # At 25fps every edge is on the native grid. _three_shots = [0,2)fill,[2,4)fill,[4,6)fit.
     iv = SourceInterval(source_start=10.0, source_end=16.0)
     regions = _three_shots()
     ov = [
@@ -232,11 +234,19 @@ def test_apply_overrides_last_wins():
         CropOverride(source_start=12.0, source_end=14.0, mode="fill", center=0.9),
     ]
     out = apply_overrides_to_regions(regions, ov, iv)
-    # shot#2 mid=13 covered by BOTH → last (fill 0.9) wins
-    assert out[1].mode == "fill" and out[1].points[0].cx == 0.9
-    # shot#1 mid=11 → fit (first only); shot#3 mid=15 → unchanged (half-open excludes it)
-    assert out[0].mode == "fit"
-    assert out[2] == regions[2]
+    layout = [(round(r.t0, 3), round(r.t1, 3), r.mode) for r in out]
+    assert layout == [
+        (0.0, 1.0, "fill"),  # shot#1 head before ov1 → original fill kept
+        (1.0, 2.0, "fit"),  # ov1 covers rel 1..2 of shot#1 → fit
+        (2.0, 4.0, "fill"),  # shot#2 covered by BOTH → LAST (ov2) wins → fill 0.9
+        (4.0, 5.0, "fit"),  # shot#3 rel 4..5 under ov1 (and originally fit) → fit
+        (5.0, 6.0, "fit"),  # shot#3 tail after ov1 → original fit kept
+    ]
+    # the doubly-covered middle uses the LAST override's center (0.9), not the first (fit)
+    mid = next(r for r in out if (round(r.t0, 3), round(r.t1, 3)) == (2.0, 4.0))
+    assert mid.mode == "fill" and mid.points[0].cx == 0.9
+    # kept shot#1 head retains its ORIGINAL trajectory (cx 0.4), not a recolor
+    assert out[0].mode == "fill" and out[0].points[0].cx == 0.4
 
 
 def test_apply_overrides_unknown_mode_unchanged():

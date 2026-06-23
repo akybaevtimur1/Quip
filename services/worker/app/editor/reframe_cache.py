@@ -92,25 +92,76 @@ def _recolor_region(r: TrackRegion, ov: CropOverride) -> TrackRegion:
     return r
 
 
-def apply_overrides_to_regions(
-    regions: list[TrackRegion], overrides: list[CropOverride], iv: SourceInterval
-) -> list[TrackRegion]:
-    """«Перекрась, не перерезай»: override меняет режим только тех шотов, что он покрывает.
+def _snap(t: float, fps: float) -> float:
+    """Frame-snap a time to the SOURCE NATIVE fps grid: round(t*fps)/fps.
 
-    PURE. Для каждого региона берём source-time середину mid = iv.source_start + (t0+t1)/2
-    и находим ПОСЛЕДНИЙ override с ov.source_start <= mid < ov.source_end (last-wins, как в
-    _override_for). Найден → регион перекрашивается в режим override'а с СОХРАНЕНИЕМ t0/t1
-    (инвариант кадровой сетки — новых границ нет). Не покрытые шоты остаются авто.
-    Результат той же длины и с теми же границами.
+    THE crux of this module's invariant (REFRAME_FPS_GRID_INVARIANT.md): a split
+    boundary MUST land on an exact native frame so render's trim=start_frame=round(t0*fps)
+    cuts exactly there (Δ=0). An un-snapped boundary reintroduces the 1-frame flash on
+    ≠25fps video (invisible on 25fps + integer-second fixtures — hence past silent regressions).
+    """
+    return round(t * fps) / fps
+
+
+def apply_overrides_to_regions(
+    regions: list[TrackRegion],
+    overrides: list[CropOverride],
+    iv: SourceInterval,
+    *,
+    fps: float = 25.0,
+) -> list[TrackRegion]:
+    """Overlap-based, SPLIT-capable force-framing: each region is REPAINTED with the overrides
+    that cover it — re-cutting the region at frame-snapped boundaries so the user can recolor an
+    ARBITRARY sub-range the detector/merge fused away (a shot with no boundary of its own).
+
+    PURE. Override times are SOURCE seconds → interval-relative = ov.source_* - iv.source_start.
+    Per region r: collect every override overlapping r (half-open). Boundary set = r's OWN edges
+    (already cut_frame/fps from reframe_segment) + every STRICTLY-INTERIOR override edge
+    FRAME-SNAPPED to the native fps grid (round(t*fps)/fps). Then paint each sub-interval with the
+    LAST override whose source range contains its midpoint (else keep r's mode+points). This is
+    why a single "last override wins for the whole region" is WRONG: multiple sub-range edits on
+    one fused shot must each keep their own mode, not be clobbered by the last one.
+      • Whole-region override → one piece recolored, t0/t1 kept (UNCHANGED from the old midpoint
+        path → existing clips unaffected).
+      • Partial / multiple overrides → split at snapped interior edges; kept pieces retain r.points.
+    Every introduced boundary is frame-snapped (REFRAME_FPS_GRID_INVARIANT: render trims at
+    round(t0*fps) → exact native frame → Δ=0, no flash on ≠25fps). Outer edges reuse r's own
+    (on-grid) boundary, so no sub-frame sliver is created against a real cut.
     """
     out: list[TrackRegion] = []
     for r in regions:
-        mid = iv.source_start + (r.t0 + r.t1) / 2
-        chosen: CropOverride | None = None
-        for ov in overrides:
-            if ov.source_start <= mid < ov.source_end:
-                chosen = ov
-        out.append(_recolor_region(r, chosen) if chosen is not None else r)
+        covering = [
+            ov
+            for ov in overrides
+            if (ov.source_start - iv.source_start) < r.t1
+            and (ov.source_end - iv.source_start) > r.t0
+        ]
+        if not covering:
+            out.append(r)
+            continue
+        # Boundary set: r's OWN edges (already cut_frame/fps from reframe_segment) + every
+        # STRICTLY-INTERIOR override edge FRAME-SNAPPED to the native fps grid. A set dedups edges
+        # that snap to the same native frame → no zero-length slivers; outer edges reuse r's own.
+        bounds = {r.t0, r.t1}
+        for ov in covering:
+            a = ov.source_start - iv.source_start
+            b = ov.source_end - iv.source_start
+            if r.t0 < a < r.t1:
+                bounds.add(_snap(a, fps))
+            if r.t0 < b < r.t1:
+                bounds.add(_snap(b, fps))
+        edges = sorted(bounds)
+        # Paint each sub-interval with the LAST override covering its midpoint (else keep r).
+        for t0, t1 in zip(edges, edges[1:], strict=False):
+            if t1 <= t0:
+                continue
+            mid_src = iv.source_start + (t0 + t1) / 2.0
+            chosen: CropOverride | None = None
+            for ov in covering:
+                if ov.source_start <= mid_src < ov.source_end:
+                    chosen = ov  # last-wins on the overlapping sub-range
+            piece = TrackRegion(t0=t0, t1=t1, mode=r.mode, points=r.points, points_b=r.points_b)
+            out.append(_recolor_region(piece, chosen) if chosen is not None else piece)
     return out
 
 
@@ -205,6 +256,7 @@ def resolve_regions_accurate(
     min_hold_sec: float = 1.5,
     speak_threshold: float = 0.0,
     scene_threshold: float = 27.0,
+    min_scene_sec: float = 0.25,
     split_enabled: bool = False,
     wide_speak_min: float = 0.3,
 ) -> list[list[TrackRegion]]:
@@ -237,14 +289,15 @@ def resolve_regions_accurate(
                 clip_id=cid, out_dir=out_dir, fps=fps, mode_setting=mode_setting,
                 speaker_crop_scale=speaker_crop_scale, face_fps=face_fps, smoothing=smoothing,
                 min_hold_sec=min_hold_sec, speak_threshold=speak_threshold,
-                scene_threshold=scene_threshold, split_enabled=split_enabled,
-                wide_speak_min=wide_speak_min,
+                scene_threshold=scene_threshold, min_scene_sec=min_scene_sec,
+                split_enabled=split_enabled, wide_speak_min=wide_speak_min,
             )  # fmt: skip
             cache.write_text(
                 json.dumps([_region_to_dict(r) for r in regions], ensure_ascii=False), "utf-8"
             )
-        # Перекрашиваем покрытые шоты (per-shot force-framing), не трогая границы.
-        regions = apply_overrides_to_regions(regions, overrides, iv)
+        # Перекрашиваем покрытые шоты (per-shot force-framing); частичный overlap РЕЖЕТ регион
+        # на frame-snapped границах (нативный fps) — инвариант кадровой сетки цел.
+        regions = apply_overrides_to_regions(regions, overrides, iv, fps=fps)
         out.append(regions)
     return out
 
@@ -281,16 +334,22 @@ def intervals_match_default(
 
 
 def regions_from_persisted(
-    persisted: dict[str, Any], iv: SourceInterval, overrides: list[CropOverride]
+    persisted: dict[str, Any],
+    iv: SourceInterval,
+    overrides: list[CropOverride],
+    *,
+    fps: float = 25.0,
 ) -> list[dict[str, Any]]:
     """Персистнутый payload + текущий интервал/оверрайды → регионы в КЛИП-времени. PURE.
 
-    Десериализует регионы, перекрашивает покрытые ручным override'ом шоты (apply_overrides_to_
-    regions — границы t0/t1 НЕ трогаются, инвариант кадровой сетки цел), разворачивает в клип-время.
+    Десериализует регионы, применяет ручные override'ы (apply_overrides_to_regions — полное
+    покрытие перекрашивает с сохранением t0/t1; частичный overlap РЕЖЕТ регион на frame-snapped
+    границах в нативном fps, инвариант кадровой сетки цел), разворачивает в клип-время.
     Тот же путь, что у on-demand resolve_regions_accurate → результат идентичен, только без CV.
+    fps — нативный fps источника (meta.fps), нужен для frame-snap границ split'а.
     """
     regions = [_region_from_dict(d) for d in persisted.get("regions", [])]
-    regions = apply_overrides_to_regions(regions, overrides, iv)
+    regions = apply_overrides_to_regions(regions, overrides, iv, fps=fps)
     return regions_to_clip_time([regions], [iv])
 
 

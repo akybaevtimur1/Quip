@@ -739,6 +739,153 @@ class TestDetectSceneCutsResourceRelease:
         assert released["n"] == 1
 
 
+class TestMinSceneFrames:
+    """LAYER 1: min_scene_len для ContentDetector привязан к НАТИВНОМУ fps, не к
+    библиотечному дефолту 15 кадров (0.5с@30fps глотал быстрые реакционные склейки).
+
+    0.25с лоупасс пропускает короткий рез на лицо, но душит саб-четвертьсекундный строб.
+    Пол = 2 кадра (ContentDetector требует ≥1; 2 — минимальный осмысленный шот).
+    """
+
+    def test_quarter_second_grid_for_common_fps(self) -> None:
+        from app.pipeline.stage3_reframe import _min_scene_frames
+
+        assert _min_scene_frames(24.0, 0.25) == 6  # round(24*0.25)=6
+        assert _min_scene_frames(25.0, 0.25) == 6  # round(25*0.25)=round(6.25)=6
+        assert _min_scene_frames(29.97, 0.25) == 7  # round(29.97*0.25)=round(7.49)=7
+        assert _min_scene_frames(60.0, 0.25) == 15  # round(60*0.25)=15
+
+    def test_never_below_two_frames(self) -> None:
+        from app.pipeline.stage3_reframe import _min_scene_frames
+
+        # очень малый min_scene_sec / низкий fps → пол = 2 (ContentDetector требует ≥1)
+        assert _min_scene_frames(25.0, 0.0) == 2
+        assert _min_scene_frames(1.0, 0.25) == 2  # round(0.25)=0 → пол 2
+
+    def test_below_library_default_for_30fps(self) -> None:
+        from app.pipeline.stage3_reframe import _min_scene_frames
+
+        # ключевой regression: 0.25с@30fps = 8 кадров < библиотечный дефолт 15 →
+        # быстрый рез (≈8-14 кадров) выживает как своя сцена, а не дропается.
+        assert _min_scene_frames(30.0, 0.25) == 8
+        assert _min_scene_frames(30.0, 0.25) < 15
+
+
+class TestDetectSceneCutsMinSceneLen:
+    """detect_scene_cuts ОБЯЗАН передать min_scene_len (нативная сетка), а НЕ полагаться
+    на библиотечный дефолт 15 кадров, который глотает короткие склейки до их детекции.
+    """
+
+    @staticmethod
+    def _patch_ffmpeg_ok(monkeypatch: "pytest.MonkeyPatch") -> None:
+        import app.pipeline.stage3_reframe as mod
+
+        class _Proc:
+            returncode = 0
+            stderr = ""
+
+        monkeypatch.setattr(mod.subprocess, "run", lambda *a, **k: _Proc())
+
+    def test_passes_native_fps_min_scene_len_to_content_detector(
+        self, monkeypatch: "pytest.MonkeyPatch"
+    ) -> None:
+        import scenedetect
+
+        from app.pipeline.stage3_reframe import detect_scene_cuts
+
+        self._patch_ffmpeg_ok(monkeypatch)
+        captured: dict[str, object] = {}
+
+        class _Cap:
+            def release(self) -> None: ...
+
+        class _Vid:
+            capture = _Cap()
+
+        class _SM:
+            def add_detector(self, *_a: object) -> None: ...
+            def detect_scenes(self, *_a: object) -> None: ...
+            def get_scene_list(self) -> list:
+                return []
+
+        def _spy_detector(**kwargs: object) -> object:
+            captured.update(kwargs)
+            return object()
+
+        monkeypatch.setattr(scenedetect, "open_video", lambda *_a: _Vid())
+        monkeypatch.setattr(scenedetect, "SceneManager", lambda: _SM())
+        monkeypatch.setattr(scenedetect, "ContentDetector", _spy_detector)
+
+        # 29.97fps, min_scene_sec=0.25 → round(29.97*0.25)=7, НЕ библиотечный дефолт 15.
+        detect_scene_cuts(__import__("pathlib").Path("x.mp4"), 0.0, 1.0, 29.97, min_scene_sec=0.25)
+        assert captured.get("min_scene_len") == 7
+        assert captured.get("threshold") == 27.0  # порог не трогаем (H1 исключён)
+
+    def test_min_scene_len_defaults_to_quarter_second(
+        self, monkeypatch: "pytest.MonkeyPatch"
+    ) -> None:
+        import scenedetect
+
+        from app.pipeline.stage3_reframe import detect_scene_cuts
+
+        self._patch_ffmpeg_ok(monkeypatch)
+        captured: dict[str, object] = {}
+
+        class _Cap:
+            def release(self) -> None: ...
+
+        class _Vid:
+            capture = _Cap()
+
+        class _SM:
+            def add_detector(self, *_a: object) -> None: ...
+            def detect_scenes(self, *_a: object) -> None: ...
+            def get_scene_list(self) -> list:
+                return []
+
+        def _spy_detector(**kwargs: object) -> object:
+            captured.update(kwargs)
+            return object()
+
+        monkeypatch.setattr(scenedetect, "open_video", lambda *_a: _Vid())
+        monkeypatch.setattr(scenedetect, "SceneManager", lambda: _SM())
+        monkeypatch.setattr(scenedetect, "ContentDetector", _spy_detector)
+
+        # без явного min_scene_sec → дефолт 0.25с @30fps = round(30*0.25)=8 (< библ. 15)
+        detect_scene_cuts(__import__("pathlib").Path("x.mp4"), 0.0, 1.0, 30.0)
+        assert captured.get("min_scene_len") == 8
+
+
+class TestMergeShortRegionsFounderCut:
+    """LAYER 2: при min_hold_sec=0.8 (новый дефолт) ~1с реакционный рез ВЫЖИВАЕТ как свой
+    регион (юзер может тоглить шот), но 0.4с-микрорегион всё ещё гасится (анти-строб).
+    """
+
+    def test_one_second_region_survives_at_0_8_hold(self) -> None:
+        # ~1с рез на лицо: при дефолте 1.5 он глотался предыдущим; при 0.8 — остаётся.
+        regions = [
+            TrackRegion(0.0, 3.0, "fit", ()),
+            TrackRegion(3.0, 4.0, "fill", ()),  # 1.0с ≥ 0.8 → СВОЙ регион
+            TrackRegion(4.0, 7.0, "fit", ()),
+        ]
+        result = merge_short_regions(regions, min_hold_sec=0.8)
+        assert len(result) == 3
+        assert result[1].mode == "fill"
+        assert result[1].t0 == 3.0 and result[1].t1 == 4.0
+
+    def test_sub_half_second_region_still_folded_at_0_8_hold(self) -> None:
+        # 0.4с < 0.8 → всё ещё поглощается предыдущим (анти-строб пол держится).
+        regions = [
+            TrackRegion(0.0, 3.0, "fit", ()),
+            TrackRegion(3.0, 3.4, "fill", ()),  # 0.4с < 0.8 → съеден
+            TrackRegion(3.4, 7.0, "fit", ()),
+        ]
+        result = merge_short_regions(regions, min_hold_sec=0.8)
+        assert len(result) == 2
+        assert result[0].mode == "fit"
+        assert result[0].t0 == 0.0 and result[0].t1 == 3.4
+
+
 class TestResampleTrack:
     """resample_track: дорожка ASD@25fps → нативная сетка fps (фикс флеша на ≠25fps видео).
 

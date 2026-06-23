@@ -622,13 +622,22 @@ def flatten_timeline(
     """Интервалы + регионы (interval-relative) → плоский список сегментов в SOURCE-кадрах. PURE."""
     segs: list[TimelineSegment] = []
     for iv, regions in zip(intervals, regions_per_interval, strict=True):
+        # ⚠️ REFRAME_FPS_GRID_INVARIANT (editor-путь): регионы построены reframe_segment
+        # ОТНОСИТЕЛЬНО aligned_start = round(source_start*fps)/fps (нативный кадр-origin), где
+        # склейка лежит ровно на t0=cut_frame/fps. Якорим source-кадры на ТОТ ЖЕ aligned origin,
+        # НЕ на сырой source_start: round(source_start*fps) — точное целое K, поэтому
+        # round((aligned+t0)*fps) = K + cut_frame ТОЧНО = абсолютный кадр, на который садится
+        # одно-интервальный render_clip (-ss aligned_start + trim round(t0*fps)). Старый код брал
+        # сырой source_start (off-grid) + round(...,3) → промах ±1 кадр на ≠25fps мульти-интервале
+        # = флеш (невидим на 25fps/целых стартах, поэтому тесты были зелёными). Δ=0.
+        aligned = round(iv.source_start * fps) / fps
         for r in regions:
-            st0 = round(iv.source_start + r.t0, 3)
-            st1 = round(iv.source_start + r.t1, 3)
+            st0 = round(aligned + r.t0, 3)
+            st1 = round(aligned + r.t1, 3)
             segs.append(
                 TimelineSegment(
-                    src_f0=round(st0 * fps),
-                    src_f1=round(st1 * fps),
+                    src_f0=round((aligned + r.t0) * fps),
+                    src_f1=round((aligned + r.t1) * fps),
                     src_t0=st0,
                     src_t1=st1,
                     mode=r.mode,

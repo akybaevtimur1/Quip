@@ -120,6 +120,12 @@ vf = vf[: int(round(length * 25)), ...]      # видео @25fps
   CONST = ступенька, ~3% шаги; превью редактора уже линейное+CSS-glide, `b571b55`). Линейный expr =
   по-настоящему плавный пан в скачанном файле. Безопасно: это cx ВНУТРИ fill-региона, границы (trim-
   кадры) не трогаются. Follow-up по запросу фаундера.
+- **Ручной split региона по override (`apply_overrides_to_regions`, 2026-06-23):** override с
+  произвольным под-диапазоном РЕЖЕТ покрытый регион на под-интервалы (interval-painting) и красит
+  каждый по последнему покрывающему override. КАЖДАЯ новая граница ОБЯЗАНА быть frame-snapped
+  (`_snap(t,fps)=round(t*fps)/fps`) в НАТИВНОМ fps; внешние края = собственные (уже on-grid) края шота.
+  Не snap'нул новую границу = вернул флеш на ≠25fps. Контракт `CropOverride` не менялся (фронт шлёт
+  произвольный source-диапазон, бэк снапит и режет).
 
 ## Что НЕЛЬЗЯ менять без перечитывания этого файла
 
@@ -147,14 +153,24 @@ uv run python tmp/verify_grid_fix.py
 
 ---
 
-## Известное (НЕ закрыто этим фиксом)
+## Известное (статус)
 
-- **Editor-путь** (`app/editor/reframe_cache.py` → `resolve_regions` → `render_timeline`) —
-  отдельный код (`sample_faces_continuous` + `detect_cuts` в секундах). У него МОГЛА остаться
-  своя рассинхронизация на ≠25fps. Главный (batch) путь — починен. Если флеши вылезут именно
-  В РЕДАКТОРЕ — копать там тем же методом (сетка cuts vs сетка `flatten_timeline`/render).
-- Реальная склейка, которую PySceneDetect пропустил (порог `reframe_scene_threshold`), —
-  это «держим старый кадр на новом контенте», НЕ флеш. Лечится порогом, не сеткой.
+- **Editor-путь МУЛЬТИ-интервал — ЗАКРЫТО (2026-06-23, свип №2).** Раньше: `render_timeline` при >1
+  интервала шёл в `flatten_timeline`+`build_timeline_filter` (полный вход, БЕЗ `-ss`) и якорил
+  trim-кадры на СЫРОЙ `iv.source_start` + `round(.,3)`, тогда как регионы построены `reframe_segment`
+  от `aligned_start = round(source_start*fps)/fps`. На off-grid старте (нормально после трима/нарезки)
+  `round((source_start+t0)*fps)` промахивал на ±1 кадр (численно 1.39% комбо на ≠25fps, 0% после) →
+  флеш. Продуктовый editor-путь = `resolve_regions_accurate` → `reframe_segment` (НЕ legacy
+  `resolve_regions`/`detect_cuts`-в-секундах — тот benchmark-only). Фикс: `flatten_timeline` якорит
+  на тот же `aligned` → `src_f0 = round((aligned + r.t0)*fps)` = абсолютный кадр одно-интервального
+  `render_clip`, Δ=0. DoD: `tmp/verify_editor_flash_multiinterval.py` (29.97fps, 2 интервала, MAX = 0.0).
+- **Короткие шоты больше не «съедаются» молча (2026-06-23):** `min_scene_len` от нативного fps
+  (`reframe_min_scene_sec=0.25`) вместо дефолта либы 15 кадров + `reframe_min_hold_sec` 1.5→0.8. После
+  фикса A смена fill↔fit на реальной склейке = невидимый hard-cut, поэтому агрессивный merge больше не
+  нужен как анти-флеш (лишь лёгкий анти-строб). Границы остаются на нативных кадрах.
+- Реальная склейка, пропущенная порогом `reframe_scene_threshold`, — это «держим старый кадр на новом
+  контенте», НЕ флеш (лечится порогом, не сеткой). Если нужного шота всё же нет — ручной **«Split here»**
+  в редакторе ставит границу (frame-snapped) и тайтит под-диапазон.
 
 ---
 

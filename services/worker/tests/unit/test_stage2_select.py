@@ -9,6 +9,7 @@ import pytest
 from app.errors import JobError
 from app.models import ClipType, Transcript, Word
 from app.pipeline.stage2_select import (
+    _backoff_delay,
     build_indexed_transcript,
     build_user_prompt,
     clamp_score,
@@ -584,3 +585,35 @@ class TestPostprocess:
         segs = postprocess(raw, words, min_sec=15, max_sec=60)
         assert len(segs) == 1
         assert segs[0].reason == "b"
+
+
+class TestBackoffDelay:
+    """Backoff с jitter: де-коррелирует ретраи параллельных джоб под provider-wide 503."""
+
+    def test_within_bounds_for_attempts_0_to_6(self) -> None:
+        # Верхняя граница = min(2**attempt, cap=30); нижняя = 0 (jitter не уходит в минус).
+        for attempt in range(7):
+            ceil = min(2**attempt, 30)
+            for _ in range(200):
+                d = _backoff_delay(attempt)
+                assert 0.0 <= d <= ceil, f"attempt={attempt}: {d} not in [0, {ceil}]"
+
+    def test_equal_jitter_keeps_minimum_wait(self) -> None:
+        # equal-jitter: гарантированный минимум = 0.5 * min(2**attempt, cap).
+        for attempt in range(7):
+            ceil = min(2**attempt, 30)
+            for _ in range(200):
+                d = _backoff_delay(attempt)
+                assert d >= 0.5 * ceil, f"attempt={attempt}: {d} < {0.5 * ceil}"
+
+    def test_cap_honoured_at_high_attempts(self) -> None:
+        # При attempt >> log2(cap) потолок остаётся cap (не растёт экспоненциально дальше).
+        for _ in range(200):
+            d = _backoff_delay(20)
+            assert 15.0 <= d <= 30.0
+
+    def test_decorrelated_not_all_identical(self) -> None:
+        # Главная цель фикса: повторные вызовы для одного attempt не совпадают
+        # (jitter рассинхронизирует волны ретраев). Детерминированный delay → set размера 1.
+        vals = {_backoff_delay(5) for _ in range(50)}
+        assert len(vals) > 1

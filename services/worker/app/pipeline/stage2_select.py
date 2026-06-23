@@ -11,6 +11,7 @@ LLM (Gemini, structured output) возвращает ИНДЕКСЫ СЛОВ (н
 from __future__ import annotations
 
 import json
+import random
 import time
 from pathlib import Path
 from typing import Any
@@ -243,6 +244,17 @@ def is_transient_gemini_error(exc: BaseException) -> bool:
     return True
 
 
+def _backoff_delay(attempt: int, *, cap: float = 30.0) -> float:
+    """Задержка перед ретраем: equal-jitter поверх экспоненты с потолком.
+
+    Без jitter все параллельные джобы под provider-wide 503 ретраят В ЛОКСТЕП → каждая волна
+    заново спайкает Gemini синхронно. Equal-jitter рассинхронизирует волны, сохраняя осмысленный
+    минимум ожидания (половина детерминированного бэкоффа): delay ∈ [0.5·c, c], c = min(2^n, cap).
+    """
+    ceil = min(2.0**attempt, cap)
+    return ceil * (0.5 + 0.5 * random.random())
+
+
 # ─────────────────────────── промпт + structured output (Gemini) ───────────────────────────
 
 _PROMPT_PATH = Path(__file__).resolve().parents[1] / "prompts" / "select_moments.v2.txt"
@@ -392,7 +404,7 @@ def call_gemini_structured(
             if not is_transient_gemini_error(e):
                 raise JobError(stage, f"Gemini: non-retryable error: {e}") from e
             if attempt < _MAX_ATTEMPTS - 1:
-                time.sleep(min(2**attempt, 30))
+                time.sleep(_backoff_delay(attempt))
 
     if resp is None:
         for fb_model in _FALLBACK_MODELS:
@@ -407,7 +419,7 @@ def call_gemini_structured(
                     if not is_transient_gemini_error(e):
                         raise JobError(stage, f"Gemini: non-retryable error: {e}") from e
                     if attempt < 2:
-                        time.sleep(min(2**attempt, 30))
+                        time.sleep(_backoff_delay(attempt))
             if resp is not None:
                 break
 

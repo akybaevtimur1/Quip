@@ -155,6 +155,7 @@ def render_one_clip(
         min_hold_sec=s.reframe_min_hold_sec,
         speak_threshold=s.reframe_speak_threshold,
         scene_threshold=s.reframe_scene_threshold,
+        min_scene_sec=s.reframe_min_scene_sec,
         split_enabled=s.reframe_split_enabled,
         wide_speak_min=s.reframe_wide_speak_min,
     )  # fmt: skip

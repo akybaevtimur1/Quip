@@ -105,10 +105,20 @@ class Settings(BaseSettings):
     reframe_face_fps: float = 25.0
     reframe_smoothing: float = 0.15  # exponential smoothing коэф (0=без; 1=нет сглаж.)
     # анти-флеш: регион < min_hold НЕ переключает режим, поглощается предыдущим.
-    reframe_min_hold_sec: float = 1.5
+    # 0.8 (было 1.5): после фикса кадровой сетки (flatten_timeline/round(t*fps)) смена
+    # fill↔fit НА РЕАЛЬНОЙ нативной склейке — это НЕВИДИМЫЙ жёсткий cut (контент и так
+    # прыгает), агрессивный мердж больше НЕ нужен для гашения флешей — только лёгкий
+    # анти-строб пол против 1-кадрового мелькания режима на шуме детектора. 1.5 глотал
+    # реальные ~1с реакционные резы (рез на лицо исчезал, редактор не мог его тоглить).
+    reframe_min_hold_sec: float = 0.8
     reframe_wide_ratio: float = 0.5  # editor: wide_spread_min для resolve_regions
     # PySceneDetect ContentDetector (~27) + ASD порог говорения.
     reframe_scene_threshold: float = 27.0
+    # min_scene_len ContentDetector в СЕКУНДАХ → нативные кадры (round(fps*sec), пол 2).
+    # Без этого библиотека берёт дефолт 15 кадров (0.5с@30fps) + FlashFilter.MERGE и дропает
+    # короткий рез ДО детекции. 0.25с пропускает быстрый реакционный рез, душит саб-четверть-
+    # секундный строб. Это фильтр ДЕТЕКЦИИ — границы остаются на реальных нативных склейках.
+    reframe_min_scene_sec: float = 0.25
     reframe_speak_threshold: float = 0.0  # ниже порога → фолбэк на largest-face
     # ГИБРИД (фаундер): на широком плане, если кто-то говорит с speak ≥ этого → кропим спикера
     # (fill), а не fit. Шкала ASD speak ≈ [-2..+1]; 0.3 = «явно говорит». Ниже → split/fit.

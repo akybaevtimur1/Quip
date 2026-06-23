@@ -370,7 +370,11 @@ def _gemini_turn(system_prompt: str, prior_turns: list[dict[str, Any]] | None = 
     from google import genai
     from google.genai import types
 
-    from app.pipeline.stage2_select import _MAX_ATTEMPTS, is_transient_gemini_error
+    from app.pipeline.stage2_select import (
+        _MAX_ATTEMPTS,
+        _backoff_delay,
+        is_transient_gemini_error,
+    )
 
     s = get_settings()
     if s.gemini_api_key is None:
@@ -428,7 +432,7 @@ def _gemini_turn(system_prompt: str, prior_turns: list[dict[str, Any]] | None = 
                     if not is_transient_gemini_error(e):
                         break  # перманентно для ЭТОЙ модели (напр. 404) → следующая модель
                     if attempt < _MAX_ATTEMPTS - 1:
-                        time.sleep(min(2**attempt, 30))
+                        time.sleep(_backoff_delay(attempt))
         raise JobError(_STAGE, f"Gemini unavailable after all models/attempts: {last}")
 
     def turn(history: list[dict[str, Any]]) -> ModelTurn:
