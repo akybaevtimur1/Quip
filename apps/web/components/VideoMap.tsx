@@ -82,7 +82,10 @@ function parseNarrative(
         <Link
           key={`${match.index}`}
           href={`/edit/${jobId}/${clipId}`}
-          className="font-semibold text-accent underline decoration-accent/40 underline-offset-2 hover:decoration-accent transition-colors duration-150"
+          // inline-block + whitespace-nowrap: тег «Clip #N» АТОМАРЕН — никогда не рвётся между строк
+          // («Clip» / «#3»). Лёгкая coral-pill (bg вместо подчёркивания) + mx-px: ряд из многих клипов
+          // подряд читается раздельными тегами с воздухом, а не сплошной подчёркнутой стеной.
+          className="mx-px inline-block whitespace-nowrap rounded bg-accent/10 px-1.5 py-0.5 align-baseline text-xs font-semibold text-accent hover:bg-accent/20 transition-colors duration-150"
         >
           Clip #{clipNum(clipId)}
         </Link>,
