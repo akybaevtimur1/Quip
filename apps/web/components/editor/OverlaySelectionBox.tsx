@@ -211,6 +211,9 @@ export function OverlaySelectionBox({
     const node = boxRef.current;
     const box = node ? renderBoxRect(node) : null;
     if (!node || !box) return;
+    // A fresh gesture supersedes any in-flight reconcile transform — clear it BEFORE measuring, so
+    // baseLeft/baseTop are the clean LAYOUT position (the drag transform is taken relative to it).
+    clearCanvasTransform();
     const nr = node.getBoundingClientRect();
     moveRef.current = {
       startX: e.clientX,
@@ -219,8 +222,6 @@ export function OverlaySelectionBox({
       baseTop: nr.top - box.top,
       moved: false,
     };
-    // A fresh gesture supersedes any in-flight reconcile from the previous commit.
-    clearCanvasTransform();
     e.currentTarget.setPointerCapture(e.pointerId);
   };
   const onBodyMove = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -260,17 +261,14 @@ export function OverlaySelectionBox({
     } else {
       guidesRef?.current?.hide();
     }
-    // imperative: move the box itself (no React state → no re-render on move). Always position
-    // by top/left during the drag (clear the % anchor) so X and Y are free.
-    node.style.left = `${(snapLeft / box.width) * 100}%`;
-    node.style.top = `${(snapTop / box.height) * 100}%`;
-    node.style.bottom = "auto";
-    // Move THIS element's libass text by the SAME px delta so the rendered glyphs track the frame
-    // 1:1 during the drag (no separation). Canvas shares the render-box coord space → identical px.
-    setCanvasTransform(
-      `translate(${snapLeft - m.baseLeft}px, ${snapTop - m.baseTop}px)`,
-      "0 0",
-    );
+    // Move BOTH the frame and the libass text by the SAME GPU transform (translate) → perfect
+    // lockstep, composited, zero layout reflow. The box keeps its rect-based layout position; this
+    // transform is purely the visual drag offset (getBoundingClientRect at commit includes it).
+    // Previously the frame moved via left/top (LAYOUT — not GPU, steps per frame) while the text
+    // moved via transform (GPU, smooth) → the two desynced and the text "jittered like crazy".
+    const tx = `translate(${snapLeft - m.baseLeft}px, ${snapTop - m.baseTop}px)`;
+    node.style.transform = tx;
+    setCanvasTransform(tx, "0 0");
   };
   const onBodyUp = () => {
     const m = moveRef.current;
