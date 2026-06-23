@@ -586,6 +586,20 @@ def _min_scene_frames(fps: float, min_scene_sec: float) -> int:
     return max(2, round(fps * min_scene_sec))
 
 
+def _scene_cut_offset(fps: float) -> int:
+    """Сдвиг кадра склейки PySceneDetect → сетка рендера. PURE.
+
+    detect_scene_cuts реэнкодит сегмент с `-r fps`. На ДРОБНОМ fps (29.97/23.976/59.94…) это
+    РЕСЭМПЛ в CFR → сетка детектора опережает нативный декод рендера на кадр, и PySceneDetect
+    возвращает склейку на кадр ПОЗЖЕ → вычитаем 1. На ЦЕЛОМ fps (24/25/30/60) `-r` = no-op,
+    ресэмпла нет → склейка точна → offset 0. Жёсткий `-1` (старый код) на 25fps уводил границу на
+    кадр РАНЬШЕ контент-склейки → 1 кадр старого шота показывался в НОВОМ режиме = флеш на переходе
+    tight↔wide (пойман глазами на реальном 25fps Tom Holland: контент-cut 402, PySceneDetect тоже
+    402, но -1 → 401 → кадр 401 = старый шот уже в wide). Δ=0 цел (вычитаем ЦЕЛЫЙ кадр).
+    """
+    return 1 if abs(fps - round(fps)) > 1e-3 else 0
+
+
 def detect_scene_cuts(
     video: Path,
     start: float,
@@ -655,12 +669,12 @@ def detect_scene_cuts(
             if vid is not None and hasattr(vid, "capture") and hasattr(vid.capture, "release"):
                 vid.capture.release()
     # get_scene_list даёт [(start, end), …]; склейка = start КАДР каждой сцены, кроме первой (0).
-    # ⚠️ -1: PySceneDetect помечает склейку на 1 кадр ПОЗЖЕ реального контент-перехода
-    # относительно сетки рендера (re-encode detect vs render-decode расходятся на кадр). Без
-    # этого граница региона = контент-склейка+1 → 1 кадр нового шота держит СТАРЫЙ кроп = флеш
-    # (пойман глазами: контент-cut на кадре 261, PySceneDetect вернул 262). Сетка цела: t0=
-    # (cut-1)/fps по-прежнему ТОЧНЫЙ кадр → round(t0*fps)=cut-1, Δ=0 (REFRAME_FPS_GRID_INVARIANT).
-    return [max(1, s[0].get_frames() - 1) for s in scenes[1:]]
+    # ⚠️ Сдвиг детектор→рендер ЗАВИСИТ ОТ fps (_scene_cut_offset): дробный fps → -1 (как было на
+    # 29.97: cut@261, PySceneDetect 262), ЦЕЛЫЙ fps → 0. Жёсткий -1 на 25fps уводил границу на кадр
+    # РАНЬШЕ контент-склейки = 1 кадр старого шота в НОВОМ режиме = флеш на tight↔wide
+    # (REFRAME_FPS_GRID_INVARIANT). Δ=0 цел: t0=(cut-off)/fps ТОЧНЫЙ кадр → round(t0*fps)=cut-off.
+    off = _scene_cut_offset(fps)
+    return [max(1, s[0].get_frames() - off) for s in scenes[1:]]
 
 
 # ─────────────────────────── I/O: кадры (ffmpeg) + лица (MediaPipe) ───────────────────────────

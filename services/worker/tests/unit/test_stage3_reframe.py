@@ -759,10 +759,9 @@ class TestDetectSceneCutsResourceRelease:
         monkeypatch.setattr(scenedetect, "ContentDetector", lambda **_k: object())
 
         cuts = detect_scene_cuts(__import__("pathlib").Path("x.mp4"), 0.0, 1.0, 25.0)
-        # start-кадр сцены = 50, но возвращаем 49 (-1): PySceneDetect помечает склейку на 1 кадр
-        # позже реального контент-перехода относительно сетки рендера → без -1 первый кадр
-        # нового шота держит старый кроп = флеш. Целое число → frame-grid Δ=0 контракт цел.
-        assert cuts == [49]
+        # 25fps = ЦЕЛЫЙ fps → _scene_cut_offset == 0 → склейка = start-кадр сцены 50 (РОВНО на
+        # контент-cut). На дробном fps был бы 49 (-1, см. TestSceneCutOffset). Целое → Δ=0 цел.
+        assert cuts == [50]
         assert released["n"] == 1
 
 
@@ -879,6 +878,22 @@ class TestDetectSceneCutsMinSceneLen:
         # без явного min_scene_sec → дефолт 0.4с @30fps = round(30*0.4)=12 (< библ. 15)
         detect_scene_cuts(__import__("pathlib").Path("x.mp4"), 0.0, 1.0, 30.0)
         assert captured.get("min_scene_len") == 12
+
+
+class TestSceneCutOffset:
+    """fps-зависимый сдвиг кадра склейки детектор→рендер (фикс 1-кадрового флеша на 25fps)."""
+
+    def test_integer_fps_no_offset(self) -> None:
+        from app.pipeline.stage3_reframe import _scene_cut_offset
+
+        for fps in (24.0, 25.0, 30.0, 50.0, 60.0):
+            assert _scene_cut_offset(fps) == 0, fps
+
+    def test_fractional_fps_offset_one(self) -> None:
+        from app.pipeline.stage3_reframe import _scene_cut_offset
+
+        for fps in (23.976, 29.97, 59.94):
+            assert _scene_cut_offset(fps) == 1, fps
 
 
 class TestMergeShortRegionsFounderCut:
