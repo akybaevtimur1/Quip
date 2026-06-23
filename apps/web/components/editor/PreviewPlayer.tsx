@@ -1,7 +1,7 @@
 "use client";
 
 import { Loader2, Maximize2, Minimize2, Pause, Play, Volume2, VolumeX } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 // ── PreviewPlayer — превью 9:16 с СОБСТВЕННЫМИ контролами ──
 // Видео = ИСТОЧНИК (source.mp4), залуплен в [outerStart, outerEnd). Нативные
@@ -57,6 +57,22 @@ export function PreviewPlayer({
   const mode = frame?.mode ?? "fill";
   const cx = frame?.cx ?? 0.5;
   const cxB = frame?.cxB ?? 0.7;
+
+  // На СМЕНЕ режима (между шотами: fill↔fit↔split) переключаемся МГНОВЕННО — гасим 300мс
+  // CSS-анимацию object-position на мастер-видео на ОДИН кадр (иначе браузер пан-анимирует кроп
+  // на стыке tight↔wide = «зум-эффект»/мельк; фаундер: на склейке нужен мгновенный hard-switch
+  // ровно на переходе, как в рендере, без зума). Плавный transition (для пана cx ВНУТРИ одного
+  // fill-шота) возвращаем сразу следующим кадром. useLayoutEffect (до отрисовки) + imperative
+  // style — чтобы НЕ читать ref в фазе рендера (eslint react-hooks/refs).
+  useLayoutEffect(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    v.style.transition = "none"; // мгновенный switch режима без пан-анимации
+    const raf = requestAnimationFrame(() => {
+      if (videoRef.current) videoRef.current.style.transition = "";
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [mode, videoRef]);
 
   // ── numeric aspect ratio (W/H) parsed from aspectClass (`aspect-[9/16]` → 9/16) ──
   // Drives the CSS-only "contain" width: the render box width = min(full container
