@@ -97,8 +97,24 @@ Clamp display sizes responsively (`clamp()`); never let a headline wrap to 5+ sh
 
 ## Component primitives (`components/ui/`)
 Reusable, token-only, a11y-first. No god-components, no hardcoded hex.
-`Button` (primary/secondary/ghost, sizes, loading, press feedback) · `Input` · `Card` · `Badge`
-(clip-type) · `Chip` · `Container` · `Section` · `Stat` (tabular) · `Logo` · `Eyebrow`.
+`Button` (primary/secondary/ghost/accent) · `Input` (error/disabled) · `Card` (interactive/selected) ·
+`Container` (default/wide/prose) · `Section` (tight/default/loose) · `Logo` · `Select`/`Switch`/`Checkbox`
+(now ink-on, not coral — keeps the accent scarce) · `IconButton`.
+**Instrument-language primitives (2026-06-23):** `Eyebrow` (mono uppercase label — the single
+section-label voice) · `Numeral` (inline mono tabular) · `Meter` (thin value-keyed gauge) ·
+`Stat` (THE confidence/credit/count readout = mono value + Eyebrow + optional Meter) ·
+`Badge` (clip-type/status chip keyed to tokens) · `Skeleton` · `Spinner` · `EmptyState` ·
+`Split` (asymmetric rail+canvas layout — the centered-card-stack killer).
+
+## Instrument language (the cohesion signature, 2026-06-23)
+The product hands you a verdict, so the app reads like an instrument's readout panel.
+- **The confidence SCORE is the recurring hero** — rendered everywhere via `Stat` (dashboard
+  ClipCard, results masthead, editor chrome, landing hero/closer). One component, one look.
+- **Mono numerals are the data typeface** — every score/timecode/duration/%/price/count in
+  `font-mono tabular-nums`. Onest display is reserved for human headlines/verdicts.
+- **Confidence color = `ok`/green** (the semantic), NOT coral — so coral stays the scarce
+  CTA/live-signal accent (≤1–2 per view). Selection = ring + checkbox, never dimming/opacity.
+- **Hairline panels over floating cards**; asymmetric `Split` over centered stacks.
 
 ## Anti-slop (taste pre-flight)
 Never: purple/violet "AI gradient", 3-column icon-in-circle grids, centered-everything, uniform
@@ -119,3 +135,6 @@ perf/a11y/SEO/best-practices ≥ 90. Contrast AA, visible focus, full keyboard n
 | 2026-06-13 | ~~Cool near-black~~ → **Warm near-black (concept C)** | Founder chose warm "Warm Precision" over cool B; hue cool→warm, lightness/AA unchanged |
 | 2026-06-13 | Display = Onest (drop Unbounded) | quip.ink uses Onest 700; already wired |
 | 2026-06-13 | Coral kept as sole accent | In quip mark + both ref clusters + burned into every exported clip |
+| 2026-06-23 | **Instrument-language redesign** (dashboard/results/landing/account/editor) | Execution was AI-templated; bold rewrite to the "precision instrument" identity. Palette + functionality unchanged. |
+| 2026-06-23 | Confidence score = `ok`/green via shared `Stat`, coral reserved for CTA/active | Unify the signature across app+marketing; keep coral genuinely scarce (founder feedback: too AI-ish/coral-spread) |
+| 2026-06-23 | Toggles/checkboxes "on" = ink, input focus = line-strong | Stop coral over-spend in routine chrome (the one-accent rule was leaking) |

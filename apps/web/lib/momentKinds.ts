@@ -11,22 +11,22 @@ export const KIND_COLOR: Record<
   },
   emotional: {
     dot: "bg-peak",
-    chip: "bg-[rgba(192,107,255,0.12)] border-[rgba(192,107,255,0.3)]",
+    chip: "bg-peak/12 border-peak/30",
     label: "Emotional",
   },
   quote: {
     dot: "bg-quote",
-    chip: "bg-[rgba(77,141,255,0.12)] border-[rgba(77,141,255,0.3)]",
+    chip: "bg-quote/12 border-quote/30",
     label: "Quote",
   },
   insight: {
     dot: "bg-thought",
-    chip: "bg-[rgba(25,189,139,0.12)] border-[rgba(25,189,139,0.3)]",
+    chip: "bg-thought/12 border-thought/30",
     label: "Insight",
   },
   funny: {
     dot: "bg-warn",
-    chip: "bg-[rgba(245,179,46,0.12)] border-[rgba(245,179,46,0.3)]",
+    chip: "bg-warn/12 border-warn/30",
     label: "Funny",
   },
 };

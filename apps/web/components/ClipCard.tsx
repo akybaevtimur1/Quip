@@ -86,10 +86,12 @@ export function ClipCard({
     };
   }, [clip.score]);
 
-  // Score reads as a confidence reading out of 100 (mirrors the editor's "% match").
-  // Coral meter only for the single top clip; pending clips keep a calm neutral meter.
+  // Score reads as a confidence reading out of 100. Confidence uses the OK/green semantic
+  // (DESIGN.md) — the same treatment on the landing, editor and account — so coral stays the
+  // scarce CTA/live accent. The single top clip gets a green VALUE too (the standout), every
+  // other ready card a green meter + ink value; pending clips keep a calm neutral meter.
   const score100 = Math.round(displayScore * 100);
-  const meterTone = pending ? "neutral" : topClip ? "accent" : "neutral";
+  const meterTone = pending ? "neutral" : "ok";
 
   return (
     <Card
@@ -130,8 +132,8 @@ export function ClipCard({
             aria-label={selected ? "Deselect" : "Select"}
             className={`absolute right-2 top-2 z-40 inline-flex size-7 items-center justify-center rounded-sm border transition duration-150 ease-snappy active:scale-95 ${
               selected
-                ? "border-accent bg-accent text-white"
-                : "border-line-strong bg-bg/70 text-transparent backdrop-blur hover:border-accent/60 hover:text-white/40"
+                ? "border-ink bg-ink text-bg"
+                : "border-line-strong bg-bg/70 text-transparent backdrop-blur hover:border-line-strong hover:text-ink/40"
             }`}
           >
             <Check className="size-4" strokeWidth={3} />
@@ -155,7 +157,7 @@ export function ClipCard({
             label="Confidence"
             value={score100}
             suffix="/100"
-            tone={topClip && !pending ? "accent" : "ink"}
+            tone={topClip && !pending ? "ok" : "ink"}
             meter={displayScore}
             meterTone={meterTone}
           />
