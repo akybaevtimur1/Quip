@@ -8,6 +8,7 @@ import {
   getAgentRun,
   startAgentRun,
 } from "@/lib/api";
+import { Eyebrow } from "@/components/ui/Eyebrow";
 import type { AgentEvent, AgentRun, AgentRunStatus } from "@/lib/types";
 
 // ── Таб «Agent» (W3): чат-редактор клипа. Агент правит ИНТЕРВАЛ и ХУК тулзами (не субтитры,
@@ -62,7 +63,7 @@ function ProcessBlock({ steps, live }: { steps: AgentEvent[]; live: boolean }) {
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center gap-1.5 px-2.5 py-1.5 text-left text-[11px] transition hover:text-ink"
+        className="flex w-full items-center gap-1.5 px-2.5 py-1.5 text-left text-xs transition duration-150 ease-snappy hover:text-ink"
         aria-expanded={open}
       >
         {live ? (
@@ -74,19 +75,26 @@ function ProcessBlock({ steps, live }: { steps: AgentEvent[]; live: boolean }) {
           />
         )}
         <span className="font-medium">{summary}</span>
-        {!live && <span className="ml-auto text-[10px] opacity-70">{open ? "Hide" : "Details"}</span>}
+        {!live && <span className="ml-auto text-xs opacity-70">{open ? "Hide" : "Details"}</span>}
       </button>
       {open && (
         <ul className="space-y-1 border-t border-line px-3 pb-2 pt-1.5">
-          {steps.map((s, i) => (
-            <li key={i} className="flex items-start gap-1.5 text-[11px] leading-snug">
-              <span
-                className="mt-1.5 size-1 shrink-0 rounded-full bg-muted/50"
-                aria-hidden
-              />
-              <span>{s.text}</span>
-            </li>
-          ))}
+          {steps.map((s, i) => {
+            // A committed action (the agent actually changed the clip) is the live signal →
+            // coral dot + ink text. Pure thinking stays a quiet muted tick.
+            const committed = s.role === "action";
+            return (
+              <li key={i} className="flex items-start gap-1.5 text-xs leading-snug">
+                <span
+                  className={`mt-1.5 size-1 shrink-0 rounded-pill ${
+                    committed ? "bg-accent" : "bg-muted/50"
+                  }`}
+                  aria-hidden
+                />
+                <span className={committed ? "text-ink" : undefined}>{s.text}</span>
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>
@@ -112,8 +120,9 @@ function ChatItemRow({ item, live }: { item: ChatItem; live: boolean }) {
       </div>
     );
   }
-  return ( // agent — финальный ответ, держим крупным/читабельным
-    <div className="max-w-[90%] rounded-lg rounded-bl-sm bg-surface-2 px-3 py-2 text-sm leading-snug text-ink">
+  return ( // agent — финальный ответ: левый ряд с волосяной коралловой линией (не залитый
+    // пузырь). Выравнивание + hairline-rule отличают ход агента от пузыря юзера справа.
+    <div className="mr-auto max-w-[90%] border-l-2 border-accent/60 pl-3 text-sm leading-snug text-ink">
       {ev.text}
     </div>
   );
@@ -270,10 +279,8 @@ export function AgentTab({
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
       <div className="flex items-center gap-2">
-        <Wand2 className="size-4 text-accent" />
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">
-          Clip agent
-        </p>
+        <Wand2 className="size-4 text-muted" />
+        <Eyebrow tone="muted">Clip agent</Eyebrow>
       </div>
 
       {/* лента */}
@@ -291,7 +298,7 @@ export function AgentTab({
                   type="button"
                   disabled={busy}
                   onClick={() => setInput(s)}
-                  className="rounded-full border border-line bg-surface-2 px-2.5 py-1 text-[11px] text-muted transition hover:border-line-strong hover:text-ink disabled:opacity-50"
+                  className="rounded-pill border border-line bg-surface-2 px-2.5 py-1 text-xs text-muted transition duration-150 ease-snappy hover:border-line-strong hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 disabled:opacity-50"
                 >
                   {s}
                 </button>
@@ -302,13 +309,13 @@ export function AgentTab({
           chatItems.map((item, i) => <ChatItemRow key={i} item={item} live={running} />)
         )}
         {inFlight && (
-          <p className="flex items-center gap-1.5 px-1 text-[11px] text-muted">
+          <p className="flex items-center gap-1.5 px-1 text-xs text-muted">
             <Loader2 className="size-3 animate-spin" /> Working on it…
           </p>
         )}
       </div>
 
-      {error && <p className="text-[11px] text-bad">{error}</p>}
+      {error && <p className="text-xs text-bad">{error}</p>}
 
       {/* ввод / Stop */}
       <div className="flex items-end gap-2">
@@ -331,7 +338,7 @@ export function AgentTab({
           <button
             type="button"
             onClick={() => void stop()}
-            className="flex size-10 shrink-0 items-center justify-center rounded-lg border border-bad/40 bg-bad/10 text-bad transition hover:bg-bad/20"
+            className="flex size-10 shrink-0 items-center justify-center rounded-lg border border-bad/40 bg-bad/10 text-bad transition duration-150 ease-snappy hover:bg-bad/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-bad/40"
             aria-label="Stop agent"
           >
             <Square className="size-4" />
@@ -341,7 +348,7 @@ export function AgentTab({
             type="button"
             disabled={busy || sending || !input.trim()}
             onClick={() => void send()}
-            className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-accent text-white transition hover:opacity-90 disabled:opacity-40"
+            className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-accent text-bg transition duration-150 ease-snappy hover:bg-accent-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 disabled:opacity-40"
             aria-label="Send"
           >
             {sending ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}

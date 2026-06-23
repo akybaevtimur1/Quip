@@ -1,9 +1,12 @@
 "use client";
 
 import { Check, Plus, RotateCcw, Scissors, Star, Trash2 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { IconButton } from "@/components/ui/IconButton";
+import { Badge } from "@/components/ui/Badge";
 import { Checkbox } from "@/components/ui/Checkbox";
+import { Eyebrow } from "@/components/ui/Eyebrow";
+import { Numeral } from "@/components/ui/Numeral";
 import { Select } from "@/components/ui/Select";
 import { Switch } from "@/components/ui/Switch";
 import type { StylePreferencePayload, StyleTemplate } from "@/lib/api";
@@ -36,6 +39,17 @@ const ANIMATIONS: { value: NonNullable<HighlightStyle["animation"]>; label: stri
   { value: "flash", label: "Flash (white to accent)" },
   { value: "none", label: "No animation" },
 ];
+
+// Primary group title (tier 1): Onest semibold ink, NOT uppercase, with a hairline rule —
+// the loud structural anchor. Eyebrow stays for tier-2 minor sub-captions inside a group.
+function GroupTitle({ children, hint }: { children: ReactNode; hint?: string }) {
+  return (
+    <div className="flex items-baseline gap-2 border-t border-line pt-4">
+      <h3 className="text-sm font-semibold text-ink">{children}</h3>
+      {hint && <span className="text-xs text-muted">{hint}</span>}
+    </div>
+  );
+}
 
 export function SubtitlesTab({
   words,
@@ -204,9 +218,7 @@ export function SubtitlesTab({
     <div className="flex flex-col gap-5 pr-1">
       {/* ───────────── LINES (content) ───────────── */}
       <section className="flex flex-col gap-2">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">
-          Lines · click to edit text · ✂ to cut from clip
-        </p>
+        <Eyebrow tone="muted">Lines · click to edit · cut to drop from clip</Eyebrow>
 
         {/* видео уже с вшитыми субтитрами → не накладывать наши (без двойных) */}
         <div className="rounded-md border border-line bg-surface-2 px-2.5 py-2">
@@ -244,9 +256,9 @@ export function SubtitlesTab({
                     type="button"
                     onClick={() => onSeekReply(i)}
                     title="Jump to line"
-                    className="shrink-0 pt-0.5 font-mono text-[10px] tabular-nums text-muted transition hover:text-accent"
+                    className="shrink-0 pt-0.5 text-muted transition hover:text-accent"
                   >
-                    {fmtSec(group[0].start)}
+                    <Numeral className="text-[10px]">{fmtSec(group[0].start)}</Numeral>
                   </button>
 
                   {isEditing ? (
@@ -276,9 +288,9 @@ export function SubtitlesTab({
                     >
                       {text}
                       {reply.text_override != null && (
-                        <span className="ml-1.5 align-middle rounded bg-accent px-1 py-px text-[9px] font-bold uppercase text-bg">
-                          edit
-                        </span>
+                        <Badge tone="neutral" className="ml-1.5 align-middle">
+                          edited
+                        </Badge>
                       )}
                     </button>
                   )}
@@ -319,18 +331,15 @@ export function SubtitlesTab({
       </section>
 
       {/* ───────────── STYLE (appearance) — one clear group: how the captions LOOK ───────────── */}
-      <div className="flex items-center gap-2 border-t border-line pt-4">
-        <span className="text-[11px] font-bold uppercase tracking-wider text-ink">Style</span>
-        <span className="text-[10px] text-muted">how your captions look</span>
-      </div>
+      <GroupTitle hint="how your captions look">Style</GroupTitle>
 
       <section className="space-y-2">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">Presets</p>
+        <Eyebrow tone="muted">Presets</Eyebrow>
         <PresetStrip activePresetId={activePresetId} onApply={onPresetApply} onError={onError} />
       </section>
 
       <section className="space-y-3">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">Colors</p>
+        <Eyebrow tone="muted">Colors</Eyebrow>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <ColorField
             label="Text color"
@@ -374,7 +383,7 @@ export function SubtitlesTab({
       </section>
 
       <section className="space-y-3">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">Text</p>
+        <Eyebrow tone="muted">Text</Eyebrow>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <label className="flex flex-col gap-1.5 text-xs text-muted">
             Font
@@ -409,7 +418,7 @@ export function SubtitlesTab({
       </section>
 
       <section className="space-y-3">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">Position</p>
+        <Eyebrow tone="muted">Position</Eyebrow>
         <DebouncedSlider
           label="Position (from bottom)"
           min={40}
@@ -422,7 +431,7 @@ export function SubtitlesTab({
       </section>
 
       <section className="space-y-3">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">Animation</p>
+        <Eyebrow tone="muted">Animation</Eyebrow>
         <label className="flex flex-col gap-1.5 text-xs text-muted">
           Active-word animation
           <Select
@@ -445,18 +454,16 @@ export function SubtitlesTab({
       </section>
 
       {/* ───────────── MY TEMPLATES (save a look → reuse on any clip / whole video) ───────────── */}
-      <section className="space-y-2.5 border-t border-line pt-4">
-        <div className="flex items-center justify-between gap-2">
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">
-            My templates
-          </p>
+      <section className="space-y-2.5">
+        <div className="flex items-center justify-between gap-2 border-t border-line pt-4">
+          <h3 className="text-sm font-semibold text-ink">My templates</h3>
           {tplMsg && (
-            <span className="truncate text-[10px] font-medium text-accent">{tplMsg}</span>
+            <span className="truncate text-xs font-medium text-ok">{tplMsg}</span>
           )}
         </div>
 
         {templates.length === 0 ? (
-          <p className="text-[11px] leading-snug text-muted">
+          <p className="text-xs leading-snug text-muted">
             Save the current look as a template, then reuse it on any clip — or apply it to a
             whole video in one click. Star one to start every new video with it.
           </p>
@@ -493,9 +500,9 @@ export function SubtitlesTab({
                   >
                     {t.name}
                     {isDefault && (
-                      <span className="ml-1.5 rounded bg-accent/15 px-1 py-px text-[9px] font-bold uppercase text-accent">
+                      <Badge tone="neutral" className="ml-1.5 align-middle">
                         default
-                      </span>
+                      </Badge>
                     )}
                   </button>
                   <button
@@ -503,7 +510,7 @@ export function SubtitlesTab({
                     onClick={() => void applyToAll(t)}
                     disabled={busy || tplBusy !== null}
                     title="Apply to ALL clips of this video"
-                    className="shrink-0 rounded border border-line px-2 py-1 text-[10px] font-semibold text-muted transition enabled:hover:border-line-strong enabled:hover:text-ink disabled:opacity-50"
+                    className="shrink-0 rounded border border-line px-2 py-1 text-xs font-semibold text-muted transition duration-150 ease-snappy enabled:hover:border-line-strong enabled:hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 disabled:opacity-50"
                   >
                     {busyAll ? "Applying…" : "All clips"}
                   </button>
@@ -548,9 +555,13 @@ export function SubtitlesTab({
             type="button"
             onClick={() => void saveCurrent()}
             disabled={busy || tplBusy !== null}
-            className="inline-flex shrink-0 items-center gap-1 rounded-md border border-accent/60 bg-accent/10 px-2.5 py-1.5 text-[11px] font-semibold text-accent transition enabled:hover:bg-accent/20 disabled:opacity-50"
+            className="inline-flex shrink-0 items-center gap-1 rounded-md border border-line bg-surface-2 px-2.5 py-1.5 text-xs font-semibold text-muted transition duration-150 ease-snappy enabled:hover:border-line-strong enabled:hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 disabled:opacity-50"
           >
-            {tplBusy === "save" ? <Check className="size-3.5" /> : <Plus className="size-3.5" />}
+            {tplBusy === "save" ? (
+              <Check className="size-3.5 text-ok" />
+            ) : (
+              <Plus className="size-3.5" />
+            )}
             Save current
           </button>
         </div>

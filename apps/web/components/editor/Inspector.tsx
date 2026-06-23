@@ -2,6 +2,7 @@
 
 import { Maximize2, Minimize2, X } from "lucide-react";
 import type React from "react";
+import { Eyebrow } from "@/components/ui/Eyebrow";
 import type { Tab } from "./EditorRail";
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -24,11 +25,15 @@ const TAB_TITLE: Record<Tab, string> = {
   frame: "Frame",
 };
 
-function LiveBanner() {
+// Demoted from a bordered card on every tab to a single hairline status line: a quiet
+// "preview is live" cue under the panel header, not a repeated callout box.
+function LiveStatusLine() {
   return (
-    <p className="shrink-0 rounded-lg border border-line bg-surface-2 px-3 py-2 text-[11px] leading-snug text-muted">
-      <span className="font-semibold text-accent">Preview is live</span> — edits show instantly.{" "}
-      <span className="font-semibold text-ink">“Render”</span> writes them to the downloadable file.
+    <p className="flex shrink-0 items-center gap-1.5 text-xs leading-none text-muted">
+      <span aria-hidden className="size-1.5 shrink-0 rounded-pill bg-accent" />
+      <span>
+        Preview is live — <span className="text-ink">Render</span> writes edits to the file.
+      </span>
     </p>
   );
 }
@@ -52,23 +57,34 @@ export function Inspector({
 }) {
   const panel = (
     <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden" data-tab={active}>
-      {onToggleExpand && (
-        <div className="flex shrink-0 items-center justify-between gap-2">
-          <span className="text-xs font-semibold text-ink">{TAB_TITLE[active]}</span>
-          <button
-            type="button"
-            onClick={onToggleExpand}
-            title={expanded ? "Collapse panel" : "Expand panel over the video"}
-            aria-label={expanded ? "Collapse panel" : "Expand panel over the video"}
-            className="rounded-lg border border-line p-1.5 text-muted transition hover:bg-surface-2 hover:text-ink"
-          >
-            {expanded ? <Minimize2 className="size-3.5" /> : <Maximize2 className="size-3.5" />}
-          </button>
+      {/* Panel fascia header: instrument eyebrow on the left, live cue + expand on the right,
+          separated from the body by a hairline. */}
+      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-line pb-2.5">
+        <Eyebrow tone="ink">{TAB_TITLE[active]}</Eyebrow>
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="hidden min-w-0 truncate lg:block">
+            <LiveStatusLine />
+          </span>
+          {onToggleExpand && (
+            <button
+              type="button"
+              onClick={onToggleExpand}
+              title={expanded ? "Collapse panel" : "Expand panel over the video"}
+              aria-label={expanded ? "Collapse panel" : "Expand panel over the video"}
+              className="shrink-0 rounded-lg border border-line p-1.5 text-muted transition duration-150 ease-snappy hover:bg-surface-2 hover:text-ink"
+            >
+              {expanded ? <Minimize2 className="size-3.5" /> : <Maximize2 className="size-3.5" />}
+            </button>
+          )}
         </div>
-      )}
-      <LiveBanner />
+      </div>
+      {/* Narrow viewport (no expand control on lg row above) keeps the live cue here. */}
+      <span className="shrink-0 lg:hidden">
+        <LiveStatusLine />
+      </span>
       <div
-        className={`flex min-h-0 flex-1 flex-col overflow-y-auto rounded-xl border border-line p-4 ${
+        key={active}
+        className={`flex min-h-0 flex-1 flex-col overflow-y-auto rounded-lg border border-line p-4 transition-colors duration-150 ease-snappy motion-safe:animate-[riseIn_150ms_var(--ease-snappy)] ${
           expanded ? "bg-surface/80 backdrop-blur-xl" : "bg-surface"
         }`}
       >
@@ -107,7 +123,7 @@ export function Inspector({
   // left keeps its size — only the panel floats over the right part of the video.
   if (expanded) {
     return (
-      <div className="absolute inset-y-3 right-3 z-40 flex w-[min(620px,60vw)] flex-col overflow-hidden rounded-2xl border border-line bg-bg/55 p-3 shadow-2xl backdrop-blur-xl">
+      <div className="absolute inset-y-3 right-3 z-40 flex w-[min(620px,60vw)] flex-col overflow-hidden rounded-lg border border-line bg-bg/55 p-3 shadow-2xl backdrop-blur-xl">
         {panel}
       </div>
     );

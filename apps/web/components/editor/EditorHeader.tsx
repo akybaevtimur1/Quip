@@ -109,15 +109,19 @@ export function EditorHeader({
           </button>
         </div>
 
-        <span className="hidden font-mono text-xs text-muted sm:inline">{totalSec.toFixed(1)}s</span>
+        <span className="hidden font-mono text-xs tabular-nums text-muted sm:inline">
+          {totalSec.toFixed(1)}s
+        </span>
       </div>
 
       {/* право: статус сохранения + рендера + действия */}
       <div className="flex shrink-0 items-center gap-2">
+        {/* Calm status-line: saving / not-saved-to-file / rendering / done. A single quiet
+            row of mono readouts — the "click Render" nudge is informative, not shouty. */}
         {saving && (
           <span
             title="Saving your edits…"
-            className="inline-flex items-center gap-1.5 rounded-md border border-line bg-surface-2 px-2.5 py-1.5 text-xs text-muted"
+            className="inline-flex items-center gap-1.5 text-xs text-muted"
           >
             <Loader2 className="size-3 animate-spin" />
             <span className="hidden sm:inline">Saving…</span>
@@ -126,21 +130,21 @@ export function EditorHeader({
         {dirty && renderState.kind !== "rendering" && (
           <span
             title="The preview already shows your edits live. The downloadable file is still the old one. Click “Render” to write edits to the file."
-            className="inline-flex items-center gap-1.5 rounded-md border border-warn/40 bg-warn/10 px-2.5 py-1.5 text-xs text-warn"
+            className="inline-flex items-center gap-1.5 text-xs text-warn"
           >
-            <span className="size-1.5 animate-pulse rounded-full bg-warn" />
-            <span className="hidden sm:inline">Click “Render” to save to file</span>
+            <span className="size-1.5 rounded-pill bg-warn" />
+            <span className="hidden sm:inline">Edits not yet in the file</span>
             <span className="sm:hidden">not saved</span>
           </span>
         )}
         {renderState.kind === "rendering" && (
-          <span className="inline-flex items-center gap-1.5 rounded-md border border-accent/30 bg-surface-2 px-3 py-1.5 font-mono text-xs text-accent">
+          <span className="inline-flex items-center gap-1.5 font-mono text-xs tabular-nums text-accent">
             <Loader2 className="size-3.5 animate-spin" />
             Rendering… {renderState.elapsed}s
           </span>
         )}
         {renderState.kind === "done" && (
-          <span className="inline-flex items-center gap-1.5 rounded-md border border-ok/40 bg-ok/10 px-3 py-1.5 text-xs text-ok">
+          <span className="inline-flex items-center gap-1.5 text-xs text-ok">
             <CheckCircle className="size-3.5" />
             Done
           </span>
@@ -150,13 +154,9 @@ export function EditorHeader({
           size="sm"
           disabled={busy || renderState.kind === "rendering"}
           onClick={onRender}
-          className={`relative ${dirty && renderState.kind === "idle" ? "ring-2 ring-warn/60" : ""}`}
         >
           <Film className="size-4" />
           Render
-          {dirty && renderState.kind === "idle" && (
-            <span className="absolute -right-1 -top-1 size-2.5 rounded-full bg-warn" />
-          )}
         </Button>
         <ExportMenu
           jobId={jobId}

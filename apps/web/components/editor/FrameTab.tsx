@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
+import { Eyebrow } from "@/components/ui/Eyebrow";
+import { Numeral } from "@/components/ui/Numeral";
 import type { Aspect } from "@/lib/api";
 import type { ClipEdit, CropOverride, SourceInterval } from "@/lib/types";
 import { FitTimeline, type FitRegion, type ForceMode } from "./FitTimeline";
@@ -134,9 +136,7 @@ export function FrameTab({
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pr-1">
       {/* T5: соотношение сторон выхода */}
       <section className="space-y-2">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">
-          Aspect ratio
-        </p>
+        <Eyebrow tone="muted">Aspect ratio</Eyebrow>
         <div className="grid grid-cols-4 gap-1.5">
           {ASPECTS.map((a) => (
             <button
@@ -145,9 +145,9 @@ export function FrameTab({
               disabled={busy}
               onClick={() => onAspectChange(a.value)}
               title={a.hint}
-              className={`flex flex-col items-center gap-1 rounded-lg border py-2 transition ${
+              className={`flex flex-col items-center gap-1 rounded-lg border py-2 transition duration-150 ease-snappy ${
                 aspect === a.value
-                  ? "border-accent bg-surface-3 text-accent"
+                  ? "border-accent-line bg-surface-3 text-accent"
                   : "border-line bg-surface-2 text-muted hover:border-line-strong hover:text-ink"
               }`}
             >
@@ -159,34 +159,36 @@ export function FrameTab({
       </section>
 
       <section className="space-y-2">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">
-          Frame mode
-        </p>
-        <div className="space-y-1.5">
-          {MODES.map((m) => (
-            <label
-              key={m.value}
-              className={`flex cursor-pointer items-start gap-2.5 rounded-lg border p-3 transition ${
-                mode === m.value
-                  ? "border-accent bg-surface-3"
-                  : "border-line bg-surface-2 hover:border-line-strong"
-              }`}
-            >
-              <input
-                type="radio"
-                name="frame-mode"
-                checked={mode === m.value}
+        <Eyebrow tone="muted">Frame mode</Eyebrow>
+        {/* Compact labeled tiles (segmented) — replaces 4 stacked full-width radio cards.
+            Selected tile uses the shared pattern (border-accent-line + bg-surface-3); the
+            description is shown ONCE for the selected mode below, not on every card. */}
+        <div className="grid grid-cols-2 gap-1.5" role="radiogroup" aria-label="Frame mode">
+          {MODES.map((m) => {
+            const selected = mode === m.value;
+            return (
+              <button
+                key={m.value}
+                type="button"
+                role="radio"
+                aria-checked={selected}
                 disabled={busy}
-                onChange={() => handleModeChange(m.value)}
-                className="mt-0.5 size-3.5 accent-accent"
-              />
-              <span>
-                <span className="block text-sm font-semibold text-ink">{m.title}</span>
-                <span className="block text-xs leading-snug text-muted">{m.desc}</span>
-              </span>
-            </label>
-          ))}
+                onClick={() => handleModeChange(m.value)}
+                title={m.desc}
+                className={`rounded-lg border px-3 py-2.5 text-left text-sm font-semibold transition duration-150 ease-snappy disabled:opacity-50 ${
+                  selected
+                    ? "border-accent-line bg-surface-3 text-accent"
+                    : "border-line bg-surface-2 text-muted hover:border-line-strong hover:text-ink"
+                }`}
+              >
+                {m.title}
+              </button>
+            );
+          })}
         </div>
+        <p className="text-xs leading-snug text-muted">
+          {MODES.find((m) => m.value === mode)?.desc}
+        </p>
       </section>
 
       {(mode === "fill" || mode === "split") && (
@@ -209,7 +211,7 @@ export function FrameTab({
       )}
 
       <div className="flex items-start justify-between gap-3">
-        <p className="text-[11px] leading-snug text-muted">
+        <p className="text-xs leading-snug text-muted">
           Framing updates live. Auto restores the AI&apos;s per-shot decision.
         </p>
         <Button
@@ -218,7 +220,7 @@ export function FrameTab({
           size="sm"
           disabled={busy || mode === "auto"}
           onClick={handleResetToAuto}
-          className="shrink-0 text-[11px]"
+          className="shrink-0 text-xs"
         >
           Reset to Auto
         </Button>
@@ -226,9 +228,7 @@ export function FrameTab({
 
       {/* ── per-shot framing (was its own "Shots" tab) ── */}
       <section className="space-y-1 border-t border-line pt-4">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">
-          Per-shot framing
-        </p>
+        <h3 className="text-sm font-semibold text-ink">Per-shot framing</h3>
         <p className="text-xs leading-snug text-muted">
           The mode above applies to the whole clip. Below, override individual{" "}
           <span className="text-ink">shots</span> — the cuts between camera angles. Pick shots on
@@ -284,8 +284,9 @@ function CenterSlider({
     <label className="flex flex-col gap-1 text-xs text-muted">
       <span className="flex items-center justify-between">
         {label}
-        <span className="font-mono text-[11px] text-ink">
-          {value <= 0.35 ? "left" : value >= 0.65 ? "right" : "center"} · {value.toFixed(2)}
+        <span className="text-ink">
+          {value <= 0.35 ? "left" : value >= 0.65 ? "right" : "center"} ·{" "}
+          <Numeral className="text-xs">{value.toFixed(2)}</Numeral>
         </span>
       </span>
       {/* h-9 row centers the 20px range-touch thumb so it can't overlap the label above. */}

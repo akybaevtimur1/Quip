@@ -3,6 +3,8 @@
 import { BookOpen } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { getVideoMap } from "@/lib/api";
+import { Eyebrow } from "@/components/ui/Eyebrow";
+import { Numeral } from "@/components/ui/Numeral";
 import { mmss } from "@/lib/format";
 import { KIND_COLOR, KIND_KEYS, kindColor } from "@/lib/momentKinds";
 import type { VideoChapter, VideoMap, VideoMoment } from "@/lib/types";
@@ -94,7 +96,7 @@ function MomentRow({
       {/* label + time */}
       <div className="min-w-0 flex-1">
         <span className="font-semibold text-ink leading-snug">{moment.label}</span>
-        <span className="ml-1.5 font-mono text-faint">{mmss(moment.start)}</span>
+        <Numeral className="ml-1.5 text-faint">{mmss(moment.start)}</Numeral>
         {isCurrent && (
           <span className="ml-1.5 text-accent font-semibold">current</span>
         )}
@@ -155,9 +157,9 @@ function ChapterRow({
         <span className="min-w-0 flex-1 font-semibold leading-snug truncate">
           {chapter.title}
         </span>
-        <span className="ml-auto shrink-0 font-mono text-faint whitespace-nowrap">
+        <Numeral className="ml-auto shrink-0 whitespace-nowrap text-faint">
           {mmss(chapter.start)}–{mmss(chapter.end)}
-        </span>
+        </Numeral>
       </summary>
 
       {/* body */}
@@ -186,7 +188,7 @@ function ChapterRow({
 // ─── Kind legend ─────────────────────────────────────────────────────────────
 function KindLegend() {
   return (
-    <div className="flex flex-wrap gap-x-3 gap-y-1 px-3 py-1.5 text-[10px] text-muted border-b border-line">
+    <div className="flex flex-wrap gap-x-3 gap-y-1 px-3 py-1.5 text-xs text-muted border-b border-line">
       {KIND_KEYS.map((k) => (
         <span key={k} className="flex items-center gap-1">
           <span className={`size-1.5 rounded-full ${KIND_COLOR[k].dot}`} aria-hidden />
@@ -251,9 +253,9 @@ export function TopicStrip({
         style={{ minHeight: "44px" }}
       >
         <BookOpen className="size-3.5 shrink-0 text-muted" aria-hidden />
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted flex-1">
+        <Eyebrow tone="muted" className="flex-1">
           Video topics
-        </span>
+        </Eyebrow>
         <svg
           className="size-3.5 shrink-0 text-muted transition-transform duration-200 ease-snappy group-open:rotate-180"
           viewBox="0 0 16 16"

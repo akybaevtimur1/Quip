@@ -3,6 +3,8 @@
 import { ZoomIn, ZoomOut } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getChapters } from "@/lib/api";
+import { Eyebrow } from "@/components/ui/Eyebrow";
+import { Numeral } from "@/components/ui/Numeral";
 import { mmss } from "@/lib/format";
 import type {
   Chapter,
@@ -24,11 +26,15 @@ import type {
 const CLIP_MIN_SEC = 20;
 const CLIP_MAX_SEC = 60;
 
+// Keyed to the LOCKED clip-type tokens (globals.css --color-hook/quote/peak/thought) — NOT
+// raw hex. Inline style is required (computed glow/positioning), so we read the same CSS
+// vars the Badge/ReasonChip/VideoMap use → the timeline's moment ticks match the palette
+// everywhere a clip type is shown (previously this map drifted to off-palette amber/green/blue).
 const TYPE_COLOR: Record<ClipType, string> = {
-  hook: "#ff5a3d",
-  strong_quote: "#ffd23d",
-  emotional_peak: "#34e36b",
-  complete_thought: "#2f7cf6",
+  hook: "var(--color-hook)",
+  strong_quote: "var(--color-quote)",
+  emotional_peak: "var(--color-peak)",
+  complete_thought: "var(--color-thought)",
 };
 
 const TYPE_LABEL: Record<ClipType, string> = {
@@ -336,50 +342,55 @@ export function TimelineV2({
 
   return (
     <div className="w-full select-none" onWheel={onWheel}>
-      {/* ── верхняя строка: легенда + зум ── */}
+      {/* ── control row: the selected-clip LENGTH is the anchor readout (mono), the type
+          legend is demoted to a quiet inline key, zoom sits to the right. ── */}
       <div className="mb-1.5 flex items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-          {(Object.keys(TYPE_LABEL) as ClipType[]).map((t) => (
-            <span key={t} className="inline-flex items-center gap-1.5 text-[11px] text-muted">
-              <span className="size-2 rounded-full" style={{ background: TYPE_COLOR[t] }} />
-              {TYPE_LABEL[t]}
-            </span>
-          ))}
-        </div>
-        <div className="flex items-center gap-2">
-          <span
-            className="inline-flex items-center gap-1.5 rounded-full border border-accent/40 bg-accent/10 px-2.5 py-1 font-mono text-[10px] font-semibold text-accent"
-            title="Selected clip length"
-          >
-            <span className="size-1.5 rounded-full bg-accent" />
+        <div className="flex min-w-0 items-baseline gap-2.5">
+          <span className="font-mono text-eyebrow uppercase leading-none text-faint">Clip</span>
+          <Numeral className="text-sm font-semibold leading-none text-accent">
             {mmss(segEnd - segStart)}
-          </span>
+          </Numeral>
+          {/* demoted type legend — a quiet inline key, not a loud chip row */}
+          <div className="hidden flex-wrap items-center gap-x-3 gap-y-0.5 pl-2 sm:flex">
+            {(Object.keys(TYPE_LABEL) as ClipType[]).map((t) => (
+              <span
+                key={t}
+                className="inline-flex items-center gap-1 text-[10px] leading-none text-faint"
+              >
+                <span className="size-1.5 rounded-pill" style={{ background: TYPE_COLOR[t] }} />
+                {TYPE_LABEL[t]}
+              </span>
+            ))}
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
           <button
             type="button"
             aria-label="Zoom out"
             disabled={zoom <= 1}
             onClick={() => setZoomAround(zoom / 1.5, viewStartClamped + viewLen / 2)}
-            className="inline-flex size-9 sm:size-6 items-center justify-center rounded-md border border-line text-muted transition enabled:hover:text-ink disabled:opacity-30"
+            className="inline-flex size-9 sm:size-6 items-center justify-center rounded-md border border-line text-muted transition duration-150 ease-snappy enabled:hover:text-ink disabled:opacity-30"
           >
             <ZoomOut className="size-3.5" />
           </button>
-          <span className="w-9 text-center font-mono text-[10px] text-muted">
-            {zoom.toFixed(1)}×
-          </span>
+          <Numeral className="w-9 text-center text-[10px] text-muted">{zoom.toFixed(1)}×</Numeral>
           <button
             type="button"
             aria-label="Zoom in"
             disabled={zoom >= maxZoom}
             onClick={() => setZoomAround(zoom * 1.5, segStart + (segEnd - segStart) / 2)}
-            className="inline-flex size-9 sm:size-6 items-center justify-center rounded-md border border-line text-muted transition enabled:hover:text-ink disabled:opacity-30"
+            className="inline-flex size-9 sm:size-6 items-center justify-center rounded-md border border-line text-muted transition duration-150 ease-snappy enabled:hover:text-ink disabled:opacity-30"
           >
             <ZoomIn className="size-3.5" />
           </button>
         </div>
       </div>
 
-      {/* ── полоса AI-глав ── */}
-      <div className="relative mb-1 h-7 w-full overflow-hidden rounded-lg border border-line bg-surface-2">
+      {/* ── полоса AI-глав — distinct instrument band, set apart with a labeled hairline ── */}
+      <Eyebrow tone="faint" className="mb-1 block leading-none">
+        AI chapters
+      </Eyebrow>
+      <div className="relative mb-2.5 h-7 w-full overflow-hidden rounded-lg border border-line bg-surface-2">
         {chapters === null || chapters.status === "pending" ? (
           <div className="flex h-full items-center gap-2 px-3">
             <span className="size-2 animate-pulse rounded-full bg-accent" />
@@ -395,7 +406,7 @@ export function TimelineV2({
             <button
               type="button"
               onClick={retryChapters}
-              className="shrink-0 rounded-md border border-line px-2 py-0.5 text-[11px] font-semibold text-accent transition hover:border-accent/50 hover:bg-surface-3"
+              className="shrink-0 rounded-md border border-line px-2 py-0.5 text-[11px] font-semibold text-muted transition duration-150 ease-snappy hover:border-line-strong hover:bg-surface-3 hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
             >
               Retry
             </button>
@@ -427,7 +438,7 @@ export function TimelineV2({
         {/* дорожка */}
         <div
           ref={trackRef}
-          className="relative h-20 w-full overflow-hidden rounded-xl border border-line bg-gradient-to-b from-surface-2 to-surface shadow-inner"
+          className="relative h-20 w-full overflow-hidden rounded-lg border border-line bg-gradient-to-b from-surface-2 to-surface shadow-inner"
           onPointerMove={onPointerMove}
           onPointerUp={endDrag}
           onPointerCancel={endDrag}
@@ -486,7 +497,9 @@ export function TimelineV2({
                   height: "9px",
                   minWidth: "3px",
                   background: c,
-                  boxShadow: `0 0 6px ${c}66`,
+                  // glow keyed to the same token (color-mix → token + alpha, not a raw hex+suffix
+                  // which no longer works now that `c` is a CSS var, never a literal hex).
+                  boxShadow: `0 0 6px color-mix(in srgb, ${c} 40%, transparent)`,
                 }}
               >
                 <span
@@ -612,7 +625,7 @@ export function TimelineV2({
                   >
                     {TYPE_LABEL[hoverSeg.type]}
                   </span>
-                  <span className="ml-auto rounded bg-surface-3 px-1.5 py-0.5 font-mono text-[10px] text-muted">
+                  <span className="ml-auto rounded bg-surface-3 px-1.5 py-0.5 font-mono text-[10px] tabular-nums text-muted">
                     {Math.round(hoverSeg.score * 100)}% match
                   </span>
                 </div>
@@ -624,7 +637,7 @@ export function TimelineV2({
                 <p className="text-[11px] leading-snug text-muted">
                   {hoverSeg.why_works || hoverSeg.reason}
                 </p>
-                <p className="text-[10px] font-medium text-accent">Click to move the clip here →</p>
+                <p className="text-[10px] font-medium text-muted">Click to move the clip here →</p>
               </div>
             )}
           </div>

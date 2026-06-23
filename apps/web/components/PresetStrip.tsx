@@ -67,7 +67,7 @@ export function PresetStrip({ activePresetId, onApply, onError }: PresetStripPro
         {[0, 1, 2, 3].map((i) => (
           <div
             key={i}
-            className="h-24 animate-pulse rounded-xl border border-line bg-surface-2"
+            className="h-24 animate-pulse rounded-lg border border-line bg-surface-2"
           />
         ))}
       </div>
@@ -87,9 +87,9 @@ export function PresetStrip({ activePresetId, onApply, onError }: PresetStripPro
             onClick={() => handleApply(preset.id)}
             aria-pressed={isActive}
             title={preset.name}
-            className={`flex flex-col items-stretch gap-1.5 rounded-lg border p-2 transition focus:outline-none focus:ring-2 focus:ring-accent/50 ${
+            className={`flex flex-col items-stretch gap-1.5 rounded-lg border p-2 transition duration-150 ease-snappy focus:outline-none focus:ring-2 focus:ring-accent/50 ${
               isActive
-                ? "border-accent bg-surface-3"
+                ? "border-accent-line bg-surface-3"
                 : "border-line bg-surface-2 hover:border-line-strong"
             } ${applyingId && !isApplying ? "opacity-50" : ""}`}
           >

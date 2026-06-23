@@ -1,6 +1,5 @@
 "use client";
 
-import { Loader2 } from "lucide-react";
 import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -35,6 +34,7 @@ import type {
   CaptionReply,
   CaptionStyle,
   ClipEdit,
+  ClipOut,
   HighlightStyle,
   HookOverlay,
   TimelineData,
@@ -42,7 +42,10 @@ import type {
 } from "@/lib/types";
 import { CaptionOverlay } from "../CaptionOverlay";
 import { resolveUrl } from "../ClipCard";
+import { ReasonChip } from "../ReasonChip";
 import { LibassLayer } from "../LibassLayer";
+import { Spinner } from "@/components/ui/Spinner";
+import { Stat } from "@/components/ui/Stat";
 import { AgentTab } from "./AgentTab";
 import { SubtitlesTab } from "./SubtitlesTab";
 import { EditorCanvas } from "./EditorCanvas";
@@ -161,6 +164,11 @@ export default function ClipEditorScreen({
 
   const [timeline, setTimeline] = useState<TimelineData | null>(null);
   const [clipIds, setClipIds] = useState<string[]>([]);
+  // The current clip's confidence readout (score / type / why_works) — Quip's signature.
+  // Surfaced READ-ONLY from the same getJob() response the load effect already fetches for
+  // the clip order (ClipEdit carries no score/why; ClipOut does). No new request, no behavior
+  // change — just renders evidence that was loaded but never shown in the chrome.
+  const [clipMeta, setClipMeta] = useState<ClipOut | null>(null);
   // Mirror clipIds in a ref so prefetch/switch helpers can read the current order WITHOUT
   // closing over clipIds (which would re-identify them and re-run the keyed load effect).
   const clipIdsRef = useRef<string[]>([]);
@@ -407,6 +415,9 @@ export default function ClipEditorScreen({
                 .sort((a, b) => b.score - a.score || a.id.localeCompare(b.id))
                 .map((c) => c.id);
               setClipIds(ids.length > 0 ? ids : [clipId]);
+              // Signature readout: pull THIS clip's score/type/why_works from the same
+              // response (no extra fetch). Stays null for old jobs without the fields.
+              setClipMeta((job.clips ?? []).find((c) => c.id === clipId) ?? null);
               // D1: НЕ берём me.video_url (ЧИСТЫЙ клип без субтитров) как download —
               // downloadUrl остаётся null до рендера → ExportMenu рендерит captioned на лету.
             })
@@ -1516,7 +1527,7 @@ export default function ClipEditorScreen({
   if (phase === "error" && !edit) {
     return (
       <div className="flex h-dvh flex-col items-center justify-center gap-4 bg-bg text-center">
-        <p className="max-w-md text-sm text-red-400">{error}</p>
+        <p className="max-w-md text-sm text-bad">{error}</p>
         <div className="flex gap-2">
           <button
             onClick={() => setLoadKey((k) => k + 1)}
@@ -1526,7 +1537,7 @@ export default function ClipEditorScreen({
           </button>
           <a
             href={`/dashboard?job=${jobId}`}
-            className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white transition hover:bg-accent-2"
+            className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-bg transition hover:bg-accent-2"
           >
             ← All clips
           </a>
@@ -1536,7 +1547,7 @@ export default function ClipEditorScreen({
   }
 
   return (
-    <div className="grid h-dvh grid-rows-[auto_minmax(0,1fr)_auto] bg-bg">
+    <div className="grid h-dvh grid-rows-[auto_auto_minmax(0,1fr)_auto] bg-bg">
       <EditorHeader
         jobId={jobId}
         clipId={clipId}
@@ -1552,13 +1563,39 @@ export default function ClipEditorScreen({
         onRender={handleRender}
       />
 
+      {/* ── signature strip: the confidence readout the editor loads but never showed.
+          Score (the neutral/precise number) + clip-type chip + ONE muted why-it-works lead.
+          Same Stat motif (tone="ink", meterTone="ok") as the dashboard card + landing. ── */}
+      {clipMeta ? (
+        <div className="flex shrink-0 items-center gap-4 border-b border-line bg-surface px-3 py-1.5 sm:gap-5 sm:px-4">
+          <Stat
+            size="sm"
+            tone="ink"
+            meterTone="ok"
+            label="Confidence"
+            value={Math.round(clipMeta.score * 100)}
+            suffix="/100"
+            meter={clipMeta.score}
+            className="w-24 shrink-0"
+          />
+          <ReasonChip type={clipMeta.type} />
+          {(clipMeta.why_works ?? clipMeta.reason) && (
+            <p className="hidden min-w-0 flex-1 truncate text-xs leading-snug text-muted sm:block">
+              {clipMeta.why_works ?? clipMeta.reason}
+            </p>
+          )}
+        </div>
+      ) : (
+        <div className="h-px shrink-0 bg-line" aria-hidden />
+      )}
+
       {/* ── error banner ── */}
       {error && phase !== "error" && (
-        <div className="absolute left-1/2 top-16 z-50 -translate-x-1/2 rounded-xl border border-red-900/50 bg-red-950/90 px-4 py-2 text-sm text-red-300 shadow-lg backdrop-blur">
+        <div className="absolute left-1/2 top-16 z-50 -translate-x-1/2 rounded-lg border border-bad/40 bg-bad/10 px-4 py-2 text-sm text-bad shadow-lg backdrop-blur">
           {error}
           <button
             onClick={() => setError(null)}
-            className="ml-3 text-red-400 transition hover:text-red-200"
+            className="ml-3 text-bad/70 transition hover:text-bad"
           >
             ✕
           </button>
@@ -1568,7 +1605,7 @@ export default function ClipEditorScreen({
       {/* ── main: превью + панель ── */}
       {phase === "loading" ? (
         <div className="flex items-center justify-center gap-2 text-sm text-muted">
-          <Loader2 className="size-4 animate-spin" />
+          <Spinner size="sm" />
           Loading editor…
         </div>
       ) : (
@@ -1627,7 +1664,7 @@ export default function ClipEditorScreen({
 
                   {/* видимый бейдж деградации (не тихий фолбэк) */}
                   {!useLibass && (
-                    <span className="absolute left-2 top-2 z-30 rounded bg-amber-600/85 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                    <span className="absolute left-2 top-2 z-30 rounded border border-warn/40 bg-warn/15 px-1.5 py-0.5 font-mono text-eyebrow uppercase text-warn backdrop-blur-sm">
                       simplified preview
                     </span>
                   )}
@@ -1702,9 +1739,9 @@ export default function ClipEditorScreen({
                         }}
                         rows={2}
                         placeholder="Caption text…"
-                        className="w-full resize-none rounded-lg border border-accent/60 bg-black/80 p-2 text-center text-sm font-semibold text-white outline-none focus:ring-2 focus:ring-accent/50"
+                        className="w-full resize-none rounded-lg border border-accent/60 bg-black/80 p-2 text-center text-sm font-semibold text-ink outline-none focus:ring-2 focus:ring-accent/50"
                       />
-                      <p className="mt-1 text-center text-[10px] text-white/70">
+                      <p className="mt-1 text-center text-xs text-muted">
                         Enter to save · Esc to cancel
                       </p>
                     </div>
@@ -1751,7 +1788,7 @@ export default function ClipEditorScreen({
             onIntervalChange={handleSetInterval}
           />
         ) : (
-          <div className="rounded-xl border border-dashed border-line bg-surface-2 px-4 py-5 text-center text-xs text-muted">
+          <div className="rounded-lg border border-dashed border-line bg-surface-2 px-4 py-5 text-center text-xs text-muted">
             {phase === "loading" ? "Loading timeline…" : "Timeline unavailable for this clip."}
           </div>
         )}

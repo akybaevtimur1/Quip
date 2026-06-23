@@ -4,6 +4,7 @@ import { ChevronDown, ChevronRight, Loader2, RefreshCw, Sparkles } from "lucide-
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Checkbox } from "@/components/ui/Checkbox";
+import { Eyebrow } from "@/components/ui/Eyebrow";
 import { Select } from "@/components/ui/Select";
 import { HOOK_PRESETS } from "@/lib/hookPresets";
 import type { ClipEdit, HookOverlay } from "@/lib/types";
@@ -87,16 +88,14 @@ export function HookTab({
       {/* ── PRIMARY: текст + показ + регенерация + тайминг + Remove ── */}
       <section className="space-y-2">
         <div className="flex items-center justify-between">
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">
-            Top text (hook)
-          </p>
+          <h3 className="text-sm font-semibold text-ink">Top text (hook)</h3>
           <div className="flex items-center gap-2">
             {hook && (
               <button
                 type="button"
                 disabled={busy}
                 onClick={() => onHookChange(null)}
-                className="rounded text-[11px] font-medium text-bad/70 transition hover:text-bad focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 disabled:opacity-50"
+                className="rounded text-xs font-medium text-bad/70 transition duration-150 ease-snappy hover:text-bad focus:outline-none focus-visible:ring-2 focus-visible:ring-bad/40 disabled:opacity-50"
               >
                 Remove
               </button>
@@ -126,8 +125,8 @@ export function HookTab({
           }}
           className="w-full resize-none rounded-lg border border-line bg-surface-2 px-3 py-2 text-sm font-semibold text-ink outline-none transition-colors focus:border-accent/60"
         />
-        <p className="flex items-center gap-1.5 text-[11px] leading-snug text-muted">
-          <Sparkles className="size-3 shrink-0 text-accent" />
+        <p className="flex items-center gap-1.5 text-xs leading-snug text-muted">
+          <Sparkles className="size-3 shrink-0 text-muted" />
           A short headline (≤6 words) tied to the moment. Stops the scroll.
         </p>
 
@@ -149,7 +148,7 @@ export function HookTab({
               )}
               {regenerating ? "Writing a new hook…" : "Regenerate for current clip"}
             </Button>
-            <p className="text-[11px] leading-snug text-muted">
+            <p className="text-xs leading-snug text-muted">
               The hook doesn&apos;t auto-update when you move or trim the clip. Regenerate it for
               the new moment, or just edit the text above.
             </p>
@@ -159,17 +158,15 @@ export function HookTab({
 
       {/* ── когда показывать ── */}
       <section className="space-y-2">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">
-          When to show
-        </p>
+        <Eyebrow tone="muted">When to show</Eyebrow>
         <div className="grid grid-cols-2 gap-1.5">
           <button
             type="button"
             disabled={busy}
             onClick={() => onHookChange({ full_clip: true })}
-            className={`rounded-lg border px-3 py-2.5 text-sm font-semibold transition ${
+            className={`rounded-lg border px-3 py-2.5 text-sm font-semibold transition duration-150 ease-snappy ${
               fullClip
-                ? "border-accent bg-surface-3 text-accent"
+                ? "border-accent-line bg-surface-3 text-accent"
                 : "border-line bg-surface-2 text-muted hover:border-line-strong hover:text-ink"
             }`}
           >
@@ -179,9 +176,9 @@ export function HookTab({
             type="button"
             disabled={busy}
             onClick={() => onHookChange({ full_clip: false })}
-            className={`rounded-lg border px-3 py-2.5 text-sm font-semibold transition ${
+            className={`rounded-lg border px-3 py-2.5 text-sm font-semibold transition duration-150 ease-snappy ${
               !fullClip
-                ? "border-accent bg-surface-3 text-accent"
+                ? "border-accent-line bg-surface-3 text-accent"
                 : "border-line bg-surface-2 text-muted hover:border-line-strong hover:text-ink"
             }`}
           >
@@ -205,16 +202,17 @@ export function HookTab({
       </section>
 
       {/* ── SECONDARY: collapsible Style section (default collapsed) ── */}
-      <section>
+      <section className="border-t border-line pt-4">
         <button
           type="button"
           onClick={() => setStyleOpen((o) => !o)}
-          className="flex w-full items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted transition hover:text-ink"
+          aria-expanded={styleOpen}
+          className="flex w-full items-center gap-1.5 text-sm font-semibold text-ink transition duration-150 ease-snappy hover:text-accent"
         >
           {styleOpen ? (
-            <ChevronDown className="size-3.5 shrink-0" />
+            <ChevronDown className="size-4 shrink-0 text-muted" />
           ) : (
-            <ChevronRight className="size-3.5 shrink-0" />
+            <ChevronRight className="size-4 shrink-0 text-muted" />
           )}
           Style
         </button>
@@ -223,9 +221,7 @@ export function HookTab({
           <div className="mt-3 space-y-3">
             {/* ── пресеты хука (галерея look'ов) ── */}
             <div className="space-y-2">
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">
-                Presets
-              </p>
+              <Eyebrow tone="muted">Presets</Eyebrow>
               <div className="grid grid-cols-2 gap-3 py-1">
                 {HOOK_PRESETS.map((preset) => (
                   <button
