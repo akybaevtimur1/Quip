@@ -67,10 +67,15 @@ export function PreviewPlayer({
   const arMatch = /aspect-\[(\d+(?:\.\d+)?)\/(\d+(?:\.\d+)?)\]/.exec(aspectClass);
   const ar = arMatch ? Number(arMatch[1]) / Number(arMatch[2]) : 9 / 16;
 
-  // ── блюр-фон (fit) ведомый: догоняет мастера ТОЛЬКО пока fit активен ──
-  // (иначе 3 лишних декодера 300МБ-источника крутятся вхолостую и душат страницу)
+  // ── блюр-фон ведомый: держим СИНХРОННЫМ по времени всегда, пока смонтирован ──
+  // Раньше aux догонял мастера ТОЛЬКО в fit, а в fill стоял на паузе и НЕ синкался. На переходе
+  // fill→fit его раскрывали на ПРОТУХШЕМ кадре, и большой источник ~секунду вслепую сикался к
+  // нужному месту = «секунду неправильный кадр» в широких полосах 9:16 (баг перехода в wide).
+  // Теперь currentTime тянется за мастером ВО ВСЕХ режимах (кроме split, где aux не смонтирован):
+  // в fill — на паузе, но decoded-on-frame (один дешёвый сик на дрейф ≤0.15с лёгкого ≤720p-прокси);
+  // ИГРАЕТ только в fit (где виден). Раскрытие fit мгновенно показывает правильный кадр, без сика.
   useEffect(() => {
-    if (mode !== "fit") {
+    if (mode === "split") {
       auxARef.current?.pause();
       return;
     }
@@ -86,8 +91,10 @@ export function PreviewPlayer({
             /* noop */
           }
         }
-        if (m.paused && !aux.paused) aux.pause();
-        else if (!m.paused && aux.paused) void aux.play().catch(() => {});
+        // Играем фон ТОЛЬКО когда он виден (fit); в fill держим на паузе, но засинканным по времени.
+        const wantPlay = mode === "fit" && !m.paused;
+        if (wantPlay && aux.paused) void aux.play().catch(() => {});
+        else if (!wantPlay && !aux.paused) aux.pause();
       }
       raf = requestAnimationFrame(tick);
     };
