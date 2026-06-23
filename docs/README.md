@@ -32,6 +32,12 @@
 4. **Wire the demo `<video>` into the landing hero** — assets ready in `apps/web/public/demo/`
    (`quip-demo-pipeline.{mp4,webm}` + `-poster.jpg`); snippet exists, not yet wired.
 5. **GitHub account reinstatement** — founder action (support contacted, waiting).
+6. **⚠️ Night run 2026-06-24 (quality sweep, on `editor-snapping`, NOT deployed) — see
+   `docs/NIGHT_RUN_2026-06-24.md`.** Shipped: reframe half-face fix (B), hook-prompt rewrite (C),
+   speaker-aware clip boundaries + **Deepgram diarization ON** (D2), less-stingy selection (D1),
+   **split-screen REMOVED** from auto+UI (A). After deploy you MUST run
+   `update public.job_artifacts set reframe_regions = null;` or B/A stay invisible on existing clips
+   (fast-path serves persisted regions). Diarize + prompt changes affect NEW jobs only.
 
 **How to deploy WHILE GitHub is suspended** (push-to-main is dead):
 - Frontend: `vercel deploy --prod --scope timurkas-projects` (needs `.vercelignore`, already committed —
