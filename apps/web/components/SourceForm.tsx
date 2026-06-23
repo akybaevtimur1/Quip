@@ -7,6 +7,7 @@ import { Eyebrow } from "@/components/ui/Eyebrow";
 import { IconButton } from "@/components/ui/IconButton";
 import { Numeral } from "@/components/ui/Numeral";
 import { cn } from "@/lib/cn";
+import { isAcceptedVideoFile } from "@/lib/videoFile";
 
 const MIN_CLIPS = 1;
 const MAX_CLIPS = 30; // продуктовый потолок (Auto = «сколько найдётся, до 30»)
@@ -47,7 +48,9 @@ export function SourceForm({
       setFile(null);
       return;
     }
-    if (!f.type.startsWith("video/")) {
+    // Accept by MIME OR (empty MIME + video extension): browsers report "" for some valid
+    // containers (.mkv/.mov/.webm/.avi), and the old MIME-only check silently rejected them.
+    if (!isAcceptedVideoFile(f.name, f.type)) {
       setFileError("Please choose a video file");
       return;
     }
@@ -154,7 +157,9 @@ export function SourceForm({
       <input
         ref={inputRef}
         type="file"
-        accept="video/*"
+        // video/* PLUS explicit extensions: some OS dialogs grey out valid containers (.mkv/.mov/
+        // .webm/.avi) under a bare `video/*` because they report no MIME for them.
+        accept="video/*,.mp4,.m4v,.mov,.qt,.webm,.mkv,.avi,.wmv,.flv,.mpg,.mpeg,.ts,.mts,.m2ts,.3gp,.3g2,.ogv"
         hidden
         onChange={(e) => pickFile(e.target.files?.[0] ?? null)}
       />
