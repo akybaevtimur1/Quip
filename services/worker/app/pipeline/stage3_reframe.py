@@ -313,9 +313,11 @@ def _track_trajectory(
 ) -> tuple[TrackPoint, ...]:
     """Сглаженная cx-траектория дорожки внутри шота → TrackPoint'ы (клип-время = кадр/fps). PURE.
 
-    init_cx (НЕ None) = центр, на котором закончился ПРЕДЫДУЩИЙ fill-регион → пан EMA-едет
-    от него к новому говорящему (непрерывность поперёк склейки, нет «телепорта»). None →
-    init = первый реальный cx (старое поведение, пан не «течёт» от центра).
+    init_cx (НЕ None) = форсированный стартовый центр EMA (опц. knob). None (дефолт, и так
+    передаёт plan_regions) → init = первый реальный cx ЦЕЛИ → кроп ОТКРЫВАЕТСЯ на лице с
+    первого кадра шота (нет «пол-лица» в начале). Раньше plan_regions гнал сюда
+    prev_fill_end_cx (continuity), но на склейке к ДРУГОМУ спикеру это открывало кроп между
+    людьми = пол-лица — убрано (жёсткий cut и так маскирует снап центра).
     Dead-zone: новый кейфрейм только при сдвиге ≥ min_delta от последнего — убирает
     per-frame дрожание детектора, сохраняет следование реальному движению человека.
     ⚠️ Границы режима (fill/fit) НЕ трогаем — инвариант docs/REFRAME_FPS_GRID_INVARIANT.md цел:
@@ -361,15 +363,11 @@ def plan_regions(
     """
     spread_min = crop_w_frac * _WIDE_SPREAD_RATIO if wide_spread_min is None else wide_spread_min
     regions: list[TrackRegion] = []
-    # cx конца предыдущего fill-региона → новый fill EMA-едет от него (непрерывность поперёк
-    # склейки, нет «телепорта» камеры). Сбрасывается на fit/split (реальная смена плана).
-    prev_fill_end_cx: float | None = None
     for f0, f1 in shots:
         active = [t for t in tracks if t.f0 < f1 and t.f1 > f0]
         t0, t1 = f0 / fps, f1 / fps
         if mode_setting == "fit":
             regions.append(TrackRegion(t0=t0, t1=t1, mode="fit", points=()))
-            prev_fill_end_cx = None
             continue
         if mode_setting != "fill" and (not active or _is_wide_shot(active, f0, f1, spread_min)):
             # WIDE shot (2+ horizontally-spread faces) or no faces → go WIDE; do NOT tight-crop one
@@ -391,16 +389,14 @@ def plan_regions(
                         points_b=_track_trajectory(tb, f0, f1, fps, smoothing),
                     )
                 )
-                prev_fill_end_cx = None
                 continue
             regions.append(TrackRegion(t0=t0, t1=t1, mode="fit", points=()))
-            prev_fill_end_cx = None
             continue
         target = _pick_target(active, speak_threshold)
         # «Ambiguous → horizontal»: кропим (fill) ТОЛЬКО на уверенном субъекте — явный говорящий
         # (speak ≥ speak_threshold) ИЛИ достаточно крупное лицо (width ≥ _MIN_FACE_FRAC). Мелкое
-        # молчащее лицо = неуверенно → fit (как «нет лица»), prev_fill_end_cx сброшен.
-        # mode_setting=="fill" — явный глобальный оверрайд, его не трогаем.
+        # молчащее лицо = неуверенно → fit (как «нет лица»). mode_setting=="fill" — явный
+        # глобальный оверрайд, его не трогаем.
         if (
             mode_setting != "fill"
             and target is not None
@@ -408,22 +404,21 @@ def plan_regions(
             and target.width < _MIN_FACE_FRAC
         ):
             regions.append(TrackRegion(t0=t0, t1=t1, mode="fit", points=()))
-            prev_fill_end_cx = None
             continue
-        # Непрерывность центра поперёк подряд идущих fill-шотов (ebfc3dc, анти-телепорт): новый
-        # fill EMA-едет от прошлого центра (валидный кроп спикера, НЕ «пустая середина») к новому.
-        # На fit/split prev сброшен в None → fill после них СНАПАЕТ на спикера сразу.
+        # Каждый fill-шот ОТКРЫВАЕТСЯ на СВОЁМ говорящем (init EMA = первый cx цели, init_cx=None),
+        # а НЕ «доезжает» от центра прошлого шота. Прежняя continuity (ebfc3dc, prev_fill_end_cx)
+        # инитила EMA от конца прошлого fill-региона → на склейке к ДРУГОМУ спикеру / на коротком
+        # шоте кроп ОТКРЫВАЛСЯ между людьми и медленно полз = «пол-лица» в начале КАЖДОЙ склейки
+        # (жалоба фаундера; репро Tom Holland 240–270s: gap traj_start↔face до 0.28). Жёсткий cut и
+        # так перерисовывает весь кадр → снап кропа на границе НЕВИДИМ. Сглаживание ВНУТРИ шота
+        # (EMA по smoothing) НЕ тронуто → steady-state плавность та же. Границы режима / кадровая
+        # сетка НЕ трогаются (инвариант docs/REFRAME_FPS_GRID_INVARIANT.md цел).
         pts = (
-            _track_trajectory(target, f0, f1, fps, smoothing, init_cx=prev_fill_end_cx)
+            _track_trajectory(target, f0, f1, fps, smoothing)
             if target is not None
-            else (
-                TrackPoint(
-                    t=t0, mode="fill", cx=0.5 if prev_fill_end_cx is None else prev_fill_end_cx
-                ),
-            )
+            else (TrackPoint(t=t0, mode="fill", cx=0.5),)
         )
         regions.append(TrackRegion(t0=t0, t1=t1, mode="fill", points=pts))
-        prev_fill_end_cx = pts[-1].cx
     return regions
 
 

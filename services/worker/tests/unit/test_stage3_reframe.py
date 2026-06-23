@@ -498,12 +498,15 @@ class TestPlanRegions:
         assert regions[0].mode == "fill"
         assert abs(regions[0].points[0].cx - 0.4) < 1e-9
 
-    def test_fill_continuity_across_cuts_no_teleport(self) -> None:
-        """Непрерывность центра поперёк склейки между двумя fill-шотами (анти-телепорт).
+    def test_fill_snaps_to_new_speaker_at_cut(self) -> None:
+        """Поперёк РЕАЛЬНОЙ склейки новый fill-шот ОТКРЫВАЕТСЯ на СВОЁМ говорящем, а НЕ
+        «доезжает» от центра прошлого шота.
 
-        Шот1 говорящий @0.2, шот2 @0.8. Раньше 2-й регион стартовал с 0.8 → камера
-        «телепортировалась». Теперь стартует с конца 1-го (≈0.2) и EMA-едет к 0.8 →
-        плавно. Границы режима НЕ тронуты (инвариант REFRAME_FPS_GRID цел).
+        Шот1 говорящий @0.2, шот2 @0.8. Прежняя «непрерывность» (ebfc3dc) инитила EMA шота2
+        от конца шота1 (≈0.2) → кроп ОТКРЫВАЛСЯ между двумя людьми и медленно полз к 0.8 =
+        «пол-лица» в начале КАЖДОЙ склейки спикера (жалоба фаундера, репро на Tom Holland:
+        gap traj_start↔face до 0.28). Жёсткий cut и так перерисовывает весь кадр → снап кропа
+        на склейке НЕВИДИМ. Сглаживание ВНУТРИ шота (EMA) не тронуто. Кадровая сетка цела.
         """
         from app.pipeline.stage3_reframe import plan_regions
 
@@ -516,15 +519,9 @@ class TestPlanRegions:
         )
         assert len(regions) == 2
         assert all(r.mode == "fill" for r in regions)
-        end_cx_1 = regions[0].points[-1].cx
-        start_cx_2 = regions[1].points[0].cx
-        assert end_cx_1 is not None and start_cx_2 is not None
-        # 2-й регион стартует близко к концу 1-го (≤ один EMA-шаг), НЕ прыгает сразу в 0.8:
-        assert abs(start_cx_2 - end_cx_1) <= 0.15
-        assert start_cx_2 < 0.45
-        # но к концу шота2 доезжает до говорящего (≈0.8):
-        last_cx = regions[1].points[-1].cx
-        assert last_cx is not None and last_cx > 0.7
+        # шот1 откроется на спикере A (0.2), шот2 — на B (0.8): лицо целиком с кадра 0
+        assert abs(regions[0].points[0].cx - 0.2) < 1e-9
+        assert abs(regions[1].points[0].cx - 0.8) < 1e-9
 
     def test_split_two_spread_stable_tracks(self) -> None:
         from app.pipeline.stage3_reframe import plan_regions
