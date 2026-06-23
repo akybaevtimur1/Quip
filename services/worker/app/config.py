@@ -89,7 +89,7 @@ class Settings(BaseSettings):
     # W1: хвостовой паддинг конца клипа (сек) — тишина для чистого лупа вертикального шортса.
     clip_tail_pad_sec: float = 0.3
     caption_max_words_per_group: int = 5
-    max_clips: int = 8  # сколько кандидатов отдавать (юзер выберет из них в UI)
+    max_clips: int = 12  # D1: дефолт кандидатов (был 8 — скупо для длинных видео); UI Auto шлёт 30
 
     # transcript cache (content-addressed, data/_cache/transcripts/)
     transcript_cache_enabled: bool = True

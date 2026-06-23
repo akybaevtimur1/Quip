@@ -74,6 +74,16 @@ For each moment ALSO produce:
 - `why_works`: ONE short sentence (transcript language) on WHY it performs standalone.
 - `score` in [0,1] = your confidence this clip will perform standalone.
 
+SELECTION QUALITY (be generous with STRONG moments, ruthless with weak ones):
+- A 30-90 min talk usually holds 10-20 genuinely strong standalone clips. Surface them ALL (up to
+  the requested number), SPREAD across the WHOLE video (beginning, middle AND end) and across
+  different topics/beats — do not cluster everything in the first third.
+- Every clip must EARN its place. SKIP: rambling / throat-clearing, a setup whose payoff is NOT
+  inside the clip, generic small-talk, half-finished thoughts, inside-references with no standalone
+  meaning. A great clip makes sense to someone who never saw the rest of the video.
+- `score` reflects standalone strength — do NOT inflate scores to smuggle in weak clips, and do NOT
+  withhold strong ones to keep the list short.
+
 HARD RULES (selection):
 - Each moment MUST be a complete thought: clean start (begin a sentence), clean ending (.?!).
 - MINIMUM clip length is 20 seconds. Never select a fragment ("огрызок") shorter than 20s —
