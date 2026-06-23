@@ -89,14 +89,19 @@ function wordsAround(words: Word[], t: number, pad: number): string {
     .trim();
 }
 
-function nearestSegment(segments: TimelineSegment[], t: number): TimelineSegment | null {
+// The moment the cursor is actually ON (inside its span, expanded by a small pad) — NOT the
+// nearest one regardless of distance. So the tooltip's "this moment" section only appears when
+// you're really over a moment; hovering empty track shows just the chapter + what's said.
+function segmentAt(segments: TimelineSegment[], t: number, pad: number): TimelineSegment | null {
   let best: TimelineSegment | null = null;
-  let bestDist = Infinity;
+  let bestSpan = Infinity;
   for (const s of segments) {
-    const d = t < s.start ? s.start - t : t > s.end ? t - s.end : 0;
-    if (d < bestDist) {
-      bestDist = d;
-      best = s;
+    if (t >= s.start - pad && t <= s.end + pad) {
+      const span = s.end - s.start;
+      if (span < bestSpan) {
+        bestSpan = span; // prefer the tightest moment under the cursor when they overlap
+        best = s;
+      }
     }
   }
   return best;
@@ -335,7 +340,7 @@ export function TimelineV2({
     [duration, commit],
   );
 
-  const hoverSeg = hover ? nearestSegment(data.segments, hover.t) : null;
+  const hoverSeg = hover ? segmentAt(data.segments, hover.t, viewLen * 0.015) : null;
   const chapterList = chapters?.status === "done" ? (chapters.chapters ?? []) : [];
   const hoverChapter = hover ? chapterAt(chapterList, hover.t) : null;
   const hoverText = hover ? wordsAround(data.words, hover.t, 3) : "";
@@ -345,23 +350,12 @@ export function TimelineV2({
       {/* ── control row: the selected-clip LENGTH is the anchor readout (mono), the type
           legend is demoted to a quiet inline key, zoom sits to the right. ── */}
       <div className="mb-1.5 flex items-center justify-between gap-3">
+        {/* the one anchor readout: the length of the clip you'll export. */}
         <div className="flex min-w-0 items-baseline gap-2.5">
-          <span className="font-mono text-eyebrow uppercase leading-none text-faint">Clip</span>
+          <span className="font-mono text-eyebrow uppercase leading-none text-faint">Clip length</span>
           <Numeral className="text-sm font-semibold leading-none text-accent">
             {mmss(segEnd - segStart)}
           </Numeral>
-          {/* demoted type legend — a quiet inline key, not a loud chip row */}
-          <div className="hidden flex-wrap items-center gap-x-3 gap-y-0.5 pl-2 sm:flex">
-            {(Object.keys(TYPE_LABEL) as ClipType[]).map((t) => (
-              <span
-                key={t}
-                className="inline-flex items-center gap-1 text-[10px] leading-none text-faint"
-              >
-                <span className="size-1.5 rounded-pill" style={{ background: TYPE_COLOR[t] }} />
-                {TYPE_LABEL[t]}
-              </span>
-            ))}
-          </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <button
@@ -490,16 +484,13 @@ export function TimelineV2({
                 }}
                 title={`${TYPE_LABEL[s.type]} · ${s.score.toFixed(2)} · ${s.reason}`}
                 aria-label={`Go to moment: ${TYPE_LABEL[s.type]}`}
-                className="group/marker absolute bottom-1.5 z-[1] cursor-pointer rounded-full opacity-90 transition hover:opacity-100"
+                className="group/marker absolute bottom-1.5 z-[1] cursor-pointer rounded-full opacity-75 transition hover:opacity-100"
                 style={{
                   left: pct(s.start),
                   width: `${widthFrac * 100}%`,
-                  height: "9px",
+                  height: "7px",
                   minWidth: "3px",
                   background: c,
-                  // glow keyed to the same token (color-mix → token + alpha, not a raw hex+suffix
-                  // which no longer works now that `c` is a CSS var, never a literal hex).
-                  boxShadow: `0 0 6px color-mix(in srgb, ${c} 40%, transparent)`,
                 }}
               >
                 <span
@@ -587,59 +578,69 @@ export function TimelineV2({
           )}
         </div>
 
-        {/* hover-тултип: глава + транскрипт + reason ближайшего момента */}
-        {hover && (hoverText || hoverSeg || hoverChapter) && (
+        {/* hover tooltip — TWO clear levels: the GLOBAL chapter (the theme of this part of the
+            video, where you are) on top; below a hairline the SPECIFIC moment under the cursor —
+            or, when you're not on a moment, just what's being said there. No more wall of mixed text. */}
+        {hover && (hoverChapter || hoverSeg || hoverText) && (
           <div
-            className="pointer-events-none absolute z-10 max-w-sm -translate-x-1/2 rounded-lg border border-line bg-surface px-3 py-2 shadow-lg"
+            className="pointer-events-none absolute z-10 w-64 -translate-x-1/2 overflow-hidden rounded-lg border border-line bg-surface shadow-lg"
             style={{
-              left: `clamp(100px, ${hover.x}px, calc(100% - 100px))`,
+              left: `clamp(132px, ${hover.x}px, calc(100% - 132px))`,
               bottom: "calc(100% + 8px)",
             }}
           >
-            <div className="mb-1 flex items-center gap-2 font-mono text-[10px] text-muted">
-              {mmss(hover.t)}
-              {hoverChapter && (
-                <span className="truncate font-sans font-semibold text-ink">
-                  {hoverChapter.title}
-                </span>
-              )}
-            </div>
-            {hoverChapter && (
-              <p className="mb-1 line-clamp-2 text-[11px] leading-snug text-muted">
-                {hoverChapter.summary}
-              </p>
-            )}
-            {hoverText && (
-              <p className="mb-1 line-clamp-3 text-xs leading-snug text-ink">«{hoverText}»</p>
-            )}
-            {hoverSeg && (
-              <div className="space-y-1">
-                <div className="flex items-center gap-1.5">
-                  <span
-                    className="size-2 shrink-0 rounded-full"
-                    style={{ background: TYPE_COLOR[hoverSeg.type] }}
-                  />
-                  <span
-                    className="text-[11px] font-semibold"
-                    style={{ color: TYPE_COLOR[hoverSeg.type] }}
-                  >
-                    {TYPE_LABEL[hoverSeg.type]}
-                  </span>
-                  <span className="ml-auto rounded bg-surface-3 px-1.5 py-0.5 font-mono text-[10px] tabular-nums text-muted">
-                    {Math.round(hoverSeg.score * 100)}% match
-                  </span>
-                </div>
-                {hoverSeg.hook && (
-                  <p className="text-[11px] font-semibold leading-snug text-ink">
-                    “{hoverSeg.hook}”
-                  </p>
-                )}
-                <p className="text-[11px] leading-snug text-muted">
-                  {hoverSeg.why_works || hoverSeg.reason}
-                </p>
-                <p className="text-[10px] font-medium text-muted">Click to move the clip here →</p>
+            {/* GLOBAL — the chapter / where you are in the whole video */}
+            <div className="border-b border-line bg-surface-2/60 px-3 py-2">
+              <div className="flex items-center justify-between gap-2">
+                <Eyebrow tone="faint">{hoverChapter ? "Chapter" : "Position"}</Eyebrow>
+                <Numeral className="text-[10px] text-faint">{mmss(hover.t)}</Numeral>
               </div>
-            )}
+              <p className="mt-0.5 truncate text-xs font-semibold text-ink">
+                {hoverChapter ? hoverChapter.title : "In this part of the video"}
+              </p>
+            </div>
+            {/* SPECIFIC — the moment right here, or (off a moment) what's being said */}
+            <div className="px-3 py-2">
+              {hoverSeg ? (
+                <>
+                  <div className="flex items-center justify-between gap-2">
+                    <span
+                      className="inline-flex items-center gap-1.5 text-[11px] font-semibold"
+                      style={{ color: TYPE_COLOR[hoverSeg.type] }}
+                    >
+                      <span
+                        className="size-1.5 rounded-pill"
+                        style={{ background: TYPE_COLOR[hoverSeg.type] }}
+                      />
+                      {TYPE_LABEL[hoverSeg.type]}
+                    </span>
+                    <Numeral className="text-[10px] text-muted">
+                      {Math.round(hoverSeg.score * 100)}% match
+                    </Numeral>
+                  </div>
+                  {hoverSeg.hook && (
+                    <p className="mt-1.5 line-clamp-2 text-[11px] font-semibold leading-snug text-ink">
+                      “{hoverSeg.hook}”
+                    </p>
+                  )}
+                  <p className="mt-1 line-clamp-2 text-[11px] leading-snug text-muted">
+                    {hoverSeg.why_works || hoverSeg.reason}
+                  </p>
+                  <p className="mt-1.5 text-[10px] font-medium text-accent">
+                    Click to move the clip here →
+                  </p>
+                </>
+              ) : hoverText ? (
+                <>
+                  <Eyebrow tone="faint" className="block">
+                    Said here
+                  </Eyebrow>
+                  <p className="mt-1 line-clamp-2 text-[11px] leading-snug text-muted">
+                    “{hoverText}”
+                  </p>
+                </>
+              ) : null}
+            </div>
           </div>
         )}
       </div>
