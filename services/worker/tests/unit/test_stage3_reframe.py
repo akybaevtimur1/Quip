@@ -373,19 +373,26 @@ class TestPlanRegions:
         assert regions[0].mode == "fit"
         assert regions[0].points == ()
 
-    def test_wide_with_clear_speaker_is_fill(self) -> None:
-        # ГИБРИД: 2 разнесённых лица, но ОДИН явно говорит (speak ≥ 0.3) → fill на нём, НЕ fit.
+    def test_wide_two_people_goes_wide_even_if_speaking(self) -> None:
+        # Фикс фаундера: 2 разнесённых лица → ШИРОКО (fit/split), ДАЖЕ если один явно говорит.
+        # ИИ не должен tight-кропить 2-shot (теряет второго, кадрирует ноги/торс).
         from app.pipeline.stage3_reframe import plan_regions
 
         tracks = [
             self._track(0, 30, 0.2, 0.1, -0.5),  # молчит
-            self._track(0, 30, 0.8, 0.1, 0.8),  # говорит
+            self._track(0, 30, 0.8, 0.1, 0.8),  # говорит явно — но всё равно НЕ fill
         ]
+        # split выключен (дефолт) → fit (весь кадр + блюр = «широкий»)
         regions = plan_regions(
             [(0, 30)], tracks, fps=30.0, crop_w_frac=0.32, smoothing=1.0, speak_threshold=0.0
         )
-        assert regions[0].mode == "fill"
-        assert abs(regions[0].points[0].cx - 0.8) < 1e-9  # кроп на говорящем
+        assert regions[0].mode == "fit"
+        assert regions[0].points == ()
+        # split включён → split (оба full-bleed), не кроп на говорящем
+        split = plan_regions(
+            [(0, 30)], tracks, fps=30.0, crop_w_frac=0.32, smoothing=1.0, split_enabled=True
+        )
+        assert split[0].mode == "split"
 
     def test_wide_clear_speaker_below_min_stays_fit(self) -> None:
         # говорит, но слабо (< wide_speak_min) → не «явный» → fit (широкий план).

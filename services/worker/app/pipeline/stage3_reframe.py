@@ -346,30 +346,30 @@ def plan_regions(
             prev_fill_end_cx = None
             continue
         if mode_setting != "fill" and (not active or _is_wide_shot(active, f0, f1, spread_min)):
-            # ГИБРИД (фаундер): на широком плане 1) есть ЯВНЫЙ говорящий (max speak ≥
-            # wide_speak_min) → кропим спикера (fill, проваливаемся ниже); 2) иначе РОВНО 2
-            # устойчивых разнесённых лица → split (верх/низ — «норм», не блюр-широкий); 3) иначе
-            # → fit. Нет лиц → speaker нет → split/fit. Так fit остаётся только для «никто не
-            # говорит / толпа / нет лиц», а не для любого диалога.
-            clear_speaker = bool(active) and max(t.speak for t in active) >= wide_speak_min
-            if not clear_speaker:
-                pair = _split_pair(active, f0, f1, spread_min) if split_enabled else None
-                if pair is not None:
-                    ta, tb = pair
-                    regions.append(
-                        TrackRegion(
-                            t0=t0,
-                            t1=t1,
-                            mode="split",
-                            points=_track_trajectory(ta, f0, f1, fps, smoothing),
-                            points_b=_track_trajectory(tb, f0, f1, fps, smoothing),
-                        )
+            # WIDE shot (2+ horizontally-spread faces) or no faces → go WIDE; do NOT tight-crop one
+            # speaker. Cropping a real 2-shot hides the other person and routinely frames a torso/
+            # legs — founder: "the AI must go wide when it sees more than one person." Exactly-2
+            # stable spread tracks + split enabled → split (both full-bleed); otherwise → fit (full
+            # frame + blur bars). This restores the documented behaviour (above): it reverts the
+            # 7e7d754 "clear-speaker → crop tight on dialogue" hybrid, which kept every 2-shot
+            # cropped because in a podcast someone is almost always speaking (wide_speak_min=0.3).
+            pair = _split_pair(active, f0, f1, spread_min) if split_enabled else None
+            if pair is not None:
+                ta, tb = pair
+                regions.append(
+                    TrackRegion(
+                        t0=t0,
+                        t1=t1,
+                        mode="split",
+                        points=_track_trajectory(ta, f0, f1, fps, smoothing),
+                        points_b=_track_trajectory(tb, f0, f1, fps, smoothing),
                     )
-                    prev_fill_end_cx = None
-                    continue
-                regions.append(TrackRegion(t0=t0, t1=t1, mode="fit", points=()))
+                )
                 prev_fill_end_cx = None
                 continue
+            regions.append(TrackRegion(t0=t0, t1=t1, mode="fit", points=()))
+            prev_fill_end_cx = None
+            continue
         target = _pick_target(active, speak_threshold)
         # «Ambiguous → horizontal»: кропим (fill) ТОЛЬКО на уверенном субъекте — явный говорящий
         # (speak ≥ speak_threshold) ИЛИ достаточно крупное лицо (width ≥ _MIN_FACE_FRAC). Мелкое
