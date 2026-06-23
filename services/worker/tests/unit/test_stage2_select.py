@@ -277,8 +277,8 @@ class TestSystemPromptV2:
         assert _PROMPT_PATH.exists(), "prompts/select_moments.v2.txt должен существовать"
         text = _PROMPT_PATH.read_text(encoding="utf-8").lower()
         assert "hook_style" in text
-        # перечислены стили из брифа
-        for style in ("pov", "shock", "informative", "relatable"):
+        # перечислены стили нового брифа (story/insight/question/bold_claim/number; POV выпилен)
+        for style in ("story", "insight", "question", "bold_claim", "number"):
             assert style in text
 
     def test_load_system_prompt_reads_v2_file(self) -> None:

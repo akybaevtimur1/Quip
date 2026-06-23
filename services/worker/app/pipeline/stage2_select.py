@@ -280,10 +280,10 @@ Return moments as word index ranges. For each moment choose a `type`:
 For each moment ALSO produce (in this order — classify the feeling BEFORE writing the hook):
 - `tone`: the emotion of the moment (funny / shocking / touching / controversial / insightful /
   relatable …) — name the feeling first, a generic title comes from skipping this.
-- `hook_style`: one of pov | relatable | informative | shock | curiosity — pick what best
-  weaponizes that emotion.
-- `hook`: a punchy on-screen TOP title (≤6 words, transcript language, no ending period) written
-  IN that style — must HIT the emotion, tied to what actually happens, never empty clickbait.
+- `hook_style`: one of story | insight | question | bold_claim | number (story = the speaker's own
+  narrative, use their name when known; insight = a generalizable truth framed for the viewer).
+- `hook`: a SPECIFIC on-screen TOP title (≤10 words, transcript language, no ending period) written
+  IN that style — grounded in WHO is speaking + WHAT the clip reveals, never POV/empty clickbait.
 - `why_works`: ONE short sentence (transcript language) on WHY it performs standalone.
 
 HARD RULES:
@@ -503,9 +503,9 @@ You are a viral short-form hook copywriter. You receive the transcript of ONE sh
 and must write a single scroll-stopping on-screen TOP hook for it. Work in THREE steps:
 1) `tone`: the emotion of the clip (funny / shocking / touching / controversial / insightful /
    relatable …) — name the feeling first.
-2) `hook_style`: pick what best weaponizes it — pov | relatable | informative | shock | curiosity.
-3) `hook`: write the hook in that style. ≤6 words, SAME language as the transcript, NO ending
-   period, tied to what actually happens — a scroll-stopper, never empty clickbait or a lie.
+2) `hook_style`: pick what fits — story | insight | question | bold_claim | number.
+3) `hook`: write the hook in that style. ≤10 words, SAME language as the transcript, NO ending
+   period, grounded in WHO+WHAT — a scroll-stopper, never POV/clickbait or a lie.
 Return exactly one tone, one hook_style and one hook.
 """
 
