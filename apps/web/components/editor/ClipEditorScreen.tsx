@@ -1111,11 +1111,15 @@ export default function ClipEditorScreen({
         editRef.current = newEdit; // см. editRef-комментарий: очередь читает свежую версию
         setEdit(newEdit);
         setDirty(true);
+        // mode:"auto" → бэкенд чистит override → план возвращается к слежению за лицом; mode:wide/fill
+        // → план перекрашивается. Без перечитки rawRegions осталось бы «всё wide» и трекинг пропадал
+        // (баг: whole-video Wide → Auto не возвращал слежение). Зеркалит handleApplyRange.
+        void loadReframe();
       } catch (e) {
         failOr409(e);
       }
     },
-    [edit, jobId, clipId, outerStart, outerEnd, failOr409, flushPending],
+    [edit, jobId, clipId, outerStart, outerEnd, failOr409, flushPending, loadReframe],
   );
 
   // ── FitTimeline (#1): форсировать кадр на source-диапазон ШОТОВ ──
