@@ -394,6 +394,19 @@ class TestPlanRegions:
         )
         assert split[0].mode == "split"
 
+    def test_typical_interview_2shot_goes_wide(self) -> None:
+        # Реальный кейс (репро на Tom Holland × Jay Shetty): два человека в креслах, лица на
+        # cx~0.36 и cx~0.64 → размах 0.28. Старый порог = crop_w_frac (~0.317) → НЕ wide → tight-
+        # кроп на «говорящем» (терял второго). Новый порог = crop_w_frac*0.70 (~0.222) → WIDE.
+        from app.pipeline.stage3_reframe import plan_regions
+
+        tracks = [
+            self._track(0, 50, 0.36, 0.12, 0.6),  # говорит
+            self._track(0, 50, 0.64, 0.12, 0.2),
+        ]
+        regions = plan_regions([(0, 50)], tracks, fps=25.0, crop_w_frac=0.3167, speak_threshold=0.0)
+        assert regions[0].mode == "fit"  # WIDE, не tight-кроп на одном
+
     def test_wide_clear_speaker_below_min_stays_fit(self) -> None:
         # говорит, но слабо (< wide_speak_min) → не «явный» → fit (широкий план).
         from app.pipeline.stage3_reframe import plan_regions
