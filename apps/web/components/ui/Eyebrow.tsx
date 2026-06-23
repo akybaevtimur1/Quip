@@ -21,7 +21,7 @@ export function Eyebrow({
   children: React.ReactNode;
   tone?: EyebrowTone;
   className?: string;
-  as?: "span" | "div" | "p" | "h2" | "h3";
+  as?: "span" | "div" | "p" | "h2" | "h3" | "dt" | "dd" | "label" | "li";
 }) {
   return (
     <Tag className={cn("font-mono text-eyebrow uppercase", toneClass[tone], className)}>{children}</Tag>

@@ -9,6 +9,9 @@ import {
   useSyncExternalStore,
 } from "react";
 import { getVideoMap } from "@/lib/api";
+import { Eyebrow } from "@/components/ui/Eyebrow";
+import { Numeral } from "@/components/ui/Numeral";
+import { Skeleton } from "@/components/ui/Skeleton";
 import { mmss } from "@/lib/format";
 import { KIND_COLOR, KIND_KEYS, kindColor } from "@/lib/momentKinds";
 import type { ClipOut, VideoChapter, VideoMap, VideoMoment } from "@/lib/types";
@@ -90,7 +93,7 @@ function parseNarrative(
       const sec = parseTimecode(raw);
       const clip = findClipByTime(clips, sec);
       const chipClass =
-        "font-mono text-xs px-1.5 py-0.5 rounded bg-surface-2 border border-line";
+        "font-mono text-xs px-1.5 py-0.5 rounded-md bg-surface-2 border border-line";
       if (clip) {
         nodes.push(
           <Link
@@ -122,28 +125,19 @@ function parseNarrative(
 }
 
 // ─── Skeleton ────────────────────────────────────────────────────────────────
-function Skeleton({ className = "" }: { className?: string }) {
-  return (
-    <div
-      className={`animate-pulse rounded bg-surface-2 ${className}`}
-      aria-hidden
-    />
-  );
-}
-
 function PendingSkeleton() {
   return (
     <div className="space-y-3 py-4" role="status" aria-label="AI is reading the video…">
       <p className="text-sm text-muted">
-        AI is reading the whole video to map the strongest moments…{" "}
-        <span className="text-faint">usually under a minute</span>
+        Reading the whole video to map its strongest moments
+        <span className="text-faint"> — usually under a minute.</span>
       </p>
       <Skeleton className="h-4 w-full" />
       <Skeleton className="h-4 w-5/6" />
       <Skeleton className="h-4 w-4/6" />
       <div className="mt-4 space-y-2">
-        <Skeleton className="h-10 w-full rounded-lg" />
-        <Skeleton className="h-10 w-full rounded-lg" />
+        <Skeleton className="h-10 w-full" />
+        <Skeleton className="h-10 w-full" />
       </div>
     </div>
   );
@@ -176,7 +170,7 @@ function MomentChip({
       }`}
     >
       <span
-        className={`mt-1 size-2 shrink-0 rounded-full ${dot}`}
+        className={`mt-1 size-2 shrink-0 rounded-pill ${dot}`}
         aria-hidden
       />
       <div className="min-w-0 flex-1">
@@ -184,9 +178,7 @@ function MomentChip({
         <p className="text-xs text-muted mt-0.5 leading-relaxed">
           {moment.why}
         </p>
-        <p className="font-mono text-xs text-faint mt-1">
-          {mmss(moment.start)}
-        </p>
+        <Numeral className="mt-1 block text-xs text-faint">{mmss(moment.start)}</Numeral>
       </div>
     </div>
   );
@@ -223,16 +215,18 @@ function ChapterItem({
           <span className="font-semibold text-sm leading-snug">
             {chapter.title}
           </span>
-          <span className="ml-2 font-mono text-xs text-faint whitespace-nowrap">
+          <Numeral className="ml-2 whitespace-nowrap text-xs text-faint">
             {mmss(chapter.start)}–{mmss(chapter.end)}
-          </span>
+          </Numeral>
           {clipIds.length > 0 && (
-            <span className="ml-2 rounded bg-accent/10 px-1.5 py-0.5 text-xs font-medium text-accent">
+            // Hierarchy via contrast (ink, not coral): the clip count matters more than
+            // moments, but coral stays scarce — every chapter row repeating it would dilute it.
+            <span className="ml-2 font-mono text-eyebrow uppercase tabular-nums text-ink">
               {clipIds.length} clip{clipIds.length === 1 ? "" : "s"}
             </span>
           )}
           {moments.length > 0 && (
-            <span className="ml-1.5 text-xs text-muted">
+            <span className="ml-2 font-mono text-eyebrow uppercase tabular-nums text-muted">
               {moments.length} moment{moments.length === 1 ? "" : "s"}
             </span>
           )}
@@ -271,7 +265,7 @@ function ChapterItem({
                 href={`/edit/${jobId}/${clipId}`}
                 className="inline-flex items-center gap-1.5 rounded-md bg-surface-2 border border-line px-2.5 py-1 text-xs font-semibold text-ink hover:border-line-strong transition-colors duration-150"
               >
-                <span className="size-1.5 rounded-full bg-accent" aria-hidden />
+                <span className="size-1.5 rounded-pill bg-muted" aria-hidden />
                 Clip #{clipNum(clipId)}
               </Link>
             ))}
@@ -304,7 +298,7 @@ function Legend() {
       {KIND_KEYS.map((k) => (
         <span key={k} className="flex items-center gap-1.5">
           <span
-            className={`size-2 rounded-full ${KIND_COLOR[k].dot}`}
+            className={`size-2 rounded-pill ${KIND_COLOR[k].dot}`}
             aria-hidden
           />
           {KIND_COLOR[k].label}
@@ -377,18 +371,21 @@ export function VideoMap({
       {/* Top-level collapsible: closed on mobile, open on desktop */}
       <details open={defaultOpen} className="group">
         <summary
-          className="flex cursor-pointer list-none items-center justify-between gap-3 px-5 py-3.5 text-ink [&::-webkit-details-marker]:hidden"
+          className="flex cursor-pointer list-none items-center justify-between gap-3 px-5 py-4 text-ink [&::-webkit-details-marker]:hidden"
           style={{ minHeight: "48px" }}
         >
           <div className="min-w-0 flex-1">
-            <span className="font-display font-semibold text-sm sm:text-base tracking-tight">
-              🗺 Video map — why these clips are worth it
+            <Eyebrow tone="faint">Video map</Eyebrow>
+            <span className="mt-1.5 block font-display text-h3 tracking-tight text-ink">
+              Why these clips are worth it
             </span>
             {summaryLine ? (
-              <span className="mt-0.5 block truncate text-xs text-muted">{summaryLine}</span>
+              <span className="mt-1 block truncate font-mono text-xs tabular-nums text-muted">
+                {summaryLine}
+              </span>
             ) : (
-              <span className="mt-0.5 block truncate text-xs text-muted">
-                The full picture of your video — and where every clip came from
+              <span className="mt-1 block truncate text-xs text-muted">
+                The full picture of your video — and where every clip came from.
               </span>
             )}
           </div>
@@ -439,17 +436,10 @@ export function VideoMap({
               </div>
             )}
 
-          {/* Done state */}
+          {/* Done state. (The header subtitle already frames what this is; no second
+              restated paragraph, no decorative coral rule.) */}
           {hasContent && (
             <div className="px-5 py-4 space-y-5">
-              {/* Value framing: what this is + why it helps (ties the map to the clip grid) */}
-              <div className="rounded-lg border border-accent/20 bg-accent/[0.04] px-3.5 py-2.5 text-xs leading-relaxed text-muted">
-                <span className="font-semibold text-ink">We read your entire video</span>, not just
-                the parts we clipped — then mapped every strong moment. Use it to see{" "}
-                <span className="text-ink">why each clip works</span>, or to spot a great moment we
-                didn’t clip and jump straight to it.
-              </div>
-
               {/* Narrative */}
               {map!.narrative && (
                 <p className="text-sm text-muted leading-relaxed">
@@ -461,9 +451,7 @@ export function VideoMap({
               {chapters.length > 0 && (
                 <div className="rounded-lg border border-line overflow-hidden">
                   <div className="flex items-center justify-between px-4 py-2.5 bg-surface-2 border-b border-line">
-                    <span className="text-xs font-semibold uppercase tracking-wider text-faint">
-                      Chapters
-                    </span>
+                    <Eyebrow tone="faint">Chapters</Eyebrow>
                     <Legend />
                   </div>
                   {chapters.map((ch, i) => (

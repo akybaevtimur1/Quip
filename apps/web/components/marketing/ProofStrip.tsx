@@ -1,10 +1,13 @@
 import { Container } from "@/components/ui/Container";
+import { Eyebrow } from "@/components/ui/Eyebrow";
+import { Numeral } from "@/components/ui/Numeral";
 import { Reveal } from "@/components/ui/Reveal";
+import { cn } from "@/lib/cn";
 
 // Cost anchoring: what repurposing costs the usual way vs. starting on Quip.
 // Ranges are grounded in 2025-26 market rates (freelance short clips ~$100-500;
 // short-form editor retainers ~$500-3000/mo). Competitor numbers are dimmed (the
-// "expensive" path); Quip's is the coral accent.
+// "expensive" path); Quip's is the single coral reading.
 const ITEMS: { metric: string; note: string; accent?: boolean }[] = [
   { metric: "$500–3,000", note: "editor retainer / mo" },
   { metric: "$50–500", note: "per freelance clip" },
@@ -14,22 +17,25 @@ const ITEMS: { metric: string; note: string; accent?: boolean }[] = [
 export function ProofStrip() {
   return (
     <section className="border-y border-line bg-surface">
-      <Container className="py-11">
+      <Container className="py-10">
         <Reveal>
-          <dl className="grid grid-cols-1 gap-0 text-center sm:grid-cols-3 sm:gap-6">
+          <dl className="grid grid-cols-1 divide-y divide-line sm:grid-cols-3 sm:divide-x sm:divide-y-0">
             {ITEMS.map((it) => (
               <div
                 key={it.note}
-                className="flex items-center justify-center gap-4 border-b border-line py-5 last:border-b-0 sm:flex-col sm:gap-2 sm:border-b-0 sm:py-3"
+                className="flex items-center justify-between gap-4 py-5 sm:flex-col sm:items-start sm:gap-2 sm:px-6 sm:py-2 sm:first:pl-0 sm:last:pr-0"
               >
                 <dd
-                  className={`font-display text-3xl font-bold leading-none tracking-tight tabular-nums sm:text-display-lg ${
-                    it.accent ? "text-accent" : "text-faint"
-                  }`}
+                  className={cn(
+                    "font-mono text-display-lg font-semibold leading-none tabular-nums tracking-tight",
+                    it.accent ? "text-accent" : "text-faint",
+                  )}
                 >
-                  {it.metric}
+                  <Numeral>{it.metric}</Numeral>
                 </dd>
-                <dt className="text-sm font-medium text-faint sm:text-[13px]">{it.note}</dt>
+                <Eyebrow as="dt" tone={it.accent ? "muted" : "faint"}>
+                  {it.note}
+                </Eyebrow>
               </div>
             ))}
           </dl>

@@ -2,6 +2,7 @@
 
 import { Clapperboard, TriangleAlert } from "lucide-react";
 import Link from "next/link";
+import { Numeral } from "@/components/ui/Numeral";
 import { cn } from "@/lib/cn";
 import { deriveUsage, fmtMinutes, fmtVideos, useUsage } from "@/lib/useUsage";
 
@@ -47,9 +48,9 @@ export function UsagePill({ className }: { className?: string }) {
       {!v ? (
         <span className="text-faint">—</span>
       ) : (
-        <span className="tabular-nums">
+        <Numeral>
           {fmtVideos(v.videosLeft)} videos · {fmtMinutes(v.minutesLeft)} min
-        </span>
+        </Numeral>
       )}
     </Link>
   );

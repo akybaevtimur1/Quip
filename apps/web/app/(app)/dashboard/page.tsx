@@ -1,6 +1,6 @@
 "use client";
 
-import { Loader2, Plus, UploadCloud } from "lucide-react";
+import { Plus } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, useState } from "react";
 import { AppHeader } from "@/components/app/AppHeader";
@@ -13,6 +13,10 @@ import { VideoMap } from "@/components/VideoMap";
 import { ErrorPanel } from "@/components/ErrorPanel";
 import { JobProgress } from "@/components/JobProgress";
 import { SourceForm } from "@/components/SourceForm";
+import { Eyebrow } from "@/components/ui/Eyebrow";
+import { Numeral } from "@/components/ui/Numeral";
+import { Spinner } from "@/components/ui/Spinner";
+import { Split } from "@/components/ui/Split";
 import { cancelJob, createJob, createUploadJob } from "@/lib/api";
 import {
   addRecentProject,
@@ -35,25 +39,37 @@ function labelFromUrl(url: string): string {
 }
 
 /** Shown the instant a file upload starts (before bytes even move) so a big upload
- *  never looks frozen. Real % comes from XHR upload-progress events. */
+ *  never looks frozen. Real % comes from XHR upload-progress events. Leads with a big
+ *  mono % readout + a determinate bar — no icon-in-circle. */
 function UploadProgress({ pct }: { pct: number }) {
   return (
-    <div className="w-full max-w-md text-center">
-      <span className="mx-auto mb-5 grid size-12 place-items-center rounded-full border border-line bg-surface-2 text-accent">
-        <UploadCloud className="size-6" aria-hidden />
-      </span>
-      <h2 className="font-display text-2xl font-bold text-ink">Uploading your video…</h2>
-      <p className="mt-2 text-sm text-muted">
-        {pct < 100 ? "Hang tight — large files take a moment." : "Almost there — getting it ready…"}
-      </p>
-      <div className="mt-6 h-2 overflow-hidden rounded-full bg-surface-2">
+    <div className="w-full max-w-2xl">
+      <div className="flex items-end justify-between gap-4 border-b border-line pb-4">
+        <div>
+          <Eyebrow tone="accent">Uploading</Eyebrow>
+          <h2 className="mt-1.5 font-display text-h3 text-ink">
+            {pct < 100 ? "Sending your video" : "Getting it ready"}
+          </h2>
+        </div>
+        <div className="text-right" aria-live="polite">
+          <Numeral className="block text-display-lg font-semibold leading-none text-ink">
+            {pct}
+          </Numeral>
+          <Eyebrow tone="faint" className="mt-1 block">
+            percent
+          </Eyebrow>
+        </div>
+      </div>
+      <div className="mt-5 h-1 overflow-hidden rounded-pill bg-surface-3">
         <div
-          className="h-full rounded-full bg-accent transition-[width] duration-200 ease-out"
-          style={{ width: `${Math.max(4, pct)}%` }}
+          className="h-full rounded-pill bg-accent transition-[width] duration-200 ease-out"
+          style={{ width: `${Math.max(2, pct)}%` }}
         />
       </div>
-      <p className="mt-2 font-mono text-sm text-muted" aria-live="polite">
-        {pct}%
+      <p className="mt-3 text-xs leading-relaxed text-faint">
+        {pct < 100
+          ? "Large files take a moment — keep this tab open while the bytes move."
+          : "Upload complete — handing off to processing."}
       </p>
     </div>
   );
@@ -65,6 +81,8 @@ function DashboardInner() {
   const [submitting, setSubmitting] = useState(false);
   const [uploadPct, setUploadPct] = useState<number | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  // Requested clip count (from the form) → drives the reserved skeleton count while processing.
+  const [requestedClips, setRequestedClips] = useState(3);
   // Local object URL of the just-uploaded file → the co-watch plays the user's OWN video
   // INSTANTLY (no upload round-trip / CORS) while the AI works. Only set for uploads in this
   // same session; gone after reload (then we fall back to the stepper). YouTube → null.
@@ -109,6 +127,7 @@ function DashboardInner() {
     if (submitting) return; // guard: не плодим параллельные джобы двойным сабмитом
     setSubmitError(null);
     setSubmitting(true);
+    setRequestedClips(maxClips);
     try {
       const { id } = await createJob({ source_type: "youtube", source_ref: url, max_clips: maxClips });
       addRecentProject({ id, label: labelFromUrl(url), at: Date.now() });
@@ -128,6 +147,7 @@ function DashboardInner() {
     uploadCtrl.current = ctrl;
     setSubmitError(null);
     setSubmitting(true);
+    setRequestedClips(maxClips);
     setUploadPct(0); // show the uploading screen immediately, before bytes move
     try {
       const { id } = await createUploadJob(file, maxClips, setUploadPct, ctrl.signal);
@@ -215,73 +235,76 @@ function DashboardInner() {
         )}
 
         {phase === "idle" ? (
-          <div className="grid gap-10 lg:grid-cols-[1fr_320px] lg:gap-12">
+          // Instrument console: an intake protagonist on the left, a calibrated readout rail
+          // on the right (unequal weight). Stacks on mobile via Split.
+          <Split variant="main-rail">
             <section>
-              <h1 className="font-display text-h2 text-ink sm:text-display-lg">Create clips</h1>
+              <Eyebrow tone="faint">New project</Eyebrow>
+              <h1 className="mt-2 font-display text-h2 text-ink sm:text-display-lg">Create clips</h1>
               <p className="mt-3 max-w-md text-lead text-muted">
-                Paste a link or upload a video. Quip finds the strongest moments, cuts
-                vertical clips, and explains why each one works.
+                Drop a video. Quip finds the strongest moments, cuts vertical clips, and reports a
+                confidence score and why each one works.
               </p>
               <div className="mt-8">
                 <SourceForm onSubmit={handleSubmit} onSubmitFile={handleSubmitFile} busy={submitting} />
               </div>
             </section>
+            {/* readout rail — meter (primary), recents (secondary), promo (tertiary) */}
             <aside className="space-y-5">
               <UsageMeter />
-              <PromoRedeem />
               <RecentProjects />
+              <PromoRedeem />
             </aside>
-          </div>
+          </Split>
         ) : uploadPct !== null ? (
-          <div className="flex justify-center py-8">
-            <UploadProgress pct={uploadPct} />
-          </div>
+          <UploadProgress pct={uploadPct} />
         ) : showProgressiveGrid && job ? (
           // Progressive grid: clips render in as they finish. Same <ClipGrid key={job.id}> as the
           // done branch → flipping to "done" doesn't remount (no flicker, selection preserved).
           <ClipGrid key={job.id} job={job} />
         ) : phase === "tracking" ? (
-          <div className="flex justify-center py-8">
-            {openingProject ? (
-              <div className="flex flex-col items-center gap-3 py-10 text-center">
-                <Loader2 className="size-6 animate-spin text-accent" aria-hidden />
-                <p className="text-sm text-muted">Opening your project…</p>
-              </div>
-            ) : sourceUrl && jobId ? (
-              // Co-watch: the uploaded file plays instantly while the AI reads it and real
-              // moments light up. Falls back to the stepper for YouTube / after a reload.
-              <CoWatchPanel
-                jobId={jobId}
-                src={sourceUrl}
-                status={job?.status ?? "queued"}
-                elapsed={elapsed}
-                cancellable={job?.cancellable ?? false}
-                onStop={handleStop}
-              />
-            ) : (
-              <JobProgress
-                status={job?.status ?? "queued"}
-                elapsed={elapsed}
-                progress={job?.progress ?? null}
-                cancellable={job?.cancellable ?? false}
-                onStop={handleStop}
-                sourceMinutes={job?.source_minutes ?? null}
-                transcriptWords={job?.transcript_words ?? null}
-                momentsFound={job?.moments_found ?? null}
-              />
-            )}
-          </div>
+          // Left-aligned (NOT centered) so submit → process → done never jumps to the middle.
+          openingProject ? (
+            <div className="flex items-center gap-3 py-10">
+              <Spinner size="md" className="text-accent" />
+              <p className="text-sm text-muted">Opening your project…</p>
+            </div>
+          ) : sourceUrl && jobId ? (
+            // Co-watch: the uploaded file plays instantly while the AI reads it and real
+            // moments light up. Falls back to the stepper for YouTube / after a reload.
+            <CoWatchPanel
+              jobId={jobId}
+              src={sourceUrl}
+              status={job?.status ?? "queued"}
+              elapsed={elapsed}
+              cancellable={job?.cancellable ?? false}
+              onStop={handleStop}
+            />
+          ) : (
+            <JobProgress
+              status={job?.status ?? "queued"}
+              elapsed={elapsed}
+              progress={job?.progress ?? null}
+              cancellable={job?.cancellable ?? false}
+              onStop={handleStop}
+              sourceMinutes={job?.source_minutes ?? null}
+              transcriptWords={job?.transcript_words ?? null}
+              momentsFound={job?.moments_found ?? null}
+              requestedClips={requestedClips}
+            />
+          )
         ) : phase === "done" && job ? (
           <>
             <VideoMap jobId={job.id} clips={job.clips ?? []} />
             <ClipGrid key={job.id} job={job} />
           </>
         ) : phase === "cancelled" ? (
-          <div className="flex flex-col items-center gap-3 py-16 text-center">
-            <h2 className="font-display text-2xl font-bold text-ink">This project was stopped</h2>
-            <p className="max-w-sm text-sm text-muted">
-              You stopped processing this video before it finished. Nothing was charged — start a
-              new project whenever you’re ready.
+          <div className="max-w-xl">
+            <Eyebrow tone="faint">Run stopped</Eyebrow>
+            <h2 className="mt-2 font-display text-h3 text-ink">This project was stopped</h2>
+            <p className="mt-2 text-sm leading-relaxed text-muted">
+              You stopped processing before it finished. Nothing was charged — start a new project
+              whenever you’re ready.
             </p>
           </div>
         ) : phase === "error" && error ? (

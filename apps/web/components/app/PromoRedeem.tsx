@@ -1,8 +1,8 @@
 "use client";
 
-import { Ticket } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/Button";
+import { Eyebrow } from "@/components/ui/Eyebrow";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 
@@ -18,9 +18,11 @@ const FRIENDLY: Record<string, string> = {
 type RedeemResult = { ok: boolean; error?: string; credits?: number; balance?: number };
 
 /** Redeem a promo/invite code → adds non-expiring credits to the signed-in account. Calls the
- *  SECURITY DEFINER `redeem_promo` RPC (credits only the caller, once per code, atomic). */
+ *  SECURITY DEFINER `redeem_promo` RPC (credits only the caller, once per code, atomic).
+ *  Rendered as the rail's TERTIARY action — a slim disclosure, not a matching card. */
 export function PromoRedeem({ className }: { className?: string }) {
   const [code, setCode] = useState("");
+  const [open, setOpen] = useState(false);
   const [status, setStatus] = useState<Status>("idle");
   const [msg, setMsg] = useState("");
 
@@ -42,8 +44,7 @@ export function PromoRedeem({ className }: { className?: string }) {
       if (r.ok) {
         setStatus("ok");
         setMsg(
-          `+${r.credits} credit${r.credits === 1 ? "" : "s"} added — you now have ${r.balance}. ` +
-            "Paste a video on the dashboard to start.",
+          `+${r.credits} credit${r.credits === 1 ? "" : "s"} added — you now have ${r.balance}.`,
         );
         setCode("");
       } else {
@@ -57,34 +58,51 @@ export function PromoRedeem({ className }: { className?: string }) {
   }
 
   return (
-    <div className={`rounded-xl border border-line bg-surface p-5 ${className ?? ""}`}>
-      <h2 className="flex items-center gap-2 font-display text-base font-semibold text-ink">
-        <Ticket className="size-4 text-accent" aria-hidden /> Redeem a code
-      </h2>
-      <p className="mt-1 text-sm text-muted">Have a promo or invite code? Add the credits here.</p>
-      <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-        <input
-          value={code}
-          onChange={(e) => setCode(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && redeem()}
-          placeholder="Enter code"
-          aria-label="Promo code"
-          className="flex-1 rounded-md border border-line bg-surface-2 px-3 py-2.5 text-sm uppercase text-ink outline-none transition-colors placeholder:normal-case placeholder:text-faint focus:border-line-strong"
-        />
-        <Button
-          variant="accent"
-          size="sm"
-          onClick={redeem}
-          loading={status === "sending"}
-          disabled={!code.trim()}
-          className="h-11 w-full sm:h-9 sm:w-auto"
+    <section className={className}>
+      {!open ? (
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="flex w-full items-center justify-between gap-2 px-1 py-1 text-left transition-colors"
         >
-          Redeem
-        </Button>
-      </div>
-      {msg && (
-        <p className={`mt-3 text-sm ${status === "ok" ? "text-ink" : "text-bad"}`}>{msg}</p>
+          <Eyebrow tone="faint" as="span">
+            Redeem
+          </Eyebrow>
+          <span className="text-sm text-muted transition-colors hover:text-ink">
+            Have a code? →
+          </span>
+        </button>
+      ) : (
+        <div className="px-1">
+          <Eyebrow tone="faint" as="h2">
+            Redeem a code
+          </Eyebrow>
+          <div className="mt-2.5 flex flex-col gap-2 sm:flex-row">
+            <input
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && redeem()}
+              placeholder="Enter code"
+              aria-label="Promo code"
+              autoFocus
+              className="flex-1 rounded-md border border-line bg-surface-2 px-3 py-2.5 text-sm uppercase text-ink outline-none transition-colors placeholder:normal-case placeholder:text-faint focus:border-line-strong"
+            />
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={redeem}
+              loading={status === "sending"}
+              disabled={!code.trim()}
+              className="h-11 w-full sm:h-9 sm:w-auto"
+            >
+              Redeem
+            </Button>
+          </div>
+          {msg && (
+            <p className={`mt-2.5 text-sm ${status === "ok" ? "text-ok" : "text-bad"}`}>{msg}</p>
+          )}
+        </div>
       )}
-    </div>
+    </section>
   );
 }

@@ -1,28 +1,35 @@
+import { Badge, type BadgeTone } from "@/components/ui/Badge";
 import type { JobStatus } from "@/lib/types";
 
+// Job-status pill, rebuilt on the shared Badge so the colors come from tokens (no
+// off-palette ok/bad hex). Done = ok, failed = bad, cancelled = neutral, the live
+// processing stages = accent (the single "working" signal).
 const LABEL: Record<JobStatus, string> = {
   queued: "Queued",
-  downloading: "Downloading",
+  downloading: "Preparing",
   transcribing: "Transcribing",
-  selecting: "Selecting moments",
+  selecting: "Selecting",
   rendering: "Rendering",
   done: "Done",
-  failed: "Error",
+  failed: "Failed",
   cancelled: "Stopped",
 };
 
+const TONE: Record<JobStatus, BadgeTone> = {
+  queued: "accent",
+  downloading: "accent",
+  transcribing: "accent",
+  selecting: "accent",
+  rendering: "accent",
+  done: "ok",
+  failed: "bad",
+  cancelled: "neutral",
+};
+
 export function StatusBadge({ status }: { status: JobStatus }) {
-  const cls =
-    status === "failed"
-      ? "text-bad border-bad/40 bg-bad/10"
-      : status === "done"
-        ? "text-ok border-ok/40 bg-ok/10"
-        : "text-muted border-line bg-surface-2";
   return (
-    <span
-      className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium ${cls}`}
-    >
+    <Badge tone={TONE[status]} dot>
       {LABEL[status]}
-    </span>
+    </Badge>
   );
 }

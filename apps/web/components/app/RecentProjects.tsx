@@ -1,8 +1,11 @@
 "use client";
 
-import { AlertCircle, Check, Clock, Loader2, X } from "lucide-react";
+import { Loader2, X } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useSyncExternalStore } from "react";
+import { Badge } from "@/components/ui/Badge";
+import { Eyebrow } from "@/components/ui/Eyebrow";
+import { Numeral } from "@/components/ui/Numeral";
 import { getJob } from "@/lib/api";
 import {
   getRecentServerSnapshot,
@@ -22,8 +25,19 @@ const PROCESSING_LABEL: Partial<Record<JobStatusLite, string>> = {
   rendering: "Rendering",
 };
 
-/** Compact status line for a recent item: live state + a "New" cue for unopened results. */
-function StatusLine({
+/** Compact ledger timestamp: "now" / "12m" / "3h" / "5d". Mono-rendered by the caller. */
+function relTime(at: number): string {
+  const s = Math.max(0, Math.floor((Date.now() - at) / 1000));
+  if (s < 60) return "now";
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h`;
+  return `${Math.floor(h / 24)}d`;
+}
+
+/** Right-edge status reading for a ledger row: live state or the "New" cue for unopened results. */
+function StatusCell({
   status,
   nclips,
   reviewed,
@@ -36,33 +50,34 @@ function StatusLine({
     const clips = nclips != null ? `${nclips} clip${nclips === 1 ? "" : "s"}` : "Ready";
     if (!reviewed) {
       return (
-        <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-accent/15 px-2 py-0.5 text-[11px] font-semibold text-accent">
-          <span className="size-1.5 rounded-full bg-accent" />
+        <Badge tone="accent" dot>
           New · {clips}
-        </span>
+        </Badge>
       );
     }
     return (
-      <span className="inline-flex shrink-0 items-center gap-1 text-[11px] text-ok">
-        <Check className="size-3.5" />
+      <Badge tone="ok" dot>
         {clips}
-      </span>
+      </Badge>
     );
   }
   if (status === "failed") {
     return (
-      <span className="inline-flex shrink-0 items-center gap-1 text-[11px] text-bad">
-        <AlertCircle className="size-3.5" />
+      <Badge tone="bad" dot>
         Failed
-      </span>
+      </Badge>
     );
   }
   if (status === "cancelled") {
-    return <span className="shrink-0 text-[11px] text-faint">Stopped</span>;
+    return (
+      <Badge tone="neutral" dot>
+        Stopped
+      </Badge>
+    );
   }
   // processing (or unknown-yet) → animated cue
   return (
-    <span className="inline-flex shrink-0 items-center gap-1 text-[11px] text-muted">
+    <span className="inline-flex shrink-0 items-center gap-1.5 font-mono text-eyebrow uppercase text-muted">
       <Loader2 className="size-3 animate-spin" />
       {status ? (PROCESSING_LABEL[status] ?? "Processing") : "Processing"}…
     </span>
@@ -115,29 +130,33 @@ export function RecentProjects() {
   }, [pendingKey]);
 
   return (
-    <div className="rounded-xl border border-line bg-surface p-5">
-      <h2 className="font-display text-base font-semibold text-ink">Recent projects</h2>
+    <section className="rounded-lg border border-line bg-surface p-5">
+      <Eyebrow tone="muted" as="h2">
+        Recent
+      </Eyebrow>
       {items.length === 0 ? (
         <p className="mt-3 text-sm leading-relaxed text-muted">
-          Projects created on this device will appear here.
+          Projects created on this device appear here.
         </p>
       ) : (
-        <ul className="mt-3 space-y-1">
+        <ul className="mt-3 -mx-2 divide-y divide-line">
           {items.map((p) => (
-            <li key={p.id} className="group flex items-center gap-1">
+            <li key={p.id} className="group relative flex items-center">
               <Link
                 href={`/dashboard?job=${p.id}`}
-                className="flex min-w-0 flex-1 items-center gap-2.5 rounded-md px-2 py-2 text-sm text-muted transition-colors hover:bg-surface-2 hover:text-ink"
+                className="flex min-w-0 flex-1 items-center gap-3 rounded-md px-2 py-2.5 transition-colors hover:bg-surface-2"
               >
-                <Clock className="size-3.5 shrink-0 text-faint" aria-hidden />
-                <span className="min-w-0 flex-1 truncate">{p.label}</span>
-                <StatusLine status={p.status} nclips={p.nclips} reviewed={p.reviewed} />
+                <Numeral className="w-8 shrink-0 text-eyebrow text-faint">{relTime(p.at)}</Numeral>
+                <span className="min-w-0 flex-1 truncate text-sm text-muted group-hover:text-ink">
+                  {p.label}
+                </span>
+                <StatusCell status={p.status} nclips={p.nclips} reviewed={p.reviewed} />
               </Link>
               <button
                 type="button"
                 onClick={() => removeRecentProject(p.id)}
                 aria-label="Remove from recent"
-                className="shrink-0 rounded-md p-2.5 text-faint transition hover:text-ink [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100"
+                className="ml-0.5 shrink-0 rounded-md p-2 text-faint transition hover:text-ink [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100"
               >
                 <X className="size-3.5" />
               </button>
@@ -145,6 +164,6 @@ export function RecentProjects() {
           ))}
         </ul>
       )}
-    </div>
+    </section>
   );
 }

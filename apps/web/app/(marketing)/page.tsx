@@ -27,8 +27,9 @@ export default function HomePage() {
         }}
       />
       <Hero />
-      {/* show the product working before we explain it */}
+      {/* the page climax: show the instrument working before we explain it */}
       <QuipStudio />
+      {/* edge-to-edge cost band — sits on the surface ladder, top hairline only */}
       <ProofStrip />
       <HowItWorks />
       <WhyQuip />

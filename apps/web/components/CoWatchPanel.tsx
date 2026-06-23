@@ -67,7 +67,7 @@ export function CoWatchPanel({
   }, [shown, all.length]);
 
   return (
-    <div className="flex w-full max-w-3xl flex-col items-center">
+    <div className="flex w-full max-w-3xl flex-col items-start">
       <CoWatch
         src={src}
         moments={all.slice(0, shown)}
@@ -85,7 +85,7 @@ export function CoWatchPanel({
           className="mt-4 inline-flex items-center gap-1.5 rounded-md border border-line px-3 py-1.5 text-sm text-muted transition hover:border-line-strong hover:text-ink disabled:opacity-50"
         >
           <X className="size-4" />
-          {stopping ? "Stopping…" : "Stop"}
+          {stopping ? "Stopping…" : "Stop · no charge"}
         </button>
       )}
     </div>

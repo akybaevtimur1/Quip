@@ -1,23 +1,15 @@
 "use client";
 
-import { CheckSquare, Download, Loader2, Square } from "lucide-react";
+import { CheckSquare, Download, Square } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/Button";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { Eyebrow } from "@/components/ui/Eyebrow";
+import { Numeral } from "@/components/ui/Numeral";
+import { Spinner } from "@/components/ui/Spinner";
 import { mmss } from "@/lib/format";
 import type { ClipOut, Job } from "@/lib/types";
 import { ClipCard, resolveUrl } from "./ClipCard";
-
-function EmptyState() {
-  return (
-    <div className="rounded-lg border border-line bg-surface p-10 text-center">
-      <p className="font-display text-xl font-bold">Nothing to clip</p>
-      <p className="mx-auto mt-2 max-w-sm text-sm text-muted">
-        No standalone-worthy moments were found in this video. That’s not an error —
-        try a different video.
-      </p>
-    </div>
-  );
-}
 
 function downloadClips(urls: { href: string; name: string }[]) {
   // последовательные скачивания (стаггер, чтобы браузер не зарезал пачку как попап)
@@ -32,6 +24,18 @@ function downloadClips(urls: { href: string; name: string }[]) {
       a.remove();
     }, i * 400);
   });
+}
+
+/** One mono readout in the results stat strip: a faint eyebrow over a tabular value. */
+function StripStat({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div>
+      <Eyebrow tone="faint" className="block">
+        {label}
+      </Eyebrow>
+      <Numeral className="mt-1 block text-sm text-ink">{value}</Numeral>
+    </div>
+  );
 }
 
 // NB: родитель монтирует <ClipGrid key={job.id}> → новый прогон = свежий маунт.
@@ -59,6 +63,18 @@ export function ClipGrid({ job }: { job: Job }) {
   const readyClips = useMemo(() => clips.filter((c) => c.video_url), [clips]);
   const rendering = job.status !== "done";
 
+  // The single highest-scoring clip gets the one coral score meter (the scarce peak signal).
+  const topClipId = useMemo(() => {
+    if (clips.length === 0) return null;
+    return clips.reduce((best, c) => (c.score > best.score ? c : best), clips[0]).id;
+  }, [clips]);
+
+  // Average confidence across all clips (a results-masthead reading).
+  const avgScore = useMemo(() => {
+    if (clips.length === 0) return 0;
+    return clips.reduce((sum, c) => sum + c.score, 0) / clips.length;
+  }, [clips]);
+
   // Selection model = "deselected ids" so a clip that flips pending→ready during polling is
   // selected by default (тracking a positive set would leave newly-arrived ready clips out).
   // Only READY clips are ever selectable/downloadable.
@@ -66,7 +82,15 @@ export function ClipGrid({ job }: { job: Job }) {
   const selectedCount = readyClips.filter((c) => !deselected.has(c.id)).length;
   const allSelected = readyClips.length > 0 && selectedCount === readyClips.length;
 
-  if (clips.length === 0) return <EmptyState />;
+  if (clips.length === 0)
+    return (
+      <EmptyState
+        align="center"
+        className="rounded-lg border border-line bg-surface p-10"
+        title="Nothing to clip"
+        description="No standalone-worthy moments were found in this video. That’s not an error — try a different video."
+      />
+    );
 
   const m = job.metrics;
   const readyCount = readyClips.length;
@@ -96,36 +120,47 @@ export function ClipGrid({ job }: { job: Job }) {
 
   return (
     <div className="w-full">
-      {rendering ? (
-        // While rendering: compact "N of M clips ready" + a small status indicator. Drops to
-        // the normal metrics line once status === "done".
-        <p className="mb-4 flex items-center gap-2 font-mono text-sm text-muted">
-          <Loader2 className="size-3.5 animate-spin text-accent" />
-          <span className="text-ink">
-            {readyCount} of {clips.length} clips ready
-          </span>
-          <span className="text-muted">· still rendering…</span>
-        </p>
-      ) : m ? (
-        <p className="mb-4 font-mono text-sm text-muted">
-          {clips.length} clips · source {mmss(m.duration_sec)} · {Math.round(m.elapsed_sec)}s
-        </p>
-      ) : null}
+      {/* ── results masthead: the verdict (display) + a mono stat strip. ── */}
+      <header className="mb-5 border-b border-line pb-5">
+        <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
+          <div>
+            <Eyebrow tone="faint">{rendering ? "Cutting clips" : "Results"}</Eyebrow>
+            <h1 className="mt-1.5 font-display text-h2 text-ink">
+              {rendering
+                ? `${readyCount} of ${clips.length} clip${clips.length === 1 ? "" : "s"} ready`
+                : `${clips.length} clip${clips.length === 1 ? "" : "s"} ready`}
+            </h1>
+          </div>
+          {/* stat strip — calibrated readings about this run */}
+          <div className="flex flex-wrap items-end gap-x-8 gap-y-3">
+            <StripStat label="Avg confidence" value={`${Math.round(avgScore * 100)}/100`} />
+            {m && <StripStat label="Source" value={mmss(m.duration_sec)} />}
+            {m && <StripStat label="Time taken" value={`${Math.round(m.elapsed_sec)}s`} />}
+          </div>
+        </div>
+      </header>
 
-      <div className="mb-5 flex flex-wrap items-center gap-3 rounded-lg border border-line bg-surface p-3">
-        <span className="font-mono text-sm text-ink">
-          {selectedCount} of {readyCount} selected
+      {/* selection — a quiet inline row, not a boxed toolbar. */}
+      <div className="mb-5 flex flex-wrap items-center gap-x-4 gap-y-2">
+        {rendering && (
+          <span className="inline-flex items-center gap-1.5 font-mono text-eyebrow uppercase text-muted">
+            <Spinner size="sm" className="text-accent" />
+            still rendering
+          </span>
+        )}
+        <span className="font-mono text-eyebrow uppercase text-muted">
+          <Numeral className="text-ink">{selectedCount}</Numeral> of{" "}
+          <Numeral>{readyCount}</Numeral> selected
         </span>
-        <Button
+        <button
           type="button"
-          variant="secondary"
-          size="sm"
           onClick={toggleAll}
           disabled={readyCount === 0}
+          className="inline-flex items-center gap-1.5 text-sm text-muted transition-colors hover:text-ink disabled:opacity-50"
         >
           {allSelected ? <Square className="size-4" /> : <CheckSquare className="size-4" />}
           {allSelected ? "Deselect all" : "Select all"}
-        </Button>
+        </button>
         <Button
           type="button"
           variant="accent"
@@ -135,7 +170,7 @@ export function ClipGrid({ job }: { job: Job }) {
           className="ml-auto"
         >
           <Download className="size-4" />
-          Download selected ({selectedCount})
+          Download ({selectedCount})
         </Button>
       </div>
 
@@ -147,6 +182,7 @@ export function ClipGrid({ job }: { job: Job }) {
             clip={c}
             selected={isSelected(c.id)}
             onToggle={() => toggle(c.id)}
+            topClip={c.id === topClipId}
           />
         ))}
       </div>

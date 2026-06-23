@@ -2,7 +2,10 @@
 
 import Image from "next/image";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Badge, type BadgeTone } from "@/components/ui/Badge";
 import { Container } from "@/components/ui/Container";
+import { Eyebrow } from "@/components/ui/Eyebrow";
+import { Numeral } from "@/components/ui/Numeral";
 import { Section } from "@/components/ui/Section";
 import { cn } from "@/lib/cn";
 
@@ -27,11 +30,12 @@ type DemoClip = {
 
 type Sample = { tab: string; file: string; duration: string; marks: [string, string, string]; clips: DemoClip[] };
 
-const TYPE_CLS: Record<ClipType, string> = {
-  hook: "text-hook bg-hook/15 border-hook/40",
-  peak: "text-peak bg-peak/15 border-peak/40",
-  thought: "text-thought bg-thought/15 border-thought/40",
-  quote: "text-quote bg-quote/15 border-quote/40",
+// ClipType maps 1:1 to the Badge tones (same token names) — reuse the shared chip.
+const BADGE_TONE: Record<ClipType, BadgeTone> = {
+  hook: "hook",
+  peak: "peak",
+  thought: "thought",
+  quote: "quote",
 };
 const ZONE_CLS: Record<ClipType, string> = {
   hook: "bg-hook/70",
@@ -160,37 +164,43 @@ export function QuipStudio() {
     phase === "scanning" ? "finding moments…" : phase === "ready" ? `${sample.clips.length} clips ready` : "ready to upload";
 
   return (
-    <Section id="demo" className="relative overflow-hidden">
-      {/* faint purple atmosphere, like the source prototype */}
-      <div
-        aria-hidden
-        className="pointer-events-none absolute right-[-8%] top-1/3 size-[520px] rounded-full bg-[radial-gradient(circle,rgba(192,107,255,.06),transparent_64%)]"
-      />
+    <Section id="demo" className="relative">
       <Container className="relative">
         <div className="mx-auto max-w-2xl text-center">
-          <h2 className="font-display text-h2 text-ink sm:text-display-lg">
+          <Eyebrow tone="accent" className="inline-flex items-center gap-2">
+            <span className="size-1.5 rounded-pill bg-accent" aria-hidden />
+            Live cutting logic
+          </Eyebrow>
+          <h2 className="mt-4 font-display text-h2 text-ink sm:text-display-lg">
             Here&rsquo;s how it cuts &mdash; and <span className="text-accent">why</span> exactly like that.
           </h2>
           <p className="mt-4 text-lead text-muted">
-            A live mock of the cutting logic — not a screen recording. Hover a clip to see where it
-            came from.
+            A live mock of the cutting logic, not a screen recording. Hover a clip to trace it back to
+            its moment.
           </p>
         </div>
 
         <div
           ref={rootRef}
-          className="mx-auto mt-12 max-w-4xl overflow-hidden rounded-xl border border-line-strong bg-surface shadow-[0_32px_80px_-32px_rgba(0,0,0,.6)]"
+          className="mx-auto mt-12 max-w-4xl overflow-hidden rounded-lg border border-line-strong bg-surface shadow-[0_32px_80px_-32px_rgba(0,0,0,.6)]"
         >
           {/* top bar: title + state + sample tabs */}
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line bg-surface-2 px-5 py-4">
             <div>
               <p className="flex items-center gap-2 text-sm font-semibold text-ink">
                 Quip Studio
-                <span className="rounded border border-line-strong bg-surface-3 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider text-faint">
-                  concept preview
-                </span>
+                <Badge tone="neutral">Concept preview</Badge>
               </p>
-              <p className="mt-1 font-mono text-[11px] tracking-wide text-faint">{stateLabel}</p>
+              <p className="mt-1.5 flex items-center gap-2">
+                <span
+                  aria-hidden
+                  className={cn(
+                    "size-1.5 rounded-pill",
+                    phase === "scanning" ? "bg-accent" : phase === "ready" ? "bg-ok" : "bg-line-strong",
+                  )}
+                />
+                <Eyebrow tone="faint">{stateLabel}</Eyebrow>
+              </p>
             </div>
             <div className="flex flex-wrap gap-1.5">
               {SAMPLES.map((s, i) => (
@@ -200,7 +210,8 @@ export function QuipStudio() {
                   onClick={() => pickSample(i)}
                   aria-pressed={i === sampleIdx}
                   className={cn(
-                    "h-8 rounded-md border px-3 text-xs font-semibold transition-colors",
+                    "h-8 rounded-md border px-3 text-xs font-semibold outline-none transition-colors duration-180 ease-snappy",
+                    "focus-visible:ring-2 focus-visible:ring-ink",
                     i === sampleIdx
                       ? "border-line-strong bg-surface-3 text-ink"
                       : "border-line-strong/60 text-muted hover:bg-surface-3 hover:text-ink",
@@ -215,9 +226,9 @@ export function QuipStudio() {
           {/* studio body */}
           <div className="flex flex-col gap-4 px-5 py-6">
             <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-              <span className="font-mono text-[10px] uppercase tracking-wider text-faint">your video</span>
+              <Eyebrow tone="faint">Source</Eyebrow>
               <h3 className="font-mono text-sm text-ink">{sample.file}</h3>
-              <span className="ml-auto font-mono text-xs text-faint">{sample.duration}</span>
+              <Numeral className="ml-auto text-xs text-faint">{sample.duration}</Numeral>
             </div>
 
             {/* timeline */}
@@ -237,21 +248,24 @@ export function QuipStudio() {
                   onClick={() => setLinked((v) => (v === i ? null : i))}
                   aria-label={`${c.type} clip source at ${c.time}`}
                   className={cn(
-                    "absolute inset-y-1 grid place-items-center rounded-sm transition-all duration-150",
+                    "absolute inset-y-1 grid place-items-center rounded-sm outline-none transition duration-180 ease-snappy",
                     ZONE_CLS[c.type],
-                    linked === i ? "opacity-100 scale-y-110" : "opacity-70",
+                    linked === i
+                      ? "ring-2 ring-ink ring-offset-1 ring-offset-surface-3"
+                      : "ring-1 ring-inset ring-white/0 hover:ring-white/20 focus-visible:ring-2 focus-visible:ring-ink",
                   )}
                   style={{ left: `${c.left}%`, width: `${c.width}%` }}
                 >
-                  <span className="text-[9px] font-bold uppercase tracking-wider text-bg/90">
+                  <span className="font-mono text-[9px] font-bold uppercase tracking-wider text-bg/90">
                     {c.type}
                   </span>
                 </button>
               ))}
-              {/* scanning playhead */}
+              {/* scanning playhead — the single live signal; the coral bar is enough,
+                  no decorative glow */}
               <span
                 aria-hidden
-                className="absolute inset-y-0 w-0.5 rounded bg-accent shadow-[0_0_8px_rgba(255,90,61,.7)]"
+                className="absolute inset-y-0 w-0.5 rounded-pill bg-accent"
                 style={{
                   left: `${playhead}%`,
                   opacity: phase === "scanning" ? 1 : 0,
@@ -259,16 +273,13 @@ export function QuipStudio() {
                 }}
               />
             </div>
-            <div className="flex justify-between font-mono text-[10px] tracking-wide text-faint">
+            <div className="flex justify-between">
               {sample.marks.map((m, i) => (
-                <span key={i}>{m}</span>
+                <Numeral key={i} className="text-[10px] tracking-wide text-faint">
+                  {m}
+                </Numeral>
               ))}
             </div>
-
-            <p className="text-xs leading-relaxed text-faint">
-              The AI found the strong moments and cut clips. Hover a clip — it highlights where it came
-              from in the video.
-            </p>
 
             {/* clip grid */}
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -279,8 +290,10 @@ export function QuipStudio() {
                   onMouseLeave={() => setLinked((v) => (v === i ? null : v))}
                   onClick={() => setLinked((v) => (v === i ? null : i))}
                   className={cn(
-                    "cursor-pointer overflow-hidden rounded-lg border bg-surface-2 transition-all duration-500 ease-out",
-                    linked === i ? "border-line-strong shadow-[0_8px_24px_-12px_rgba(0,0,0,.5)] -translate-y-0.5" : "border-line",
+                    "cursor-pointer overflow-hidden rounded-lg border bg-surface-2 transition duration-240 ease-snappy",
+                    linked === i
+                      ? "border-line-strong ring-1 ring-line-strong -translate-y-0.5"
+                      : "border-line hover:border-line-strong",
                   )}
                   style={{
                     transitionDelay: phase === "ready" ? `${i * 90}ms` : "0ms",
@@ -297,20 +310,15 @@ export function QuipStudio() {
                       className="object-cover"
                     />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-transparent to-black/10" />
-                    <span
-                      className={cn(
-                        "absolute left-2 top-2 inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide",
-                        TYPE_CLS[c.type],
-                      )}
-                    >
+                    <Badge tone={BADGE_TONE[c.type]} className="absolute left-2 top-2 backdrop-blur-sm">
                       {c.type}
-                    </span>
+                    </Badge>
                     <p className="absolute inset-x-2 bottom-2 text-[12px] font-bold leading-tight text-white [text-shadow:0_1px_6px_rgba(0,0,0,.7)]">
                       {c.title}
                     </p>
                   </div>
                   <div className="px-2.5 py-2.5">
-                    <span className="block font-mono text-[10px] tracking-wide text-faint">{c.time}</span>
+                    <Numeral className="block text-[10px] tracking-wide text-faint">{c.time}</Numeral>
                     <p className="mt-1 text-[11px] leading-snug text-muted">{c.text}</p>
                   </div>
                 </article>
@@ -321,7 +329,7 @@ export function QuipStudio() {
               <button
                 type="button"
                 onClick={() => pickSample((sampleIdx + 1) % SAMPLES.length)}
-                className="rounded-md border border-line-strong px-3 py-1.5 text-xs font-semibold text-muted transition-colors hover:bg-surface-3 hover:text-ink"
+                className="rounded-md border border-line-strong px-3 py-1.5 text-xs font-semibold text-muted outline-none transition-colors duration-180 ease-snappy hover:bg-surface-3 hover:text-ink focus-visible:ring-2 focus-visible:ring-ink"
               >
                 Another example
               </button>

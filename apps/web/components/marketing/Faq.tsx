@@ -7,13 +7,13 @@ import { SectionHeading } from "./SectionHeading";
 
 export function Faq() {
   return (
-    <Section id="faq">
+    <Section id="faq" space="tight">
       <Container className="grid gap-12 lg:grid-cols-[0.8fr_1.2fr] lg:gap-16">
         <Reveal>
-          <SectionHeading title="Questions, answered straight." />
+          <SectionHeading eyebrow="06 / FAQ" title="Questions, answered straight." />
         </Reveal>
         <Reveal delay={80}>
-          <div className="divide-y divide-line overflow-hidden rounded-xl border border-line">
+          <div className="divide-y divide-line overflow-hidden rounded-lg border border-line">
             {FAQ.map((item) => (
               <details key={item.q} className="group bg-surface/50 open:bg-surface">
                 <summary className="flex cursor-pointer list-none items-center justify-between gap-4 p-5 text-ink [&::-webkit-details-marker]:hidden">

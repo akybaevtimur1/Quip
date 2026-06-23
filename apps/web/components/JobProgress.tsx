@@ -1,5 +1,9 @@
-import { Check, Loader2, X } from "lucide-react";
+import { X } from "lucide-react";
 import { useState } from "react";
+import { Eyebrow } from "@/components/ui/Eyebrow";
+import { Meter } from "@/components/ui/Meter";
+import { Numeral } from "@/components/ui/Numeral";
+import { Skeleton } from "@/components/ui/Skeleton";
 import { mmss } from "@/lib/format";
 import type { JobStatus } from "@/lib/types";
 
@@ -10,15 +14,15 @@ const STEPS: { key: JobStatus; label: string }[] = [
   { key: "downloading", label: "Preparing video" },
   { key: "transcribing", label: "Transcribing" },
   { key: "selecting", label: "Selecting moments" },
-  { key: "rendering", label: "Rendering" },
+  { key: "rendering", label: "Rendering clips" },
 ];
 
 const STAGE_HINT: Partial<Record<JobStatus, string>> = {
-  queued: "Warming up the engine…",
-  downloading: "Getting your video ready…",
-  transcribing: "Listening to every word…",
-  selecting: "Finding the moments worth posting…",
-  rendering: "Cutting your vertical clips…",
+  queued: "Queued",
+  downloading: "Reading your video",
+  transcribing: "Transcribing every word",
+  selecting: "Finding the moments worth posting",
+  rendering: "Cutting your vertical clips",
 };
 
 export function JobProgress({
@@ -30,6 +34,7 @@ export function JobProgress({
   sourceMinutes = null,
   transcriptWords = null,
   momentsFound = null,
+  requestedClips = 3,
 }: {
   status: JobStatus;
   elapsed: number;
@@ -42,6 +47,8 @@ export function JobProgress({
   sourceMinutes?: number | null;
   transcriptWords?: number | null;
   momentsFound?: number | null;
+  // How many clips the user asked for — drives the reserved skeleton count.
+  requestedClips?: number;
 }) {
   // While "queued" (cur=0) the first real step ("Downloading", index 1) reads as active,
   // so the stepper never looks dead between submit and the first status change.
@@ -55,14 +62,34 @@ export function JobProgress({
   const stageFloor = [0, 8, 35, 60, 80, 100][Math.min(cur, 5)] ?? 8;
   const pct = Math.min(99, Math.max(progress ?? 0, stageFloor));
 
+  // Reserve a realistic number of clip slots (cap so the skeleton grid stays tidy).
+  const skeletonCount = Math.min(6, Math.max(2, requestedClips));
+
+  // Live telemetry — only the readings the worker has reported so far.
+  const telemetry = [
+    { label: "Source", value: sourceMinutes != null ? `${sourceMinutes} min` : "—" },
+    {
+      label: "Words",
+      value: transcriptWords != null ? transcriptWords.toLocaleString() : "—",
+    },
+    { label: "Moments", value: momentsFound != null ? String(momentsFound) : "—" },
+  ];
+
   return (
     <div className="w-full max-w-3xl">
-      <div className="mb-4 flex items-baseline justify-between gap-4">
-        <h2 className="font-display text-2xl font-bold">Cutting your video…</h2>
-        <div className="flex items-center gap-3">
-          <span className="font-mono text-sm text-muted" aria-live="polite">
-            {mmss(elapsed)}
-          </span>
+      {/* header: stage readout + elapsed + stop */}
+      <div className="flex items-end justify-between gap-4 border-b border-line pb-4">
+        <div>
+          <Eyebrow tone="accent">Processing</Eyebrow>
+          <h2 className="mt-1.5 font-display text-h3 text-ink">{STAGE_HINT[status] ?? "Working"}</h2>
+        </div>
+        <div className="flex items-end gap-4">
+          <div className="text-right" aria-live="polite">
+            <Eyebrow tone="faint" className="block">
+              Elapsed
+            </Eyebrow>
+            <Numeral className="mt-1 block text-base text-muted">{mmss(elapsed)}</Numeral>
+          </div>
           {cancellable && onStop && (
             <button
               type="button"
@@ -74,37 +101,37 @@ export function JobProgress({
               className="inline-flex items-center gap-1.5 rounded-md border border-line px-3 py-1.5 text-sm text-muted transition hover:border-line-strong hover:text-ink disabled:opacity-50"
             >
               <X className="size-4" />
-              {stopping ? "Stopping…" : "Stop"}
+              {stopping ? "Stopping…" : "Stop · no charge"}
             </button>
           )}
         </div>
       </div>
 
-      {/* прогресс-бар (серверный %) + текущая стадия + успокаивающая подсказка */}
-      <div className="mb-6">
-        <div className="mb-1.5 flex items-baseline justify-between gap-3 text-sm">
-          <span className="font-medium text-ink">{STAGE_HINT[status] ?? "Working…"}</span>
-          <span className="font-mono text-xs text-muted">{Math.round(pct)}%</span>
-        </div>
-        <div className="h-2 overflow-hidden rounded-full bg-surface-2">
-          <div
-            className="h-full rounded-full bg-accent transition-[width] duration-700 ease-out"
-            style={{ width: `${Math.max(4, pct)}%` }}
-          />
-        </div>
-        <p className="mt-2 text-xs text-faint">
-          You can close this tab — processing keeps running, and your clips will be waiting in
-          Recent projects.
-        </p>
+      {/* overall progress meter + telemetry readouts */}
+      <div className="mt-5 flex items-center gap-3">
+        <Meter value={pct / 100} tone="accent" aria-label="Overall progress" className="flex-1" />
+        <Numeral className="shrink-0 text-xs text-muted">{Math.round(pct)}%</Numeral>
+      </div>
+      <div className="mt-5 grid grid-cols-3 gap-px overflow-hidden rounded-lg border border-line bg-line">
+        {telemetry.map((t) => (
+          <div key={t.label} className="bg-surface px-4 py-3">
+            <Eyebrow tone="faint" className="block">
+              {t.label}
+            </Eyebrow>
+            <Numeral className="mt-1.5 block text-base text-ink">{t.value}</Numeral>
+          </div>
+        ))}
       </div>
 
-      <ol className="flex flex-col gap-3">
+      {/* timeline spine: hairline rail + dot nodes (coral active / thought done / hollow pending) */}
+      <ol className="relative mt-7 ml-1.5">
+        {/* the vertical rail */}
+        <span className="absolute left-[5px] top-2 bottom-2 w-px bg-line" aria-hidden />
         {STEPS.map((step) => {
           const i = ORDER.indexOf(step.key);
           const done = cur > i;
           const active = cur === i;
-          // Live count for this stage (shown once the worker reports it) → the pre-clip wait
-          // shows real progress on THEIR video, not just a spinner.
+          // Live count for this stage (shown once the worker reports it).
           const count =
             step.key === "downloading" && sourceMinutes != null
               ? `${sourceMinutes} min`
@@ -114,44 +141,39 @@ export function JobProgress({
                   ? `${momentsFound} found`
                   : null;
           return (
-            <li
-              key={step.key}
-              className={`flex items-center gap-3 rounded-xl border px-4 py-3 transition ${
-                active
-                  ? "border-accent bg-surface-3"
-                  : done
-                    ? "border-line bg-surface"
-                    : "border-line bg-surface opacity-50"
-              }`}
-            >
+            <li key={step.key} className="relative flex items-center gap-3.5 py-2.5 pl-6">
               <span
-                className={`flex size-7 shrink-0 items-center justify-center rounded-full ${
-                  done ? "bg-thought text-white" : active ? "bg-accent text-white" : "bg-surface-2 text-muted"
+                className={`absolute left-0 z-10 size-[11px] rounded-pill border-2 transition ${
+                  active
+                    ? "border-accent bg-accent motion-safe:animate-pulse"
+                    : done
+                      ? "border-thought bg-thought"
+                      : "border-line-strong bg-bg"
                 }`}
+                aria-hidden
+              />
+              <span
+                className={`text-sm font-medium ${active || done ? "text-ink" : "text-muted"}`}
               >
-                {done ? (
-                  <Check className="size-4" />
-                ) : active ? (
-                  <Loader2 className="size-4 animate-spin" />
-                ) : (
-                  <span className="size-2 rounded-full bg-muted" />
-                )}
-              </span>
-              <span className={`font-medium ${active ? "text-ink" : done ? "text-ink" : "text-muted"}`}>
                 {step.label}
-                {count && <span className="ml-2 font-normal text-muted">· {count}</span>}
               </span>
+              {count && <Numeral className="text-xs text-muted">· {count}</Numeral>}
             </li>
           );
         })}
       </ol>
 
-      {/* скелетоны будущих клипов — резервируем место, показываем что идёт работа */}
-      <div className="mt-8 grid grid-cols-2 gap-4 sm:grid-cols-3">
-        {Array.from({ length: 3 }).map((_, i) => (
-          <div key={i} className="animate-pulse">
-            <div className="aspect-[9/16] rounded-xl bg-surface-2" />
-            <div className="mt-2 h-3 w-2/3 rounded bg-surface-2" />
+      <p className="mt-5 text-xs leading-relaxed text-faint">
+        Close this tab anytime — processing keeps running, and your clips wait for you in Recent
+        projects.
+      </p>
+
+      {/* skeletons of the clips to come — reserve the grid space so the handoff doesn't jump */}
+      <div className="mt-7 grid grid-cols-2 gap-4 sm:grid-cols-3">
+        {Array.from({ length: skeletonCount }).map((_, i) => (
+          <div key={i}>
+            <Skeleton className="aspect-[9/16] rounded-lg" />
+            <Skeleton className="mt-2 h-3 w-2/3" />
           </div>
         ))}
       </div>

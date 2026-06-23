@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { siteConfig } from "@/lib/site";
 import { Container } from "@/components/ui/Container";
+import { Eyebrow } from "@/components/ui/Eyebrow";
 import { Logo } from "@/components/ui/Logo";
 
 const cols: { title: string; links: { href: string; label: string }[] }[] = [
@@ -51,7 +52,9 @@ export function Footer() {
         </div>
         {cols.map((col) => (
           <div key={col.title}>
-            <h2 className="font-mono text-eyebrow uppercase text-faint">{col.title}</h2>
+            <Eyebrow as="h2" tone="faint">
+              {col.title}
+            </Eyebrow>
             <ul className="mt-4 space-y-3">
               {col.links.map((l) => (
                 <li key={l.href}>
@@ -68,8 +71,8 @@ export function Footer() {
         ))}
       </Container>
       <Container className="flex flex-col items-center justify-between gap-3 border-t border-line py-6 sm:flex-row">
-        <p className="text-xs text-faint">© {new Date().getFullYear()} Quip. All rights reserved.</p>
-        <p className="text-xs text-faint">Honest pricing. No credit casino. No surprise paywalls.</p>
+        <Eyebrow tone="faint">© {new Date().getFullYear()} Quip · all rights reserved</Eyebrow>
+        <Eyebrow tone="faint">Honest pricing · no credit casino · no surprise paywalls</Eyebrow>
       </Container>
     </footer>
   );

@@ -3,7 +3,9 @@
 import { Minus, Plus, Scissors, Upload, X } from "lucide-react";
 import { useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
+import { Eyebrow } from "@/components/ui/Eyebrow";
 import { IconButton } from "@/components/ui/IconButton";
+import { Numeral } from "@/components/ui/Numeral";
 import { cn } from "@/lib/cn";
 
 const MIN_CLIPS = 1;
@@ -63,8 +65,9 @@ export function SourceForm({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="w-full max-w-xl">
-      {/* Загрузка файла: drop-zone или плашка выбранного файла */}
+    <form onSubmit={handleSubmit} className="w-full">
+      {/* Intake: a measured instrument frame (corner ticks + a 9:16 target marker), not a
+          limp centered dashed box. Or the selected-file plate once a file is chosen. */}
       {file == null ? (
         <div
           onClick={() => !busy && inputRef.current?.click()}
@@ -81,21 +84,61 @@ export function SourceForm({
           role="button"
           tabIndex={0}
           aria-label="Upload a video file"
-          className={`flex cursor-pointer flex-col items-center justify-center gap-2 rounded-md border border-dashed px-4 py-10 text-center text-sm text-muted transition duration-200 ease-snappy hover:border-line-strong hover:text-ink ${
-            dragging ? "border-accent bg-surface-2" : "border-line bg-surface"
-          } ${busy ? "pointer-events-none opacity-50" : ""}`}
+          className={cn(
+            "group relative cursor-pointer overflow-hidden rounded-lg border bg-surface px-5 py-7 transition duration-200 ease-snappy",
+            dragging ? "border-accent bg-surface-2" : "border-line hover:border-line-strong",
+            busy && "pointer-events-none opacity-50",
+          )}
         >
-          <Upload className="size-6 text-accent" />
-          <span>
-            Drag a video here or <span className="font-medium text-ink">choose a file</span>
-          </span>
-          <span className="text-xs text-faint">MP4, MOV… up to {MAX_UPLOAD_LABEL} · 3 h</span>
+          {/* corner ticks — the measured-frame signature */}
+          {(["left-2.5 top-2.5 border-l border-t", "right-2.5 top-2.5 border-r border-t", "left-2.5 bottom-2.5 border-l border-b", "right-2.5 bottom-2.5 border-r border-b"] as const).map(
+            (pos) => (
+              <span
+                key={pos}
+                aria-hidden
+                className={cn(
+                  "pointer-events-none absolute size-3 transition-colors",
+                  pos,
+                  dragging ? "border-accent" : "border-line-strong",
+                )}
+              />
+            ),
+          )}
+          <div className="flex items-center gap-4">
+            {/* 9:16 target marker */}
+            <span
+              aria-hidden
+              className={cn(
+                "grid h-14 w-[31.5px] shrink-0 place-items-center rounded-sm border transition-colors",
+                dragging ? "border-accent bg-accent-tint" : "border-line-strong bg-surface-2",
+              )}
+            >
+              {/* the 9:16 target marker is structure, not a CTA — keep coral scarce for the
+                  "choose a file" affordance + the Make clips button. */}
+              <Upload className={cn("size-4 transition-colors", dragging ? "text-accent" : "text-muted")} />
+            </span>
+            <div className="min-w-0">
+              <Eyebrow tone="faint">Intake · 9:16</Eyebrow>
+              <p className="mt-1.5 text-sm text-ink">
+                {dragging ? (
+                  "Drop to load"
+                ) : (
+                  <>
+                    Drop a video, or <span className="font-medium text-accent">choose a file</span>
+                  </>
+                )}
+              </p>
+              <p className="mt-1 font-mono text-eyebrow uppercase tabular-nums text-faint">
+                MP4 · MOV · up to {MAX_UPLOAD_LABEL} · 3h
+              </p>
+            </div>
+          </div>
         </div>
       ) : (
-        <div className="flex items-center justify-between gap-2 rounded-md border border-line bg-surface px-4 py-3">
-          <span className="flex items-center gap-2 truncate text-sm text-ink">
+        <div className="flex items-center justify-between gap-2 rounded-lg border border-line bg-surface px-4 py-3.5">
+          <span className="flex min-w-0 items-center gap-2.5 truncate text-sm text-ink">
             <Upload className="size-4 shrink-0 text-accent" />
-            <span className="truncate">{file.name}</span>
+            <span className="truncate font-medium">{file.name}</span>
           </span>
           <IconButton
             onClick={() => pickFile(null)}
@@ -115,11 +158,11 @@ export function SourceForm({
         hidden
         onChange={(e) => pickFile(e.target.files?.[0] ?? null)}
       />
-      {fileError ? <p className="mt-1 pl-1 text-sm text-bad">{fileError}</p> : null}
+      {fileError ? <p className="mt-2 text-sm text-bad">{fileError}</p> : null}
 
-      <div className="mt-4 pl-1">
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-          <span className="text-sm text-muted">Clips:</span>
+      <div className="mt-5">
+        <Eyebrow tone="faint">Clip count</Eyebrow>
+        <div className="mt-2 flex flex-wrap items-center gap-3">
           {/* Auto («сколько найдётся, до 30») vs Custom (ровно N). */}
           <div className="inline-flex rounded-md border border-line bg-surface p-0.5">
             {([true, false] as const).map((isAuto) => (
@@ -130,8 +173,10 @@ export function SourceForm({
                 disabled={busy}
                 aria-pressed={auto === isAuto}
                 className={cn(
-                  "rounded px-3 py-1 text-sm font-medium transition disabled:opacity-50",
-                  auto === isAuto ? "bg-surface-3 text-ink" : "text-muted hover:text-ink",
+                  "rounded-sm px-3.5 py-1.5 text-sm font-medium transition disabled:opacity-50",
+                  auto === isAuto
+                    ? "bg-surface-3 text-ink shadow-[0_0_0_1px_var(--color-line-strong)]"
+                    : "text-muted hover:text-ink",
                 )}
               >
                 {isAuto ? "Auto" : "Custom"}
@@ -149,9 +194,7 @@ export function SourceForm({
               >
                 <Minus className="size-4" />
               </IconButton>
-              <span className="w-7 text-center font-mono text-base font-semibold tabular-nums text-ink">
-                {count}
-              </span>
+              <Numeral className="w-7 text-center text-base font-semibold text-ink">{count}</Numeral>
               <IconButton
                 onClick={() => setCount((c) => clamp(c + 1))}
                 disabled={busy || count >= MAX_CLIPS}
@@ -163,12 +206,10 @@ export function SourceForm({
               </IconButton>
             </div>
           )}
+          <span className="font-mono text-eyebrow uppercase tabular-nums text-faint">
+            {auto ? "up to 30 found" : `exactly ${count}`}
+          </span>
         </div>
-        <p className="mt-2 text-xs text-muted">
-          {auto
-            ? "Quip returns as many strong clips as it finds — up to 30."
-            : `Up to ${count} clip${count === 1 ? "" : "s"}. AI suggests — uncheck any you don’t want.`}
-        </p>
       </div>
 
       <Button
@@ -177,15 +218,14 @@ export function SourceForm({
         size="lg"
         loading={busy}
         disabled={!canSubmit}
-        className="mt-4 h-12 w-full sm:w-auto"
+        className="mt-6 h-12 w-full sm:w-auto"
       >
         {!busy && <Scissors className="size-5" />}
         {busy ? "Starting…" : "Make clips"}
       </Button>
 
-      <p className="mt-3 pl-1 text-sm text-muted">
-        Upload any video — its length just has to fit your remaining minutes (and up to 3 hours per
-        video). 1 credit = 60 minutes.
+      <p className="mt-3 text-sm text-muted">
+        Length must fit your remaining minutes. 1 credit = 60 minutes.
       </p>
     </form>
   );
