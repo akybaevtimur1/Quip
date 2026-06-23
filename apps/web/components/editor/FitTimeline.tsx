@@ -60,10 +60,15 @@ const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n
 export function clipTimeToSource(clipT: number, intervals: SourceInterval[]): number {
   if (intervals.length === 0) return clipT;
   let offset = 0;
-  for (const iv of intervals) {
+  for (let i = 0; i < intervals.length; i++) {
+    const iv = intervals[i];
     const dur = iv.source_end - iv.source_start;
-    // последний интервал ловит хвост (clipT == суммарная длина) включительно
-    if (clipT <= offset + dur) {
+    // A point ON an inner seam (clipT === offset+dur, i.e. the join between interval i and i+1)
+    // belongs to the NEXT interval's START, not this one's end — use `<` for inner intervals so a
+    // region/shot starting exactly on a seam maps correctly. The LAST interval keeps `<=` to catch
+    // the tail (clipT == total clip length). (Single-interval clips are unaffected.)
+    const isLast = i === intervals.length - 1;
+    if (isLast ? clipT <= offset + dur : clipT < offset + dur) {
       return iv.source_start + (clipT - offset);
     }
     offset += dur;

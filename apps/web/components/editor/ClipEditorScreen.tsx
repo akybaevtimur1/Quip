@@ -29,6 +29,7 @@ import {
   trimClip,
 } from "@/lib/api";
 import { patchAssStyles } from "@/lib/assStyle";
+import { pickActiveOverride } from "@/lib/reframeFrame";
 import { type ClipCache, createClipCache } from "@/lib/clipCache";
 import type {
   CaptionReply,
@@ -275,7 +276,16 @@ export default function ClipEditorScreen({
   const loadReframe = useCallback(async () => {
     setReframeLoading(true);
     try {
-      const data = await getClipReframe(jobId, clipId);
+      let data;
+      try {
+        data = await getClipReframe(jobId, clipId);
+      } catch {
+        // The on-demand reframe runs heavy CV on a scale-to-zero worker → the FIRST hit on a cold
+        // container can 503/timeout. Retry once after it warms instead of dropping straight to the
+        // equal-chunk fallback strip (which shows shot boundaries that don't match the real cuts).
+        await new Promise((r) => setTimeout(r, 1500));
+        data = await getClipReframe(jobId, clipId);
+      }
       setRawRegions((data.regions as RawRegion[]) ?? null);
     } catch {
       setRawRegions(null);
@@ -370,10 +380,13 @@ export default function ClipEditorScreen({
       const fresh = await getClipEdit(jobId, clipId);
       setEdit(fresh);
       await refreshAss();
+      // The agent can change framing (set_crop) — refresh the shot strip + per-shot preview too,
+      // else the Frame tab + rawRegions-based preview stay stale and the change looks like a no-op.
+      void loadReframe();
     } catch {
       /* реконсиляция не критична — следующий poll/действие повторит */
     }
-  }, [jobId, clipId, refreshAss]);
+  }, [jobId, clipId, refreshAss, loadReframe]);
 
   // clipIdRef = ВСЕГДА текущий активный clipId (синкается на каждый render, как editRef).
   // Switch-race guard (Task 7): любой async-путь, выпущенный для клипа A (flushed PATCH,
@@ -1427,10 +1440,14 @@ export default function ClipEditorScreen({
   // here because it only stabilises identity and never triggers a re-render.
   const prevFrameRef = useRef<FrameState | null>(null);
   const frame = useMemo<FrameState | null>(() => {
-    const ovs = (edit?.reframe_overrides ?? []).filter(
-      (ov) => ov.source_start < outerEnd && ov.source_end > outerStart,
-    );
-    const ov = ovs.at(-1);
+    const t = nowSec ?? outerStart; // source-time of the playhead
+    // Pick the override that actually CONTAINS the playhead — a PER-SHOT override must NOT colour
+    // the whole clip (it only covers its own [source_start, source_end)); a whole-clip override
+    // naturally contains every t. If none contains t, fall through to the AI per-shot plan so the
+    // non-overridden shots preview their real mode. (Mirrors the render, which recolours only the
+    // covered shots — previously this took ovs.at(-1) unconditionally → a one-shot override made
+    // the whole preview wide while the render was correct.)
+    const ov = pickActiveOverride(edit?.reframe_overrides ?? [], t);
     let next: FrameState | null = null;
     if (ov) {
       const m = ov.mode === "fit" ? "fit" : ov.mode === "split" ? "split" : "fill";
@@ -1440,7 +1457,7 @@ export default function ClipEditorScreen({
         cxB: ov.center_b ?? 0.7,
       };
     } else if (rawRegions) {
-      const clipT = Math.max(0, nowSec - outerStart);
+      const clipT = Math.max(0, t - outerStart);
       const reg =
         rawRegions.find((r) => clipT >= r.t0 && clipT < r.t1) ?? rawRegions.at(-1) ?? null;
       if (reg && (reg.mode === "fit" || reg.mode === "split" || reg.mode === "fill")) {
@@ -1456,7 +1473,7 @@ export default function ClipEditorScreen({
     // eslint-disable-next-line react-hooks/refs -- same: writing ref to cache stable identity, no state setter involved
     prevFrameRef.current = stable;
     return stable;
-  }, [edit, outerStart, outerEnd, rawRegions, nowSec]);
+  }, [edit, outerStart, rawRegions, nowSec]);
 
   // ── Shots-таб: что рисуем в полосе пошотового кадрирования ──
   // Нормально берём AI-шоты (rawRegions от /reframe). НО /reframe гоняет тяжёлый CV на лету
