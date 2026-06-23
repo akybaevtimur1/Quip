@@ -38,6 +38,11 @@ export interface OverlaySelectionBoxProps {
   size: number;
   sizeMin: number;
   sizeMax: number;
+  /** Current committed anchor fraction X (text center). A move commits currentAnchor + boxΔ so the
+   *  re-rendered libass bbox lands exactly where the box was dropped (the union-bbox ≠ the anchor). */
+  posX: number;
+  /** Current committed anchor fraction Y (the anchored edge, measured from the top). */
+  posY: number;
   /** Accessible label / role of the element ("Hook" | "Captions"). */
   label: string;
   /** Commit free position: center-X fraction + anchored-edge fraction (both 0..1, clamped). */
@@ -93,6 +98,8 @@ export function OverlaySelectionBox({
   size,
   sizeMin,
   sizeMax,
+  posX,
+  posY,
   label,
   onMoveCommit,
   onResizeCommit,
@@ -118,17 +125,14 @@ export function OverlaySelectionBox({
     startSize: number;
     originX: number;
     originY: number;
+    boxLeft: number;
+    boxTop: number;
     startHeightPct: number;
   } | null>(null);
   // WIDTH (block): center + base half-width + which side is being dragged.
   const widthRef = useRef<{ startX: number; centerX: number; baseHalf: number; side: 1 | -1 } | null>(
     null,
   );
-  // True while the LATEST move latched the box CENTER onto the canvas horizontal-center line.
-  // Used at commit to write an EXACT pos_x = 0.5 instead of the per-frame bbox center (the bbox
-  // is asymmetric while a word is highlighted → its center ≠ the text anchor → off-center text).
-  const snapXCenterRef = useRef(false);
-
   // ── libass-text-follows-the-box (kills the during-drag separation + commit teleport) ──
   // During a gesture we apply the SAME visual transform to THIS element's libass canvas as we
   // apply to the box (translate for MOVE, scale for RESIZE), so the rendered text moves WITH the
@@ -215,7 +219,6 @@ export function OverlaySelectionBox({
       baseTop: nr.top - box.top,
       moved: false,
     };
-    snapXCenterRef.current = false;
     // A fresh gesture supersedes any in-flight reconcile from the previous commit.
     clearCanvasTransform();
     e.currentTarget.setPointerCapture(e.pointerId);
@@ -254,15 +257,8 @@ export function OverlaySelectionBox({
       snapLeft = Math.min(box.width - nr.width, Math.max(0, res.left));
       snapTop = Math.min(box.height - nr.height, Math.max(0, res.top));
       guidesRef?.current?.show(res.guides, W, H);
-      // Latch a canvas-center hit ONLY when the box CENTER (not an edge) landed on a "center"
-      // guide — then commit will write an exact pos_x = 0.5.
-      const snappedCenterX = snapLeft + nr.width / 2;
-      snapXCenterRef.current = res.guides.some(
-        (g) => g.axis === "x" && g.kind === "center" && Math.abs(snappedCenterX - g.pos) < 1,
-      );
     } else {
       guidesRef?.current?.hide();
-      snapXCenterRef.current = false;
     }
     // imperative: move the box itself (no React state → no re-render on move). Always position
     // by top/left during the drag (clear the % anchor) so X and Y are free.
@@ -290,17 +286,28 @@ export function OverlaySelectionBox({
     const box = renderBoxRect(node);
     if (!box) return;
     const nr = node.getBoundingClientRect();
-    // Exact center on a latched center-snap (kills the bbox-asymmetry drift); else the live box center.
-    const centerX = snapXCenterRef.current ? 0.5 : (nr.left - box.left + nr.width / 2) / box.width;
-    // anchored edge fraction FROM THE TOP: caption commits its BOTTOM edge (\an2), hook its TOP.
-    const edgeY = anchor === "top" ? (nr.top - box.top) / box.height : (nr.bottom - box.top) / box.height;
-    // Hand off when libass's bbox reaches the committed centre/edge (render-box fractions) → seamless.
-    armReconcile((r) => {
-      const cx = (r.leftPct + r.widthPct / 2) / 100;
-      const ey = anchor === "top" ? r.topPct / 100 : (r.topPct + r.heightPct) / 100;
-      return Math.abs(cx - clamp01(centerX)) < 0.04 && Math.abs(ey - clamp01(edgeY)) < 0.04;
-    });
-    onMoveCommit(clamp01(centerX), clamp01(edgeY));
+    // Commit by the box's DISPLACEMENT (delta), not its absolute geometry. The box was hugging the
+    // libass union-bbox at gesture start, and the bbox−anchor offset (font metrics / plaque / a
+    // highlighted word) is translation-invariant — so moving the anchor by the SAME Δ as the box
+    // lands the re-rendered bbox EXACTLY where it was dropped. Committing absolute box geometry
+    // teleported the text on release because the union-bbox center/edge ≠ the text anchor.
+    const finalLeft = nr.left - box.left;
+    const finalTop = nr.top - box.top;
+    const dxFrac = (finalLeft - m.baseLeft) / box.width;
+    const dyFrac = (finalTop - m.baseTop) / box.height; // pure translation → same Δ for top or bottom edge
+    const newPosX = clamp01(posX + dxFrac);
+    const newPosY = clamp01(posY + dyFrac);
+    // The box's final on-screen geometry is the seamless handoff target for the next libass bbox.
+    const finalCenterX = (finalLeft + nr.width / 2) / box.width;
+    const finalEdgeY = anchor === "top" ? finalTop / box.height : (nr.bottom - box.top) / box.height;
+    armReconcile(
+      (r) => {
+        const cx = (r.leftPct + r.widthPct / 2) / 100;
+        const ey = anchor === "top" ? r.topPct / 100 : (r.topPct + r.heightPct) / 100;
+        return Math.abs(cx - finalCenterX) < 0.04 && Math.abs(ey - finalEdgeY) < 0.04;
+      },
+    );
+    onMoveCommit(newPosX, newPosY);
   };
 
   // ── RESIZE (corner handle) → font size ──
@@ -308,21 +315,29 @@ export function OverlaySelectionBox({
     e.stopPropagation();
     const node = boxRef.current;
     const box = node ? renderBoxRect(node) : null;
-    // Capture the box's anchor point (render-box px): center-X, and the anchored edge-Y
-    // (top for hook \an8, bottom for caption \an2) = the box's own transform-origin. The canvas
-    // must scale about this SAME point for the text to grow/shrink exactly like the frame.
+    // Scale BOTH the frame and the libass canvas about the TRUE text anchor (pos), in render-box px
+    // — NOT the bbox edge. libass anchors the text at pos and grows about it; the inked bbox edge is
+    // offset from the anchor by font metrics, and that offset scales with size — so scaling about the
+    // edge drifts on commit (the "text jumps inside the frame on resize" bug). originX/Y = the anchor;
+    // boxLeft/Top let us express the box's own transform-origin (anchor relative to the box element).
     let originX = 0,
-      originY = 0;
+      originY = 0,
+      boxLeft = 0,
+      boxTop = 0;
     if (node && box) {
       const nr = node.getBoundingClientRect();
-      originX = nr.left - box.left + nr.width / 2;
-      originY = anchor === "top" ? nr.top - box.top : nr.bottom - box.top;
+      boxLeft = nr.left - box.left;
+      boxTop = nr.top - box.top;
+      originX = posX * box.width;
+      originY = posY * box.height;
     }
     resizeRef.current = {
       startY: e.clientY,
       startSize: size,
       originX,
       originY,
+      boxLeft,
+      boxTop,
       startHeightPct: rect?.heightPct ?? 0,
     };
     clearCanvasTransform(); // supersede any in-flight reconcile
@@ -341,7 +356,8 @@ export function OverlaySelectionBox({
     e.stopPropagation();
     const scale = sizeFromEvent(e.clientY) / r.startSize;
     node.style.transform = `scale(${scale})`;
-    node.style.transformOrigin = anchor === "top" ? "center top" : "center bottom";
+    // Scale the frame about the TRUE anchor (anchor px relative to the box), matching libass.
+    node.style.transformOrigin = `${r.originX - r.boxLeft}px ${r.originY - r.boxTop}px`;
     // Scale THIS element's libass text by the SAME factor about the SAME render-box anchor point,
     // so the rendered glyphs grow/shrink locked to the frame (no lag, no commit teleport).
     setCanvasTransform(`scale(${scale})`, `${r.originX}px ${r.originY}px`);

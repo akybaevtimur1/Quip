@@ -1294,6 +1294,18 @@ export default function ClipEditorScreen({
   const captionSize = captionStyle?.size ?? 90;
   const hasCaptions = replyRanges.length > 0;
 
+  // Effective CURRENT anchor (committed pos, resolving defaults), fed to the selection box so a
+  // drag commits a pure DELTA from it. The libass union-bbox the box hugs ≠ the text anchor, so
+  // committing the box's absolute geometry teleported the text on release; committing
+  // currentAnchor + boxDisplacement lands the re-rendered bbox exactly where it was dropped.
+  // Defaults mirror assStyle.posOverride: pos_x→0.5; caption pos_y→(playH−margin_v)/playH (\an2),
+  // hook pos_y→margin_v/playH (\an8). PlayResY = 1920 (the 9:16 grid).
+  const PLAY_H = 1920;
+  const capPosX = captionStyle?.pos_x ?? 0.5;
+  const capPosY = captionStyle?.pos_y ?? (PLAY_H - (captionStyle?.margin_v ?? 260)) / PLAY_H;
+  const hookPosX = hook?.pos_x ?? 0.5;
+  const hookPosY = hook?.pos_y ?? (hook?.margin_v ?? 150) / PLAY_H;
+
   // ── libass's REAL rendered rects (hook / caption) → CapCut selection box ──
   // LibassLayer surfaces the worker's per-frame fused bbox of each element as render-box
   // fractions. We keep the LATEST in a ref (updated every frame, no re-render) and mirror
@@ -1636,6 +1648,8 @@ export default function ClipEditorScreen({
                         sizeMin={CAPTION_SIZE_MIN}
                         sizeMax={CAPTION_SIZE_MAX}
                         label="Captions"
+                        posX={capPosX}
+                        posY={capPosY}
                         onMoveCommit={onCaptionMove}
                         onResizeCommit={onCaptionResize}
                         onWidthCommit={onCaptionWidth}
@@ -1659,6 +1673,8 @@ export default function ClipEditorScreen({
                         sizeMin={HOOK_SIZE_MIN}
                         sizeMax={HOOK_SIZE_MAX}
                         label="Hook"
+                        posX={hookPosX}
+                        posY={hookPosY}
                         onMoveCommit={onHookMove}
                         onResizeCommit={onHookResize}
                         onWidthCommit={onHookWidth}
