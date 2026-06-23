@@ -1253,6 +1253,17 @@
         "end": {
           "type": "number"
         },
+        "speaker": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "start": {
           "type": "number"
         },

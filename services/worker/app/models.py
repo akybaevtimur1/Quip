@@ -61,6 +61,7 @@ class Word(BaseModel):
     start: float  # секунды, абсолютные от начала source
     end: float  # секунды
     confidence: float | None = None
+    speaker: int | None = None  # D2: speaker index (Deepgram diarize); None = off / no label
 
 
 class Transcript(BaseModel):

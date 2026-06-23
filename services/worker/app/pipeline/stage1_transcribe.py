@@ -49,12 +49,14 @@ def deepgram_to_transcript(resp: dict[str, Any], *, default_language: str = "en"
         except (KeyError, TypeError, ValueError) as e:
             raise JobError(_STAGE, f"malformed word in Deepgram response: {e}") from e
         conf = w.get("confidence")
+        spk = w.get("speaker")
         words.append(
             Word(
                 text=text,
                 start=start,
                 end=end,
                 confidence=float(conf) if conf is not None else None,
+                speaker=int(spk) if spk is not None else None,
             )
         )
     if not words:
@@ -88,7 +90,9 @@ def call_deepgram(
         "model": model,
         "smart_format": "true",
         "punctuate": "true",
-        "diarize": "false",
+        # D2: диаризация ВКЛ → per-word speaker. Нужна, чтобы конец клипа не захватывал реплику
+        # ДРУГОГО спикера (snap_end_index учитывает смену спикера). Включено в Nova-3 без доп.цены.
+        "diarize": "true",
     }
     if language:
         params["language"] = language

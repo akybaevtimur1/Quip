@@ -297,6 +297,7 @@ export interface ClipOut {
 export interface Word {
   confidence?: number | null;
   end: number;
+  speaker?: number | null;
   start: number;
   text: string;
 }

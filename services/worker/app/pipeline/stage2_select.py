@@ -53,25 +53,61 @@ def _is_sentence_end(text: str) -> bool:
     return text.strip().rstrip("\"'»").endswith(_SENT_END)
 
 
-def snap_end_index(
-    words: list[Word], end_idx: int, max_extend: int = 8, min_pause: float = 0.35
-) -> int:
-    """Конец клипа → чистая граница (W1: чинит «обрыв посреди фразы»). Приоритет:
+def _primary_speaker(words: list[Word], start_idx: int, end_idx: int) -> int | None:
+    """Спикер БОЛЬШИНСТВА слов клипа [start_idx, end_idx]. None, если меток спикера нет. PURE.
 
-    1) слово уже завершает предложение (.?!) → не трогаем;
-    2) ближайшее .?! в окне +max_extend → тянем туда (окно расширено: было 5, стало 8);
-    3) нет .?! в окне → снап к НАИБОЛЬШЕЙ паузе ≥ min_pause по word-таймингам (чистый вдох,
-       а не резать середину слова/фразы);
-    4) ни .?!, ни паузы (сплошная речь) → без изменений (хвостовой паддинг сгладит луп).
+    Детерминированно: макс по числу слов, при равенстве — меньший индекс спикера.
     """
+    counts: dict[int, int] = {}
+    for w in words[start_idx : end_idx + 1]:
+        if w.speaker is not None:
+            counts[w.speaker] = counts.get(w.speaker, 0) + 1
+    if not counts:
+        return None
+    return min(counts, key=lambda s: (-counts[s], s))
+
+
+def snap_end_index(
+    words: list[Word],
+    end_idx: int,
+    max_extend: int = 8,
+    min_pause: float = 0.35,
+    *,
+    start_idx: int | None = None,
+) -> int:
+    """Конец клипа → чистая граница (W1 + D2). Приоритет:
+
+    0) D2 (есть speaker-метки И передан start_idx): отрезаем ХВОСТ слов ДРУГОГО спикера (не
+       «основного» = большинство клипа) — это «рандомный выкрик другого человека в конце»
+       (жалоба фаундера). Без меток (speaker=None) / без start_idx — шаг пропущен → legacy;
+    1) слово уже завершает предложение (.?!) → не трогаем;
+    2) ближайшее .?! в окне +max_extend → тянем туда; D2: НЕ пересекаем смену спикера
+       (иначе .?! следующего спикера утянул бы его реплику в конец клипа);
+    3) нет .?! → снап к НАИБОЛЬШЕЙ паузе ≥ min_pause (чистый вдох); D2: пауза на стыке со
+       сменой спикера = идеальная граница, дальше неё в чужую речь не идём;
+    4) D2: основного перебили и конец не на .?! → назад к его последнему .?! в окне (не
+       кончаем клип на полумысли);
+    5) иначе без изменений (хвостовой паддинг сгладит луп).
+    """
+    primary = _primary_speaker(words, start_idx, end_idx) if start_idx is not None else None
+    lo = start_idx if start_idx is not None else 0
+    # 0) D2: отрезаем хвост другого спикера (до последнего слова основного спикера)
+    if primary is not None:
+        while end_idx > lo and words[end_idx].speaker not in (None, primary):
+            end_idx -= 1
+    # 1) уже чистый конец предложения
     if _is_sentence_end(words[end_idx].text):
         return end_idx
+    # 2) тянем вперёд к .?!, не пересекая смену спикера
     for k in range(1, max_extend + 1):
         j = end_idx + k
         if j >= len(words):
             break
+        if primary is not None and words[j].speaker not in (None, primary):
+            break
         if _is_sentence_end(words[j].text):
             return j
+    # 3) снап к наибольшей паузе ≥ min_pause (не уходя в чужую речь)
     best_j = end_idx
     best_gap = 0.0
     for k in range(max_extend + 1):
@@ -79,9 +115,23 @@ def snap_end_index(
         if j + 1 >= len(words):
             break
         gap = words[j + 1].start - words[j].end
+        if primary is not None and words[j + 1].speaker not in (None, primary):
+            # стык со сменой спикера: пауза тут — чистая граница, дальше в чужую речь не идём
+            if gap >= min_pause and gap > best_gap:
+                best_gap = gap
+                best_j = j
+            break
         if gap >= min_pause and gap > best_gap:
             best_gap = gap
             best_j = j
+    # 4) D2: основного перебили, конец не на .?! → назад к его последнему .?! (не полумысль)
+    if primary is not None and not _is_sentence_end(words[best_j].text):
+        for k in range(1, max_extend + 1):
+            p = best_j - k
+            if p <= lo:
+                break
+            if _is_sentence_end(words[p].text) and words[p].speaker in (None, primary):
+                return p
     return best_j
 
 
@@ -198,7 +248,7 @@ def postprocess(
         hook_style = str(style_raw).strip().lower() or None if style_raw else None
         try:
             si = snap_start_index(words, si)
-            ei = snap_end_index(words, ei)
+            ei = snap_end_index(words, ei, start_idx=si)
             start, end = indices_to_times(words, si, ei)
         except (JobError, IndexError):
             continue

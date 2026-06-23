@@ -300,6 +300,58 @@ class TestBuildUserPromptLength:
         assert "second" in prompt.lower()
 
 
+class TestSnapEndSpeaker:
+    """D2: конец клипа не должен захватывать реплику ДРУГОГО спикера (diarize). Без speaker-меток
+    (speaker=None) поведение = legacy (snap_end_index работает как раньше; start_idx опционален)."""
+
+    def _w(self, text: str, start: float, end: float, speaker: int | None) -> Word:
+        return Word(text=text, start=start, end=end, speaker=speaker)
+
+    def test_trims_trailing_other_speaker_outburst(self) -> None:
+        # A договаривает мысль («quit.»), затем B выкрикивает 2 слова. LLM-конец сел на B.
+        words = [
+            self._w("I", 0.0, 0.4, 0),
+            self._w("really", 0.4, 0.8, 0),
+            self._w("quit.", 0.8, 1.2, 0),
+            self._w("Yeah", 1.5, 1.8, 1),
+            self._w("totally", 1.8, 2.1, 1),
+        ]
+        assert snap_end_index(words, 4, start_idx=0) == 2  # назад к концу реплики A
+
+    def test_forward_extend_does_not_cross_speaker(self) -> None:
+        # A кончает без точки; следующий .?! принадлежит B → НЕ тянем границу в B.
+        words = [
+            self._w("so", 0.0, 0.4, 0),
+            self._w("anyway", 0.4, 0.9, 0),
+            self._w("Right!", 1.5, 1.9, 1),
+        ]
+        assert snap_end_index(words, 1, start_idx=0) == 1
+
+    def test_primary_is_majority_speaker(self) -> None:
+        # primary = тот, кто говорит БОЛЬШИНСТВО клипа (A: 4 слова) → хвост B отрезан.
+        words = [
+            self._w("a0", 0.0, 0.4, 0),
+            self._w("a1", 1.0, 1.4, 0),
+            self._w("a2", 2.0, 2.4, 0),
+            self._w("done.", 3.0, 3.4, 0),
+            self._w("oh.", 4.0, 4.4, 1),
+        ]
+        assert snap_end_index(words, 4, start_idx=0) == 3
+
+    def test_keeps_clip_when_primary_ends_clean(self) -> None:
+        words = [
+            self._w("hello", 0.0, 0.4, 0),
+            self._w("world.", 0.4, 0.8, 0),
+        ]
+        assert snap_end_index(words, 1, start_idx=0) == 1
+
+    def test_no_speaker_labels_matches_legacy(self) -> None:
+        # speaker=None всюду → как раньше (тянем вперёд к .?! на индексе 4), со start_idx и без.
+        words = uniform(6, sentence_ends={4})
+        assert snap_end_index(words, 2, start_idx=0) == 4
+        assert snap_end_index(words, 2) == 4
+
+
 class TestSnapStart:
     def test_moves_to_sentence_start(self) -> None:
         words = uniform(10, sentence_ends={0})
