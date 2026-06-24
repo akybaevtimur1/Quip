@@ -523,6 +523,46 @@ class TestPlanRegions:
         assert abs(regions[0].points[0].cx - 0.2) < 1e-9
         assert abs(regions[1].points[0].cx - 0.8) < 1e-9
 
+    def test_single_silent_face_goes_wide(self) -> None:
+        """Одно НЕ-говорящее лицо (speak сильно <0 = B-roll/establishing/реклайн) → fit (wide),
+        НЕ вертикальный strip на теле/ногах. Репро Tom Holland: legs-шоты speak −1.68/−2.03,
+        face-fill шоты ≥ ~0 — речь и есть дискриминатор «широкий план vs говорящая голова»."""
+        from app.pipeline.stage3_reframe import plan_regions
+
+        # лицо нормального размера (0.16), но молчит (speak −1.7) → широкий план
+        tracks = [self._track(0, 50, 0.4, 0.16, -1.7)]
+        regions = plan_regions([(0, 50)], tracks, fps=25.0, crop_w_frac=0.3167, speak_threshold=0.0)
+        assert regions[0].mode == "fit"
+        assert regions[0].points == ()
+
+    def test_single_face_no_asd_score_is_fill(self) -> None:
+        """speak == _SILENT(-9) = ASD ПРОПУЩЕН (одна дорожка в сегменте, perf) = «скор не считался»,
+        НЕ «молчит». Один однозначный говорящий → FILL (tight), а НЕ wide (иначе talking-head клип с
+        одним планом ошибочно уходил в wide — репро Tom Holland clip_1: speak=-9 → был wide)."""
+        from app.pipeline.stage3_reframe import plan_regions
+
+        tracks = [self._track(0, 50, 0.4, 0.169, -9.0)]
+        regions = plan_regions([(0, 50)], tracks, fps=25.0, crop_w_frac=0.3167, speak_threshold=0.0)
+        assert regions[0].mode == "fill"
+        assert abs(regions[0].points[0].cx - 0.4) < 1e-9
+
+    def test_fill_glides_when_next_speaker_is_near(self) -> None:
+        """Hybrid: два подряд fill-шота, лицо РЯДОМ (Δcx мал) → 2-й ДОЕЗЖАЕТ от центра прошлого
+        (continuity, плавно), НЕ снапает. Снап только на ДАЛЁКОМ прыжке (см.
+        test_fill_snaps_to_new_speaker_at_cut). Так возвращаем плавное наведение без пол-лица."""
+        from app.pipeline.stage3_reframe import plan_regions
+
+        tracks = [
+            self._track(0, 25, 0.50, 0.16, 0.9),
+            self._track(25, 50, 0.56, 0.16, 0.9),  # рядом (Δ=0.06)
+        ]
+        regions = plan_regions(
+            [(0, 25), (25, 50)], tracks, fps=25.0, crop_w_frac=0.3167, smoothing=0.15
+        )
+        assert all(r.mode == "fill" for r in regions)
+        # 2-й стартует БЛИЗКО к концу 1-го (continuity), НЕ прыгает сразу в 0.56
+        assert abs(regions[1].points[0].cx - regions[0].points[-1].cx) <= 0.05
+
     def test_split_two_spread_stable_tracks(self) -> None:
         from app.pipeline.stage3_reframe import plan_regions
 

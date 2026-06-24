@@ -37,6 +37,19 @@ _MIN_FACE_FRAC = 0.08
 # кропа (0.5) = граница, за которой второе лицо физически вне центрированного кропа; 0.70 — с
 # запасом против дрожания детектора: ловит 0.26+ как wide, отвергает кластер/одно лицо (~0.13).
 _WIDE_SPREAD_RATIO = 0.55
+# Одиночное лицо со средним ASD speak НИЖЕ этого = уверенно НЕ говорит (B-roll / реакция /
+# широкий establishing-план: реклайн) → fit (wide), а НЕ вертикальный strip по телу/ногам.
+# Репро Tom Holland: реклайн-планы молчат (speak ≈ −1.7..−2.0), говорящие головы ≥ ~0 → −0.6
+# разделяет «широкий план» и «говорящую голову». Тюнинг качества, кадровую сетку не трогает.
+_SILENCE_WIDE_MAX = -0.6
+# Hybrid-наведение: если новый говорящий БЛИЗКО к центру прошлого fill-шота (|Δcx| ≤ этого) — EMA
+# ДОЕЗЖАЕТ от прошлого центра (плавный пан); если ДАЛЬШЕ (другая камера/спикер) — СНАП на лицо
+# (иначе кроп откроется «пол-лица»). ≈ доля, при которой лицо выходит за 9:16-кроп.
+_GLIDE_MAX_DCX = 0.10
+# ASD пропускается при ОДНОЙ дорожке в сегменте (perf, asd_reframe._SILENT=-9.0) → speak=-9 = «скор
+# НЕ считался», а НЕ «молчит»: один однозначный говорящий → это сильнейший сигнал для FILL. Поэтому
+# silence-gate (→ wide) НЕ срабатывает на сентинеле: требуем РЕАЛЬНЫЙ отрицательный скор (> этого).
+_ASD_NODATA = -5.0
 
 
 # ─────────────────────────── Dataclasses ───────────────────────────
@@ -363,11 +376,15 @@ def plan_regions(
     """
     spread_min = crop_w_frac * _WIDE_SPREAD_RATIO if wide_spread_min is None else wide_spread_min
     regions: list[TrackRegion] = []
+    # Центр конца предыдущего fill-шота → hybrid-наведение (плавный пан между БЛИЗКИМИ планами,
+    # снап на ДАЛЁКИХ). Сбрасывается на fit/split (реальная смена плана).
+    prev_fill_end_cx: float | None = None
     for f0, f1 in shots:
         active = [t for t in tracks if t.f0 < f1 and t.f1 > f0]
         t0, t1 = f0 / fps, f1 / fps
         if mode_setting == "fit":
             regions.append(TrackRegion(t0=t0, t1=t1, mode="fit", points=()))
+            prev_fill_end_cx = None
             continue
         if mode_setting != "fill" and (not active or _is_wide_shot(active, f0, f1, spread_min)):
             # WIDE shot (2+ horizontally-spread faces) or no faces → go WIDE; do NOT tight-crop one
@@ -389,36 +406,48 @@ def plan_regions(
                         points_b=_track_trajectory(tb, f0, f1, fps, smoothing),
                     )
                 )
+                prev_fill_end_cx = None
                 continue
             regions.append(TrackRegion(t0=t0, t1=t1, mode="fit", points=()))
+            prev_fill_end_cx = None
             continue
         target = _pick_target(active, speak_threshold)
-        # «Ambiguous → horizontal»: кропим (fill) ТОЛЬКО на уверенном субъекте — явный говорящий
-        # (speak ≥ speak_threshold) ИЛИ достаточно крупное лицо (width ≥ _MIN_FACE_FRAC). Мелкое
-        # молчащее лицо = неуверенно → fit (как «нет лица»). mode_setting=="fill" — явный
-        # глобальный оверрайд, его не трогаем.
+        # Одиночное лицо → fill ТОЛЬКО если это УВЕРЕННЫЙ говорящий И достаточно крупное лицо.
+        # → fit (wide), если: (а) лицо уверенно МОЛЧИТ (speak < _SILENCE_WIDE_MAX) = B-roll/реакция/
+        # широкий establishing-план (реклайн) — НЕ режем вертикальный strip по телу/ногам; ИЛИ
+        # (б) лицо мелкое И ниже порога речи (старое правило «неуверенный субъект»). mode_setting
+        # =="fill" — явный глобальный оверрайд, его не трогаем.
         if (
             mode_setting != "fill"
             and target is not None
-            and target.speak < speak_threshold
-            and target.width < _MIN_FACE_FRAC
+            and (
+                (_ASD_NODATA < target.speak < _SILENCE_WIDE_MAX)
+                or (target.speak < speak_threshold and target.width < _MIN_FACE_FRAC)
+            )
         ):
             regions.append(TrackRegion(t0=t0, t1=t1, mode="fit", points=()))
+            prev_fill_end_cx = None
             continue
-        # Каждый fill-шот ОТКРЫВАЕТСЯ на СВОЁМ говорящем (init EMA = первый cx цели, init_cx=None),
-        # а НЕ «доезжает» от центра прошлого шота. Прежняя continuity (ebfc3dc, prev_fill_end_cx)
-        # инитила EMA от конца прошлого fill-региона → на склейке к ДРУГОМУ спикеру / на коротком
-        # шоте кроп ОТКРЫВАЛСЯ между людьми и медленно полз = «пол-лица» в начале КАЖДОЙ склейки
-        # (жалоба фаундера; репро Tom Holland 240–270s: gap traj_start↔face до 0.28). Жёсткий cut и
-        # так перерисовывает весь кадр → снап кропа на границе НЕВИДИМ. Сглаживание ВНУТРИ шота
-        # (EMA по smoothing) НЕ тронуто → steady-state плавность та же. Границы режима / кадровая
-        # сетка НЕ трогаются (инвариант docs/REFRAME_FPS_GRID_INVARIANT.md цел).
+        # Hybrid-наведение: новый fill ДОЕЗЖАЕТ от центра прошлого fill-шота (continuity, плавный
+        # кинематографичный пан) если новый говорящий БЛИЗКО (|Δ| ≤ _GLIDE_MAX_DCX); если ДАЛЬШЕ
+        # (другая камера/спикер) — init=None → СНАП на лицо (иначе кроп откроется «пол-лица» и
+        # медленно поползёт — баг, пойманный на Tom Holland). EMA ВНУТРИ шота не тронут → steady-
+        # state плавность та же. Кадровая сетка / границы режима НЕ трогаются (инвариант
+        # docs/REFRAME_FPS_GRID_INVARIANT.md цел).
+        target_first = None
+        if target is not None:
+            cxs = _track_cx_in_shot(target, f0, f1)
+            target_first = cxs[0] if cxs else None
+        init = prev_fill_end_cx
+        if init is not None and (target_first is None or abs(target_first - init) > _GLIDE_MAX_DCX):
+            init = None
         pts = (
-            _track_trajectory(target, f0, f1, fps, smoothing)
+            _track_trajectory(target, f0, f1, fps, smoothing, init_cx=init)
             if target is not None
-            else (TrackPoint(t=t0, mode="fill", cx=0.5),)
+            else (TrackPoint(t=t0, mode="fill", cx=0.5 if init is None else init),)
         )
         regions.append(TrackRegion(t0=t0, t1=t1, mode="fill", points=pts))
+        prev_fill_end_cx = pts[-1].cx
     return regions
 
 
