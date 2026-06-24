@@ -73,14 +73,10 @@ Thumbs.db
 
 .vercel
 
-# ── design-sync (claude.ai/design) scratch — durable .design-sync/config.json,
-#    previews/, NOTES.md stay tracked; only build scratch is ignored ──
+# ── design-sync (claude.ai/design) scratch — machine-local, полностью игнорим ──
 .ds-sync/
 ds-bundle/
-.design-sync/.cache/
-.design-sync/learnings/
-.design-sync/node_modules/
-.design-sync/src-ui/
+.design-sync/
 apps/web/.ds-tmp/
 
 # ── Чистота репозитория (правила гигиены — НЕ ДАЁМ мусору копиться) ──────────────
