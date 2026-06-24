@@ -1,5 +1,10 @@
 # BACKEND_AUDIT — layer-by-layer debug of Quip (the *class* of bug)
 
+> **Scope (since the 2026-06-24 docs reorg):** this is the **L0–L6 debugging-layer map + regression
+> ledger** — the dependency-ordered mental model for the "works here / breaks there" class of bug.
+> It is NOT the system overview: for *how Quip works end-to-end* read **`docs/CORE_ARCHITECTURE_AND_FEATURES.md`**
+> (the living architecture doc); for the *current-reality baseline* read **`docs/README.md`**.
+
 > Living document. Owner: long-running debug agent (session "debugger").
 > Method: `superpowers:systematic-debugging` — no fix without a reproduced root cause +
 > evidence at the component boundary. Fix at the source by **unifying divergent paths**, not
@@ -214,6 +219,11 @@ on **every** read (302). Clips and render_url did NOT — they baked a time-bomb
   `STORAGE_BACKEND=local` path is unchanged (returns relative `clips/…`). Live check: after `modal deploy`,
   generate a job, wait > `SIGNED_URL_TTL`, reload the dashboard → clips must still play (each `GET /jobs/{id}`
   mints a fresh presign). Or set `R2_PUBLIC_URL` for a permanent CDN domain (also fixes it).
+- ⚠️ **ОБНОВЛЕНО 2026-06-17:** в живом Modal-образе `R2_PUBLIC_URL=https://cdn.quip.ink` **уже выставлен**
+  (`deploy/modal/worker.py:114`) → новые клипы получают **постоянный CDN-URL**, а ветка `r2://`-re-presign
+  стала путём ТОЛЬКО для легаси-строк (до `db114ae`). Тезис выше «but **not** `R2_PUBLIC_URL` → presigned
+  is the live cloud path» описывает момент фикса, а не текущий прод. Дефолт `config.py` —
+  `signed_url_ttl=604800` (7 дней), не 3600.
 
 ---
 

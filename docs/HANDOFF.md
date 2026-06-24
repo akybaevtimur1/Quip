@@ -7,7 +7,7 @@
 
 > Это операционная «правда» проекта на **2026-06-11**. Новый агент за 2 минуты понимает
 > состояние, умеет запустить и продолжить — без перечитывания всей истории.
-> Детальный журнал — `CLAUDE.md`. План — `CLIPFLOW_DEV_PLAN.md`. Бенчмарки — `docs/BENCHMARKS.md`.
+> Детальный журнал — `CLAUDE.md`. План — `docs/archive/CLIPFLOW_DEV_PLAN.md`. Бенчмарки — `docs/BENCHMARKS.md`.
 
 > ⛔ **ПЕРЕД ЛЮБЫМИ ПРАВКАМИ REFRAME/RENDER — читай `docs/REFRAME_FPS_GRID_INVARIANT.md`.**
 > Там зафиксирован инвариант кадровой сетки, который убирает «флеши» на переходах. Сломаешь —
@@ -17,7 +17,7 @@
 
 ## 0.000 ⚡⚡⚡ Продакшн-оболочка Quip (ветка `feat/production-shell`, 2026-06-13) — НОВЕЙШЕЕ
 
-Отчёт: **`docs/PRODUCTION_REPORT_2026-06-13.md`**. Полная надстройка над ядром: дизайн-система +
+Отчёт: **`docs/archive/PRODUCTION_REPORT_2026-06-13.md`**. Полная надстройка над ядром: дизайн-система +
 лендинг + auth + дашборд + оплата. **Бренд = Quip** (ClipFlow — внутреннее имя). **Оплата = Polar.sh**.
 6 коммитов от `feat/mvp-launch`, `just check` зелёный (**409 тестов**), **Lighthouse 100/100/100/100,
 LCP 173ms, CLS 0.00**.
@@ -46,9 +46,10 @@ LCP 173ms, CLS 0.00**.
 - **Дизайн-чистка видео-флоу + финальный прайсинг (2026-06-13, коммиты `5b8db44`/`616e895`/`85b572e`)** —
   детали в журнале CLAUDE.md «Дизайн-чистка видео-флоу + финальный прайсинг». Кратко: убрал системный
   анти-паттерн мутных `bg-accent/10..25` active-заливок по всему редактору/флоу (→ нейтральная поверхность
-  + чёткий коралл), русифицировал дашборд-шелл. **Финальный прайсинг = кредит-модель** (1 кредит = 1 видео
-  ≤60 мин): Free $0/2 · Starter $10/10 · Pro $25/30 · PAYG $2/кредит. Источник правды чисел —
-  `services/worker/app/billing.py`, фронт `apps/web/lib/plans.ts` зеркалит (менять в ОБОИХ). Lighthouse
+  + чёткий коралл), русифицировал дашборд-шелл. **Прайсинг = кредит-модель** (1 кредит = 1 видео
+  ≤60 мин). ⚠️ Числа этой строки УСТАРЕЛИ; актуальные планы — Free $0/2 · Starter $15/10 · Pro $35/30 ·
+  PAYG $3/кредит (источник правды — `docs/README.md` + `services/worker/app/billing.py`, фронт
+  `apps/web/lib/plans.ts` зеркалит, менять в ОБОИХ). Биллинг = **Polar.sh** (не Lemon Squeezy). Lighthouse
   /pricing = 100/100/100/100. ⚠️ App-wide a11y-долг: accent-Button (white-on-coral, в редакторе) = 3.09:1,
   фейл строгой AA — фиксить если нужно (на /pricing обойдено: рекомендованный CTA near-white).
 - **Auth (Supabase) + оплата (Polar) — ПРОВОД ДО РАБОЧЕГО dual-mode (2026-06-13, коммит `после 85b572e`)**:
@@ -68,9 +69,15 @@ LCP 173ms, CLS 0.00**.
 
 ---
 
-## ⚠️ DEMO PREP — читай если завтра демо (70 человек)
+## ⚠️ DEMO PREP — читай если демо (исходный текст для LOCAL-демо; деплой давно живой)
 
-### Что сделать ДО демо (чеклист)
+> ⚠️ **Реальность 2026-06-24:** продукт ЗАДЕПЛОЕН — фронт = **Vercel `quip-app`** (автодеплой на
+> push в `main`), воркер = **Modal `quip-worker`** (`NEXT_PUBLIC_WORKER_URL` = Modal-URL воркера).
+> Карта деплоя/инфры — единый источник правды `docs/README.md` «Deploy & infra map». Раздел ниже —
+> исторический рецепт «локальное демо на одной машине»; для прод-демо НИЧЕГО запускать локально не надо
+> (Vercel + Modal уже отгружены). Локальный `uvicorn :8000` — ТОЛЬКО для разработки (см. §3).
+
+### Что сделать ДО ЛОКАЛЬНОГО демо (исторический чеклист — для дев-стенда, не для прода)
 
 **1. Поставь пароль (auth gate, уже в коде):**
 ```powershell
@@ -80,27 +87,28 @@ DEMO_PASSCODE=clipflow2026
 Без этой строки — приложение открытое (нет пароля). С ней — все страницы требуют вход.
 Расскажи участникам пароль перед демо.
 
-**2. Убедись что воркер запущен и доступен:**
+**2. Локальный воркер (ТОЛЬКО для дев-стенда — в проде это Modal `quip-worker`):**
 ```powershell
 $env:PATH = [Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [Environment]::GetEnvironmentVariable("Path","User")
 Set-Location "C:\Users\user\Desktop\ClipClow\services\worker"
 uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
-Воркер должен быть доступен по сети (не только localhost) если юзеры приходят с разных машин.
-IP твоей машины: `(Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike "127.*" } | Select-Object -First 1).IPAddress`
+В проде воркер НЕ запускается локально — он живёт на Modal, фронт ходит на его URL.
 
-**3. Укажи URL воркера во фронте:**
+**3. URL воркера во фронте:**
 ```
 # apps/web/.env.local
-NEXT_PUBLIC_WORKER_URL=http://<IP_ТВОЕЙ_МАШИНЫ>:8000
+# ПРОД: NEXT_PUBLIC_WORKER_URL = URL воркера на Modal (см. docs/README.md «Deploy & infra map»)
+# DEV (локальный стенд): NEXT_PUBLIC_WORKER_URL=http://localhost:8000
+NEXT_PUBLIC_WORKER_URL=...
 ```
 Без этого — фронт идёт в мок-роут `/api/mock` (не реальный пайплайн).
 
 **4. Проверь API-ключи в `.env` (корень):**
 ```
-DEEPGRAM_API_KEY=...          ← транскрипция
-GEMINI_API_KEY=...            ← выбор моментов
-LLM_MODEL=gemini-flash-latest ← НЕ менять на 2.5-pro
+DEEPGRAM_API_KEY=...          ← транскрипция (Deepgram nova-3, diarize ON)
+GEMINI_API_KEY=...            ← выбор моментов / хуки / чат-агент
+# LLM-модель пинуется кодом к gemini-2.5-flash (config.pin_llm_model коэрсит *-latest / gemini-3* → пин).
 YTDLP_COOKIES_FILE=...        ← для приватных видео
 ```
 
@@ -146,7 +154,7 @@ Deepgram + Gemini суммарно. Терпимо для MVP-демо.
 
 ## 0.0 ⚡⚡ MVP-лаунч (ветка `feat/mvp-launch`, 2026-06-13) — НОВЕЙШЕЕ
 
-Ночная автономная сессия T1–T6 (см. **`docs/OVERNIGHT_REPORT_2026-06-13.md`** + журнал
+Ночная автономная сессия T1–T6 (см. **`docs/archive/OVERNIGHT_REPORT_2026-06-13.md`** + журнал
 CLAUDE.md «Ночь лаунч-MVP»). 7 коммитов от HEAD main, `just check` зелёный (388 тестов).
 
 **Новые продаваемые фичи (end-to-end):**
@@ -220,7 +228,7 @@ CLAUDE.md «Ночь лаунч-MVP»). 7 коммитов от HEAD main, `just
 
 ### 0.1 Открытые баги/проблемы редактора (фаундер: «там есть ещё баги») — след. сессия
 
-> Продукт-стратегия и приоритеты — `docs/PRODUCT_BRAINSTORM_2026-06-13.md` (анти-заложник
+> Продукт-стратегия и приоритеты — `docs/archive/PRODUCT_BRAINSTORM_2026-06-13.md` (анти-заложник
 > экспорты, B-roll, лейауты, монетизация). Сначала стабилизация этого списка.
 
 | # | Проблема | Детали/направление |
@@ -546,7 +554,7 @@ class TrackRegion:
 | `REFRAME_SCENE_THRESHOLD` | `27.0` | PySceneDetect ContentDetector порог (~27 = дефолт) |
 | `REFRAME_SPEAK_THRESHOLD` | `0.0` | ASD score ниже порога → фолбэк на largest-face |
 | `REFRAME_SPEAKER_CROP_SCALE` | `0.55` | Ширина кропа вокруг лица |
-| `LLM_MODEL` | `gemini-flash-latest` | ⚠️ gemini-2.5-pro = квота 0 на free tier |
+| `LLM_MODEL` | `gemini-2.5-flash` | Пинуется кодом (`config.pin_llm_model`): любой `*-latest`/`gemini-3*` → `gemini-2.5-flash` (логируется). Фолбэк-цепочка → `gemini-2.5-flash-lite` |
 | `MAX_CLIPS` | `8` | Макс. кандидатов от Gemini (юзер выбирает из них в UI) |
 | `YTDLP_COOKIES_FILE` | `` | Путь к Netscape cookies.txt (приоритет над browser) |
 | `YTDLP_COOKIES_BROWSER` | `edge` | `edge`/`firefox`/`chrome`/`""`. Chrome 127+ = DPAPI-баг |
@@ -642,7 +650,7 @@ Chrome 127+ и Edge сломали DPAPI-расшифровку кук — `--co
 | 1 | **E2E тест dod01 через UI** (часовой подкаст) | ~$0.25 | Deepgram timeout теперь починен; нужен реальный run |
 | 2 | **Кэш транскрипции по hash(source)** | $0 | Повторные прогоны не платят Deepgram |
 | 3 | **K1 — RQ+Redis очередь** | — | Для продакшна; план в `docs/superpowers/plans/...k1-queue.md` |
-| 4 | **Деплой** | — | Нет плана. Воркер с torch/MediaPipe тяжёлый (1+ ГБ RAM). VPS или облако. |
+| 4 | ~~**Деплой**~~ ✅ СДЕЛАНО | — | Фронт = Vercel `quip-app` (автодеплой на push в `main`), воркер = Modal `quip-worker`. Детали/карта — `docs/README.md` «Deploy & infra map». |
 | 5 | **Task 6 — zoom-переход** | $0 | GATED: только после «флеши ушли» от фаундера |
 | 6 | **Двойные субтитры** | $0 | Детект вшитых субтитров и пропуск stage4 |
 | 7 | **UI полировка** | — | Превью клипа прямо в браузере (video element), мобильная вёрстка |
@@ -651,7 +659,7 @@ Chrome 127+ и Edge сломали DPAPI-расшифровку кук — `--co
 ```
 DEEPGRAM_API_KEY=...
 GEMINI_API_KEY=...
-LLM_MODEL=gemini-flash-latest   # ⚠️ не менять на 2.5-pro — квота 0 на free tier
+# LLM-модель пинуется кодом к gemini-2.5-flash (config.pin_llm_model коэрсит *-latest / gemini-3* → пин).
 YTDLP_COOKIES_FILE=C:\Users\user\Desktop\ClipClow\www.youtube.com_cookies.txt
 ```
 
@@ -670,7 +678,7 @@ YTDLP_COOKIES_FILE=C:\Users\user\Desktop\ClipClow\www.youtube.com_cookies.txt
 |------|----------|---------|
 | `docs/HANDOFF.md` | **Этот файл** — состояние, как запустить, что работает | 1 |
 | `CLAUDE.md` | Правила + полный журнал прогресса | 2 |
-| `CLIPFLOW_DEV_PLAN.md` | Подробный план фаз (A→J + Phase 1) | 3 (если нужно) |
+| `docs/archive/CLIPFLOW_DEV_PLAN.md` | Подробный план фаз (A→J + Phase 1) | 3 (если нужно) |
 | `docs/BENCHMARKS.md` | Скорость/стоимость/качество по модели | по запросу |
 | `docs/EXTERNAL_SERVICES.md` | Deepgram/Gemini/yt-dlp — что/где/чем свапнуть | по запросу |
 

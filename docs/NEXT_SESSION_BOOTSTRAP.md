@@ -17,12 +17,11 @@ write code or run commands until you have:
    `packages/shared/*`, no silent fallbacks, English-only user-facing text, use parallel sub-agents
    for non-trivial work). The long journal section is HISTORY — don't treat "deferred/Phase 1+" notes
    as current; it all shipped.
-3. **`docs/BACKEND_AUDIT.md`** — the layer map (L0–L6) + dual-mode (local disk+SQLite vs cloud
-   R2+Postgres). Best single explanation of how it fits together.
-4. **`docs/SESSION_2026-06-20.md`** — the most recent big session (editor manipulation overhaul,
-   render quality, Live Clip Feed, co-watch / live moment discovery, the CDN-cache hook-render fix).
-   Read if your task touches the editor, rendering, the dashboard processing view, or clip delivery.
+3. **`docs/CORE_ARCHITECTURE_AND_FEATURES.md`** — the living deep-dive: how the whole system works
+   (stack, pipeline, data model, AI features, frontend). The single best explanation of how it fits together.
+4. **`docs/HANDOFF.md`** — run/setup mechanics (PowerShell PATH refresh, `uv run`, `just check`, test datasets).
 5. **Task-specific, only what applies** (see the table in `docs/README.md` "How to brief an agent"):
+   - Cross-surface bug (grid vs editor / local vs cloud) → **`docs/BACKEND_AUDIT.md`** (L0–L6 map + ledger).
    - Reframe / render / "flashes" → **`docs/REFRAME_FPS_GRID_INVARIANT.md` (MANDATORY before any
      `stage3_reframe`/`stage5_render`/`reframe_cache` edit)**.
    - Web/UI → `apps/web/AGENTS.md` (Next 16 has breaking changes — read before frontend code) + `DESIGN.md`.

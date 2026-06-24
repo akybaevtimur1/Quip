@@ -70,3 +70,44 @@ Thumbs.db
 .idea/
 *.swp
 .gstack/
+
+.vercel
+
+# ── design-sync (claude.ai/design) scratch — durable .design-sync/config.json,
+#    previews/, NOTES.md stay tracked; only build scratch is ignored ──
+.ds-sync/
+ds-bundle/
+.design-sync/.cache/
+.design-sync/learnings/
+.design-sync/node_modules/
+.design-sync/src-ui/
+apps/web/.ds-tmp/
+
+# ── Чистота репозитория (правила гигиены — НЕ ДАЁМ мусору копиться) ──────────────
+# Скриншоты/картинки QA-сессий НЕ кладём в корень — реальные ассеты живут в
+# apps/web/public/. Любой временный скрин → системный scratch-dir или .scratch/.
+/*.png
+/*.jpeg
+/*.jpg
+/*.webp
+/.scratch/
+
+# Черновики commit-сообщений (пиши их в .scratch/ и зови `git commit -F`, не в корень)
+/.commit-msg
+/.git-commit-*.txt
+
+# Claude Code локальное состояние (settings/worktrees) — machine-local
+/.claude/
+
+# Вендоренная библиотека брендов для design-скиллов — НЕ доки Quip, на диске остаётся
+/design-md/
+
+# Локальные демо-рендеры/черновики (продуктовые демо-ассеты, которые ШИПИМ, лежат в
+# apps/web/public/demo/ и коммитятся — это другое)
+/demo-assets/
+
+# Заброшенный revideo-captions спайк (на диске остаётся, в git не тащим)
+/services/captions-revideo-spike/
+
+# Лог экономики прогонов (machine-local; курируемая версия — docs/BENCHMARKS.md)
+services/worker/runs.jsonl

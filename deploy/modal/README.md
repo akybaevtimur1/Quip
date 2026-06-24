@@ -1,10 +1,21 @@
-# ClipFlow heavy worker on Modal — спайк-scaffold
+# ClipFlow worker on Modal
+
+> ⚠️ **LIVE PROD:** боевой воркер — `deploy/modal/worker.py` (полный dual-mode FastAPI-пайплайн:
+> import → transcribe → select → reframe → render + editor/billing/webhook). Деплоится и обслуживает
+> Modal-app `quip-worker` командой `modal deploy deploy/modal/worker.py` (на Windows сначала
+> `$env:PYTHONIOENCODING="utf-8"`). Текущая инфра/деплой/прайсинг — источник правды `docs/README.md`.
+>
+> Всё НИЖЕ (`app.py` / `measure.py`) — это РАННИЙ спайк замера GPU-стоимости reframe+render
+> (история, НЕ боевой путь): он перенёс ТОЛЬКО тяжёлую часть на Modal, чтобы снять реальные
+> цифры времени/стоимости до полной миграции. Оставлено как референс по образу/граблям GPU.
+
+## Спайк замера GPU-стоимости (история)
 
 Перенос ТЯЖЁЛОЙ части пайплайна (reframe-анализ лиц/склеек + рендер 9:16, ~6 мин компьюта/видео
 на CPU) на **Modal** (serverless GPU, auto-scale, scale-to-zero) + замер реальной стоимости/времени.
 
-> Это ТОЛЬКО scaffold тяжёлого воркера. Лёгкие API/БД/фронт остаются на Vercel/Supabase.
-> Полная миграция storage/БД — отдельная сессия.
+> Это был ТОЛЬКО scaffold тяжёлого воркера для замера. Полноценный боевой воркер (`worker.py`)
+> с тех пор отгружен — см. баннер выше и `docs/README.md`.
 
 ## Что гоняется
 

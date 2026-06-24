@@ -1,18 +1,22 @@
 # Deploying the Quip web app (apps/web)
 
-> ⚠️ **OUTDATED step 1.** The web app already lives on the Vercel project **`quip-app`**, which
-> **auto-deploys on every push to `main`** — you do NOT need to "create a new Vercel project."
-> The env-var table below is still correct. Current truth: `docs/README.md`.
+> ℹ️ This app is **already live** on the Vercel project **`quip-app`**, which **auto-deploys on
+> every push to `main`** (Root Directory = `apps/web`, pnpm monorepo) — you do NOT create a new
+> Vercel project. The env-var table below is the value of this doc. Deploy & infra map (and the
+> single source of truth for current reality): `docs/README.md` → «Deploy & infra map».
 
 The whole site (landing + auth + dashboard + editor + pricing) is **one Next.js app**
 in `apps/web`. Everything that changes per-environment is **env-driven — no code edits to
 move domains.** This is the checklist to put it on a real domain.
 
 ## 1. Vercel project
-- ⚠️ The existing Vercel `quip` project builds the **old landing repo** (Shorts-Automatizator),
-  **not this app**. Create a **new Vercel project** from the `Varenik-vkusny/Quip` repo.
-- **Root Directory = `apps/web`** (it's a pnpm monorepo). Vercel auto-detects Next + pnpm.
-- Add your custom domain in Vercel → Domains.
+- This app already lives on the Vercel project **`quip-app`**, which **auto-deploys on every push
+  to `main`** — push to `main` and it ships. You do NOT create a new Vercel project.
+- **Root Directory = `apps/web`** (it's a pnpm monorepo; Vercel auto-detects Next + pnpm) — already
+  configured on `quip-app`.
+- Note: the **separate, older** Vercel `quip` project builds the **old landing repo**
+  (Shorts-Automatizator), not this app — leave it alone.
+- Add a new custom domain in Vercel → `quip-app` → Domains.
 
 ## 2. Environment variables (Vercel → Settings → Environment Variables)
 

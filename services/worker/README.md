@@ -1,21 +1,30 @@
 # clipflow-worker
 
-FastAPI + чистый пайплайн нарезки (Phase 0 «тонкий пайплайн»).
+FastAPI + чистый пайплайн нарезки (полный API, задеплоен на Modal `quip-worker`).
 
 ## Зачем
 Сквозной резак: source → транскрипт (word-level) → выбор моментов (LLM) →
-reframe 9:16 → прожжённые субтитры → FFmpeg cut/encode → MP4. См.
-`../../CLIPFLOW_DEV_PLAN.md` (план) и `../../CLAUDE.md` (правила).
+reframe 9:16 → прожжённые субтитры → FFmpeg cut/encode → MP4. Реальность
+(деплой/биллинг/инфра, источник правды) → `../../docs/README.md`; правила →
+`../../CLAUDE.md`.
 
-## Запуск
+## Деплой
+Прод — Modal app `quip-worker` (функция `web` всегда тёплая, `min_containers=1`).
+Локальный `uvicorn :8000` — только для дев-разработки. Редеплой воркера →
+`modal deploy deploy/modal/worker.py` (на Windows сначала
+`$env:PYTHONIOENCODING="utf-8"`). Карта деплоя → `../../docs/README.md`.
+
+## Запуск (локально, дев)
 ```powershell
 uv sync                                   # поставить зависимости в .venv
-uv run uvicorn app.main:app --port 8000   # REST (Phase 0: только /healthz)
+uv run uvicorn app.main:app --port 8000   # поднять REST API локально
 # проверка: curl http://localhost:8000/healthz  -> {"ok":true,"version":"..."}
 ```
 
 ## Ключевые файлы
-- `app/main.py` — FastAPI (Phase 0: `/healthz`; `/jobs` — этап J).
+- `app/main.py` — FastAPI, ПОЛНЫЙ API: `/jobs` (+ `/upload`, `/upload-url`,
+  `/upload-complete`), редактор (`edit` trim/extend/crop/aspect/set-interval,
+  `/render`, `/reframe`, пресеты, agent), `/usage`, `/webhooks/polar`, `/healthz`.
 - `app/models.py` — Pydantic-контракты, ЕДИНЫЙ источник типов (этап A6).
 - `app/export_schema.py` — codegen `models.py → packages/shared/contract.json` (A6).
 - `app/pipeline/stageN_*.py` — чистые стадии (вход-файл → выход-файл, без HTTP/DB).

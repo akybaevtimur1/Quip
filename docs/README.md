@@ -5,44 +5,32 @@
 > history, and what you must NOT break. If a doc contradicts this file, **this file wins** for
 > "current reality"; the older doc is kept only for the *why*/history.
 >
-> Last reality check: **2026-06-22.**
+> Last reality check: **2026-06-24.** Docs were reorganized on 2026-06-24 — see **§"Documentation
+> system"** below for where everything lives and how it stays current. All point-in-time history moved
+> to **`docs/archive/`**; this index + the living docs in `docs/` root are the source of truth.
 
 ---
 
-## 🚨 NEXT SESSION — pending / how to resume (READ FIRST, impossible to miss)
+## 🚨 NEXT SESSION — pending / how to resume (READ FIRST)
 
-> End of session **2026-06-22**. Work landed on branch **`editor-snapping`** (NOT merged to `main`)
-> and was deployed to PROD **via CLI**, bypassing GitHub (the GitHub account `Varenik-vkusny` is
-> **suspended** → `git push` = 403). Full detail → `docs/JOURNAL.md` (top three 2026-06-22 entries).
+> **Git/deploy (2026-06-24):** the old GitHub `Varenik-vkusny` is suspended; the live remote is now
+> **`cloud` → `github.com/akybaevtimur1/Quip`** (`git push cloud main`). Frontend = Vercel `quip-app`
+> (auto-deploys on push to `main`); worker = Modal `quip-worker` (`modal deploy deploy/modal/worker.py`,
+> on Windows set `$env:PYTHONIOENCODING="utf-8"` first). Full history → `docs/JOURNAL.md`.
 
-**Pending tasks (do these as they unblock):**
-1. **⚠️⚠️ Merge `editor-snapping` → `main` THE MOMENT GitHub is unsuspended** — otherwise the next
-   push-to-`main` Vercel build rebuilds from OLD code and **REVERTS all of this session's commits**
-   (**~20 on the branch** now; prod is running CLI deploys of `editor-snapping`, not `main`).
-2. ✅ **DONE — BIG EDITOR SWEEP (7 domains) DEPLOYED** (2026-06-22, Vercel CLI + Modal). Commits
-   `7dc4f5b…fcba7f2`. Full detail → `docs/JOURNAL.md` (top "БОЛЬШОЙ СВИП РЕДАКТОРА" entry). Summary:
-   D3 timeline live-seek/playhead/rich tooltip · D1 real shot cuts + **persisted shot boundaries**
-   (migration **0013** `job_artifacts.reframe_regions`) · D2 tabs 6→4 (Agent/Subtitles/Hook/Frame) ·
-   D4 agent +9 tools (montage/style/frame) + full clip context · D6 VideoMap value reframing ·
-   D7 dashboard live status/progress/reviewed · D5 style memory (migration **0014**
-   `profiles.style_preferences`: apply-to-all-clips + per-user default). Migrations 0013/0014 applied.
-   The earlier standalone "Shots" tab (`7c4508f`/`0132d72`) is subsumed by D1+D2.
-3. **Set the Modal `LLM_MODEL` secret to `gemini-2.5-flash`** (belt-and-suspenders for the Gemini-3
-   cost guard — the `config.pin_llm_model` validator already coerces it, but fix the secret too).
-4. **Wire the demo `<video>` into the landing hero** — assets ready in `apps/web/public/demo/`
-   (`quip-demo-pipeline.{mp4,webm}` + `-poster.jpg`); snippet exists, not yet wired.
-5. **GitHub account reinstatement** — founder action (support contacted, waiting).
-6. **⚠️ Night run 2026-06-24 (quality sweep, on `editor-snapping`, NOT deployed) — see
-   `docs/NIGHT_RUN_2026-06-24.md`.** Shipped: reframe half-face fix (B), hook-prompt rewrite (C),
-   speaker-aware clip boundaries + **Deepgram diarization ON** (D2), less-stingy selection (D1),
-   **split-screen REMOVED** from auto+UI (A). After deploy you MUST run
-   `update public.job_artifacts set reframe_regions = null;` or B/A stay invisible on existing clips
-   (fast-path serves persisted regions). Diarize + prompt changes affect NEW jobs only.
+**Open pending items:**
+1. **⚠️ Reframe-region cache-clear — run after ANY reframe-logic deploy.** The 2026-06-24 night-run
+   reframe fixes (wide-on-silent, half-face) + split-screen removal stay **invisible on already-rendered
+   clips** until you run `update public.job_artifacts set reframe_regions = null;` (the `/reframe`
+   fast-path serves persisted regions — see `CLAUDE.md` reframe rule #1). Diarize/prompt changes affect
+   NEW jobs only.
+2. **Wire the demo `<video>` into the landing hero** — assets in `apps/web/public/demo/`
+   (`quip-demo-pipeline.{mp4,webm}` + `-poster.jpg`, now tracked); snippet exists, not yet wired.
+3. **(Optional) Set the Modal `LLM_MODEL` secret to `gemini-2.5-flash`** — belt-and-suspenders; the
+   `config.pin_llm_model` validator already coerces any `*-latest`/`gemini-3*`, so non-urgent.
 
-**How to deploy WHILE GitHub is suspended** (push-to-main is dead):
-- Frontend: `vercel deploy --prod --scope timurkas-projects` (needs `.vercelignore`, already committed —
-  a bare CLI deploy uploads 1.9 GB and hits Vercel's 100 MB/file limit).
-- Worker: `modal deploy deploy/modal/worker.py` (unchanged; set `$env:PYTHONIOENCODING="utf-8"` first).
+> Detail of the 2026-06-24 quality sweep (reframe / hooks / diarization-ON / split-removal) is archived
+> at `docs/archive/NIGHT_RUN_2026-06-24.md`.
 
 ---
 
@@ -219,21 +207,19 @@ Founder account = Pro + 1000 credits (for testing).
 ## 📖 Read in this order (new agent / new session), then stop
 
 1. **`docs/README.md`** ← you are here (reality + map).
-2. **`CLAUDE.md`** — the **rules** (Железные правила, code boundaries, type codegen, commit gate).
-   Binding. The long journal below the rules is **history** — skim, don't treat "deferred/Phase 1+"
-   notes as current (it all shipped).
-3. **`docs/BACKEND_AUDIT.md`** — the layer map (L0–L6) + the **dual-mode** model (local disk+SQLite
-   vs cloud R2+Postgres). Best single explanation of how the system fits together.
-4. **`docs/HANDOFF.md`** — for **run/setup mechanics only** (PowerShell PATH refresh, `uv run`,
-   `just check`, test datasets). ⚠️ Ignore its deploy/billing/DEMO-PREP sections — outdated; trust
-   §"Current reality" above instead.
+2. **`CLAUDE.md`** — the **rules** (Железные правила, code boundaries, type codegen, commit gate). Binding.
+3. **`docs/CORE_ARCHITECTURE_AND_FEATURES.md`** — the **living deep-dive**: how the whole system works
+   (stack, pipeline stages, data model, AI features, frontend, numbers). The single best explanation of
+   how it all fits together.
+4. **`docs/HANDOFF.md`** — for **run/setup mechanics** (PowerShell PATH refresh, `uv run`, `just check`,
+   test datasets).
 5. **`docs/REFRAME_FPS_GRID_INVARIANT.md`** — **mandatory before ANY reframe/render edit.**
 
-On demand: `DESIGN.md` (UI work) · `apps/web/AGENTS.md` (Next 16 caveat — read before web code) ·
-`docs/BENCHMARKS.md` (cost/latency) · the matching `docs/superpowers/specs/*` (only when re-touching
-that exact feature) · `docs/ADMIN_PANEL_RESEARCH.md` (monitoring spend/usage) ·
-`docs/SESSION_2026-06-20.md` (the most recent big session: editor overhaul, render quality, Live Clip
-Feed, co-watch, hook-cache fix — read if touching any of those).
+Then, on demand by task: `docs/BACKEND_AUDIT.md` (L0–L6 debugging-layer map + regression ledger — for
+"works here / breaks there" bugs) · `DESIGN.md` (UI work) · `apps/web/AGENTS.md` (Next 16 caveat — read
+before web code) · `docs/BENCHMARKS.md` (cost/latency) · `docs/ADMIN_PANEL_RESEARCH.md` (monitoring
+spend/usage) · the matching `docs/superpowers/specs|plans/*` ADR (only when re-touching that exact
+feature) · `docs/archive/` (history / the *why* — never current truth).
 
 > **Starting a new session? Paste `docs/NEXT_SESSION_BOOTSTRAP.md` as your first message** — it tells
 > the agent exactly what to read (this file → CLAUDE.md → task-specific docs) before doing anything.
@@ -265,30 +251,30 @@ Pick [X] by task:
 
 | Task | Read |
 |------|------|
-| Anything backend | `CLAUDE.md` rules + `docs/BACKEND_AUDIT.md` |
+| Understand the whole system | `docs/CORE_ARCHITECTURE_AND_FEATURES.md` |
+| Anything backend | `CLAUDE.md` rules + `docs/CORE_ARCHITECTURE_AND_FEATURES.md` |
+| "Works here / breaks there" bug (grid vs editor, local vs cloud) | `docs/BACKEND_AUDIT.md` (L0–L6 map + ledger) |
 | Reframe / render / "flashes" | `docs/REFRAME_FPS_GRID_INVARIANT.md` (mandatory) |
 | Editor (timeline/captions/preview) | `docs/superpowers/specs/2026-06-12-editor-v3-design.md` + `…wysiwyg-libass-preview…` · **layout/shell (WS-A):** `docs/superpowers/specs/2026-06-20-editor-fixed-studio-design.md` |
 | Billing / Polar / credits | `app/billing.py`, `app/polar.py`, this file's "Money paths" |
 | UI / design | `DESIGN.md` + `apps/web/AGENTS.md` |
-| Deploy / infra | "Deploy & infra map" below (ignore `apps/web/DEPLOY.md` step 1) |
+| Deploy / infra | "Deploy & infra map" below + `apps/web/DEPLOY.md` |
 | Cost / model choice | `docs/BENCHMARKS.md` |
 
 ---
 
 ## 🏗️ Deploy & infra map
 
-> ⚠️ **2026-06-22: push-to-`main` auto-deploy is currently DEAD** — the GitHub account `Varenik-vkusny`
-> is suspended (`git push` → 403). Until reinstated, deploy the frontend with the **Vercel CLI**
-> (`vercel deploy --prod --scope timurkas-projects`, needs the committed `.vercelignore`). Prod is
-> running CLI deploys of branch **`editor-snapping`**, NOT `main` — **merge `editor-snapping` → `main`
-> the moment GitHub is back**, or push-to-main rebuilds old code and reverts the session. See the
-> "🚨 NEXT SESSION" banner at the top.
+> **2026-06-24:** the old GitHub `Varenik-vkusny` is suspended; the live remote is now
+> **`cloud` → `github.com/akybaevtimur1/Quip`**. Push to **`main`** there (`git push cloud main`) →
+> Vercel `quip-app` auto-deploys. (A Vercel-CLI deploy `vercel deploy --prod` with the committed
+> `.vercelignore` remains a fallback.) The worker deploys independently via `modal deploy`.
 
 | Piece | Where | How it deploys | Dashboard |
 |-------|-------|----------------|-----------|
-| Frontend (`apps/web`) | Vercel **`quip-app`** | **normally auto on push to `main`** — ⚠️ TEMPORARILY via CLI `vercel deploy --prod --scope timurkas-projects` (GitHub suspended) | vercel.com/timurkas-projects/quip-app |
+| Frontend (`apps/web`) | Vercel **`quip-app`** | **auto on push to `main`** (remote `cloud` = `akybaevtimur1/Quip`); CLI `vercel deploy --prod` as fallback | vercel.com/timurkas-projects/quip-app |
 | Worker (`services/worker`) | Modal **`quip-worker`** | `modal deploy deploy/modal/worker.py` | modal.com (workspace akybaevtimur7) |
-| State / auth / billing data | Supabase **`qiagetbnsssvbiowuxpp`** | SQL Editor / migrations `0001–0012` | supabase.com dashboard |
+| State / auth / billing data | Supabase **`qiagetbnsssvbiowuxpp`** | SQL Editor / migrations `0001–0014` | supabase.com dashboard |
 | Clip storage | Cloudflare **R2** (`cdn.quip.ink`) | n/a | Cloudflare dashboard |
 | Payments | **Polar** (production) | products + webhook configured | polar.sh dashboard |
 
@@ -298,22 +284,46 @@ Secrets: worker reads Modal secrets `quip-worker` (Deepgram/Gemini/Supabase/R2) 
 
 ---
 
-## 📦 Doc status (so you know what's a guide vs. history)
+## 🗂️ Documentation system (how it's organized — keep it this way)
 
-**🟢 Living / authoritative** (trust these):
-`docs/README.md` (this) · `CLAUDE.md` (rules) · `DESIGN.md` · `docs/BACKEND_AUDIT.md` ·
-`docs/BENCHMARKS.md` · `docs/REFRAME_FPS_GRID_INVARIANT.md` · `docs/EVAL.md` · `apps/web/AGENTS.md` ·
-`apps/web/PERF.md` · `docs/ADMIN_PANEL_RESEARCH.md` · `docs/NIGHT_AUDIT_REPORT_2026-06-15.md`.
+> Reorganized 2026-06-24. The rule that stops docs from rotting again: **one home per topic, one
+> source of truth, history physically separated from living docs.**
 
-**🟡 Useful but partly stale** (read with the banner caveat at their top):
-`docs/HANDOFF.md` (run mechanics ✓, deploy/billing ✗) · `apps/web/DEPLOY.md` (env table ✓, "create
-a new Vercel project" ✗) · `docs/EXTERNAL_SERVICES.md` · `docs/SUPABASE_SETUP.md` (Lemon Squeezy/old
-prices ✗).
+**Where things live:**
 
-**📦 History / archive** (the *why*, not a current guide): `CLIPFLOW_DEV_PLAN.md` · `docs/ROADMAP.md` ·
-all `docs/*BRIEF*` / `*REPORT*` / `PRODUCT_BRAINSTORM*` / `OVERNIGHT_*` · the whole
-`docs/night-audit/` folder (rolled up into `NIGHT_AUDIT_REPORT_2026-06-15.md`) · the whole
-`docs/superpowers/` tree (specs/plans = ADRs per shipped feature).
+| Location | What | Rule |
+|----------|------|------|
+| `docs/README.md` (this) | **The index** + current-reality baseline + reading order | The single source of truth for "what's true right now". If any doc disagrees, this wins. |
+| `docs/CORE_ARCHITECTURE_AND_FEATURES.md` | **Living deep-dive** — how the whole system works | The "textbook". Deep detail; defers to this index for the reality baseline. |
+| `docs/` root (flat) | **Living** single-topic guides & references (list below) | Trustworthy & maintained. Update in the same change that alters behavior. |
+| `docs/JOURNAL.md` | **Running history / ADR ledger** (append-only) | One line per notable decision/feature. |
+| `docs/superpowers/specs\|plans/` | **ADRs** — one design+plan per shipped feature | Frozen archive; a few are referenced by code — don't move/rename. |
+| `docs/archive/` | **All point-in-time history** (reports, briefs, sessions, night-runs, old plans) | Read for the *why*, never as current truth. See `docs/archive/README.md`. |
 
-> Full per-doc table + rationale: **`docs/_audit/DOC_AUDIT.md`**.
-> Not Quip docs (ignore): `design-md/**` (vendored brand reference), `node_modules/**`, `.venv/**`.
+**Living docs at `docs/` root (one job each):** `CORE_ARCHITECTURE_AND_FEATURES` (system deep-dive) ·
+`BACKEND_AUDIT` (L0–L6 debug-layer map + regression ledger) · `REFRAME_FPS_GRID_INVARIANT` (🔒 sacred
+reframe invariant) · `BENCHMARKS` (cost/latency) · `SUPABASE_SETUP` (DB/auth wiring) · `SEO_STRATEGY`
+(SEO) · `EVAL` (clip-quality gate) · `HANDOFF` (run/setup mechanics) · `EXTERNAL_SERVICES`
+(third-party / swap matrix) · `ADMIN_PANEL_RESEARCH` (monitoring) · `PRODUCT_BRIEF` (product/GTM) ·
+`NEXT_SESSION_BOOTSTRAP` (session-start prompt). Plus repo-root `CLAUDE.md` (rules) · `DESIGN.md`
+(design system) · `apps/web/{AGENTS,DEPLOY,PERF}.md`.
+
+🔒 **Frozen paths** (referenced by code comments — never move/rename): `REFRAME_FPS_GRID_INVARIANT.md`,
+`SUPABASE_SETUP.md`, `SEO_STRATEGY.md`, `BENCHMARKS.md`,
+`superpowers/specs/2026-06-11-editor-v2-design.md`, and root `DESIGN.md`.
+
+**Lifecycle rules (so it stays clean):**
+1. **New living doc?** Put it in `docs/` root, give it ONE clear topic, add it to the list above. Don't
+   spawn a second doc that overlaps an existing one — extend the existing one.
+2. **A doc went stale?** Fix it in place (it's living) or, if it's truly point-in-time, move it to
+   `docs/archive/`. Never leave a wrong "living" doc — update or archive, no middle state.
+3. **A session report / brief / night-run?** That's history → write it straight into `docs/archive/`
+   (and one line into `docs/JOURNAL.md`). Don't drop dated reports into `docs/` root.
+4. **Screenshots / QA images / scratch?** NEVER in repo root or `docs/`. Use the OS scratch dir or a
+   local `.scratch/` (both gitignored). Real product assets go in `apps/web/public/`.
+5. **Changed behavior (prices/limits/flow/models/deploy)?** Update the source of truth immediately —
+   `billing.py` ⇄ `lib/plans.ts`, and this index's "Current reality" — in the SAME change (CLAUDE.md rule).
+
+> This reorg superseded the old per-doc audit (archived at `docs/archive/_audit/DOC_AUDIT.md`).
+> Not Quip docs (ignored, on-disk only): `design-md/**` (vendored brand reference), `demo-assets/`,
+> `node_modules/**`, `.venv/**`.

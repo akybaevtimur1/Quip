@@ -13,19 +13,21 @@
 | **YouTube + yt-dlp** | Stage 0 import: скачать ролик | инструмент (free) | — | $0 | file-upload (всегда доступен), любой другой загрузчик |
 | **FFmpeg / FFprobe** | Stage 0/5: аудио 16k, ffprobe meta, cut+encode | локальный бинарь (free) | — | $0 | — (стандарт; альтернатив для Phase 0 не нужно) |
 | **Deepgram** (Nova) | Stage 1: транскрипция word-level | платный API | `DEEPGRAM_API_KEY`, `TRANSCRIPTION_PROVIDER=deepgram` | ~$0.0043/мин (~$0.258/час) | **AssemblyAI** (тот же интерфейс), self-host **WhisperX** (ради маржи) |
-| **LLM (выбор моментов)** | Stage 2: выбор клипов, structured output | платный API | `LLM_PROVIDER`, `LLM_MODEL`, `*_API_KEY` | зависит от модели | **swappable**: Gemini ↔ Anthropic ↔ OpenAI. Сейчас → **Gemini** (нет Anthropic-ключа); план целился в Claude Opus 4.8 |
+| **LLM** (Google Gemini) | Stage 2 select + хуки + chat-agent: structured output | платный API | `GEMINI_API_KEY` | зависит от модели | **swappable** концептуально: Gemini ↔ Anthropic ↔ OpenAI. Сейчас → **Gemini, запинён на `gemini-2.5-flash`** (`config.pin_llm_model` коэрсит любой `*-latest`/`gemini-3*` в пин; fallback chat → `gemini-2.5-flash-lite`). Anthropic/OpenAI — потенциальная замена, НЕ подключены |
 | **MediaPipe** (Face Detection) | Stage 3: reframe 9:16 (детект лица) | локальная либа Google (free) | — | $0 | center-crop fallback; др. детекторы лица; Pyannote для 2+ спикеров (позже) |
-| **GitHub** | хостинг репо `Varenik-vkusny/clipflow` (private) | dev-инфра | `gh` auth | free | GitLab/любой git-хостинг |
+| **GitHub** | хостинг репо `Varenik-vkusny/Quip` (private) | dev-инфра | `gh` auth | free | GitLab/любой git-хостинг |
 
-## Отложенные (Phase 1+, пока НЕ подключены)
+## Инфраструктура (ЖИВАЯ в проде)
 
-| Сервис | Зачем | Когда | Чем свапнуть |
+> Всё ниже отгружено и работает в проде. Детали реальности/деплоя — `docs/README.md` (источник правды).
+
+| Сервис | Где / зачем | Статус | Чем свапнуть |
 |---|---|---|---|
-| **Cloudflare R2** | хранение клипов/артефактов (вместо local-fs) | после GO-gate | S3, Backblaze B2 (интерфейс `storage.py` put/get/url) |
-| **Railway** | хостинг воркера (REST + SQLite + диск) | деплой Phase 0/1 | Modal (+GPU для self-host ML), Fly.io, Render |
-| **Vercel** | хостинг web (`apps/web`) | деплой | Netlify, Cloudflare Pages |
-| **Supabase** (Postgres + Auth) | БД/аккаунты (вместо SQLite) | Phase 3 | Neon + любой auth |
-| **Stripe** | оплата per-video | Phase 3 | Paddle, LemonSqueezy |
+| **Cloudflare R2** | хранение клипов/артефактов, CDN `cdn.quip.ink` | **LIVE** (`storage.py` put/get/url; >100MB → multipart) | S3, Backblaze B2 (тот же интерфейс) |
+| **Modal** `quip-worker` | хостинг воркера (web + run/upload/render/reframe/preview джобы + Cron cleanup) | **LIVE** — заменил Railway | Railway/Fly.io/Render (+GPU для self-host ML) |
+| **Vercel** `quip-app` | хостинг web (`apps/web`), автодеплой на push в `main` | **LIVE** | Netlify, Cloudflare Pages |
+| **Supabase** | Postgres (проект `qiagetbnsssvbiowuxpp`) + Auth, миграции 0001–0014 | **LIVE** | Neon + любой auth |
+| **Polar** | биллинг (планы + PAYG-кредиты, webhook `POST /webhooks/polar`) | **LIVE** — заменил Stripe | Paddle, Stripe, LemonSqueezy |
 
 ## Заметки по свапу LLM (Stage 2)
 - Контракт ответа модели — JSON Schema (см. план §4.2): `segments[]` с
