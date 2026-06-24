@@ -13,59 +13,62 @@ Return moments as word index ranges. For each moment choose a `type`:
 HOOK GENERATION — the hook is the #1 driver of views. Get it right.
 ═══════════════════════════════════════════════════════════════════════════════════════
 
-A great hook is GROUNDED in three things: WHO is speaking, WHAT this specific clip is about, and
-the ONE payoff/feeling a viewer gets from it. A weak hook is vague, generic, or describes the clip
-from the outside ("he talks about X"). Before writing, decide in your head:
-  • WHO — if the video title names a person (a guest/speaker), you MAY use that name in the hook.
-  • WHAT — the single concrete thing this clip says or reveals (NOT the broad topic).
-  • SHAPE — is this the speaker's PERSONAL story/decision/experience, or a GENERALIZABLE insight
-    the viewer can apply to their OWN life? This decides the hook pattern.
+Write the hook in the THIRD PERSON — the way the best short-form clip captions read: one alive,
+specific phrase or QUESTION that makes the viewer NEED to watch. Write ABOUT the speaker, NEVER as the
+speaker. Grounded in WHO is speaking + the ONE specific thing this clip reveals. A weak hook is vague,
+generic, FIRST-PERSON, or describes the clip from outside ("he talks about X").
+
+⛔ HARD BAN — these formats are FORBIDDEN (they read as dead headlines / captions, not hooks):
+- First-person "I / my / me" — write ABOUT him, not AS him.
+    ✗ "My Oura ring ruined my sleep"  /  "Why I deleted Instagram"
+    ✓ "How alcohol was secretly ruining his sleep"  /  "Why Tom Holland deleted Instagram"
+- A "Name:" or "Name —" LABEL prefix.            ✗ "Tom Holland: Why I deleted Instagram"
+- The "Name on <topic>" podcast-title format.    ✗ "Tom Holland on quitting alcohol"
+- "Name's thoughts/take on <topic>".             ✗ "Tom Holland's thoughts on fame"
+If you use the speaker's name, it MUST be the SUBJECT INSIDE the sentence/question, never a label:
+  ✓ "Why Tom Holland deleted Instagram"      ✓ "How Tom Holland quit drinking for good"
+You may also use "he/she" or go straight to the intrigue — but always THIRD person, never "I/my".
+
+LEAD WITH INTRIGUE. Most hooks open with one of: Why / How / What / Why did / The real reason /
+The moment … — or a bold, specific claim. Make the viewer NEED the answer.
 
 Fill the fields in this order:
 
-STEP 1 — `tone`: name the emotion in one or two words (funny / shocking / touching / controversial /
+STEP 1 — `tone`: the emotion in one or two words (funny / shocking / touching / controversial /
 insightful / relatable / inspiring / infuriating …). Name the feeling first.
 
-STEP 2 — `hook_style`: pick the pattern that fits the SHAPE. Choose ONE:
-- story      → the speaker's own narrative / decision / turning point. Use their name when known.
-               "How Tom Holland decided to quit social media", "Why he walked away at his peak".
-- insight    → a generalizable truth the viewer can use. Frame it for THEM ("you" / "your").
-               "The real reason you can't focus", "What nobody tells you about burnout".
-- question   → an open loop that demands the answer (no spoiler in the hook).
-               "Why did he delete Instagram overnight?".
-- bold_claim → a provocative, SPECIFIC, true claim that stops the thumb. "Fame almost broke him".
-- number     → an enumeration the clip actually delivers. "3 lies about success he believed".
+STEP 2 — `hook_style`: pick the pattern that fits. Choose ONE:
+- question   → an open loop that demands the answer. "Why Tom Holland deleted Instagram".
+- story      → his own decision / turning point, NAME AS SUBJECT. "How Tom Holland quit drinking".
+- insight    → a generalizable truth, framed for the viewer. "The real reason you can't focus".
+- bold_claim → a provocative, SPECIFIC, true claim. "Fame almost broke Tom Holland".
+- number     → an enumeration the clip actually delivers. "3 things that made him walk away".
 
-STEP 3 — `hook`: write the on-screen TOP title in that pattern.
+STEP 3 — `hook`: write the on-screen title in that pattern — alive and natural, like a person talking.
 
 HOOK RULES (hard):
-- Length ≤ 10 words; aim for 4-8. Favor a SPECIFIC 8-word hook over a vague 4-word one. Same
-  language as the transcript. NO ending period. No quotation marks around the whole hook.
-- It must be TRUE to what is spoken INSIDE this clip's word range — never promise a reveal, fight,
-  number, or punchline that is not actually said within the selected words. If the payoff is the
-  hook, the clip MUST contain it (extend the range to include it).
-- Name the concrete payoff; do NOT just describe the moment from outside.
-- VARY openings across clips. Do NOT start most hooks with "Name:". Prefer the name INSIDE the line
-  ("Why Tom Holland quit rugby forever"); use a "Name:" prefix sparingly (≤ 1 in 4 hooks).
-- BAN vague "promise" words that gesture at a payoff without naming it: realization, journey,
-  "the truth about", "how X taught me Y", "protects his…", "true self", "lessons". Name the SPECIFIC
-  fact/turn. Test: if the hook could describe 10 different clips, it is too vague — rewrite it.
-- If the key line is spoken by someone OTHER than the main subject (e.g. the interviewer), do NOT
-  write first-person "I/my" as if the subject said it — attribute correctly or reframe.
-- Do NOT restate the `type`. NEVER write an empty "POV:" title or a generic placeholder.
+- Length ≤ 10 words; aim 4-8. Same language as the transcript. NO ending period, NO quotes, NO
+  colon-label, NO "on <topic>".
+- TRUE to what is spoken INSIDE this clip's word range — never promise a reveal/number/punchline not
+  actually said within the selected words (if the payoff is the hook, the clip MUST contain it).
+- Name the SPECIFIC payoff. BAN vague filler: realization, journey, "the truth about", "lessons",
+  "true self", "protects his…". Test: if the hook fits 10 different clips, it's too vague — rewrite.
+- If the key line is the interviewer's (not the main subject), don't write it as the subject's words.
+- Do NOT restate the `type`. NEVER write a "POV:" title or a generic placeholder.
 
 GOOD vs BAD (match the transcript's language; examples are bilingual on purpose):
-GOOD (grounded, specific, scroll-stopping):
-- story      | "How Tom Holland decided to quit social media" | "Почему он ушёл с пика карьеры"
-- insight    | "The real reason you can't focus"              | "Настоящая причина твоей тревоги"
-- question   | "Why did he walk away at his peak?"            | "Почему он всё бросил в 25?"
-- bold_claim | "Fame almost destroyed him"                    | "Деньги не сделали его счастливым"
-- number     | "3 habits that quietly kill your focus"        | "3 ошибки, которые убивают бизнес"
+GOOD (alive, specific, name woven in as the SUBJECT):
+- question   | "Why Tom Holland deleted Instagram"      | "Почему Том удалил инстаграм"
+- story      | "How Tom Holland quit drinking for good" | "Как Том по-настоящему бросил пить"
+- insight    | "The real reason you can't focus"        | "Настоящая причина, почему ты не в фокусе"
+- bold_claim | "Fame almost broke Tom Holland"          | "Слава чуть не сломала Тома"
+- number     | "3 things that made him walk away"       | "3 причины, почему он ушёл с пика"
 BAD (never produce these):
-- "POV: you watch this clip"     → empty POV, says nothing about the clip
-- "An interesting moment"        → generic, zero substance
-- "He talks about mental health" → describes from outside, not a hook
-- "You won't believe this"       → clickbait with no specifics, not tied to the clip
+- "Tom Holland: Why I deleted Instagram" → label prefix + first-person caption = dead headline
+- "Tom Holland on quitting alcohol"      → "Name on topic" podcast-title format, not a hook
+- "Tom Holland's thoughts on fame"       → describes from outside, zero intrigue
+- "POV: you watch this clip"             → empty POV
+- "You won't believe this"               → clickbait with no specifics
 
 ═══════════════════════════════════════════════════════════════════════════════════════
 
