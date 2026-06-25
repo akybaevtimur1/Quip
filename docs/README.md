@@ -28,6 +28,32 @@
    (`quip-demo-pipeline.{mp4,webm}` + `-poster.jpg`, now tracked); snippet exists, not yet wired.
 3. **(Optional) Set the Modal `LLM_MODEL` secret to `gemini-2.5-flash`** — belt-and-suspenders; the
    `config.pin_llm_model` validator already coerces any `*-latest`/`gemini-3*`, so non-urgent.
+4. **Branch `feat/yt-import-global-templates-set-password` — 3 features READY but NOT deployed/merged
+   (2026-06-25).** Built by 3 parallel agents (strict file boundaries, TDD, `just check` green). To
+   ship: (a) push the branch / merge to `main` → Vercel auto-deploys the frontend; (b) `modal deploy
+   deploy/modal/worker.py` (PowerShell, `$env:PYTHONIOENCODING="utf-8"` first) for the worker changes +
+   the `yt-dlp[default]` image dep; (c) confirm the Supabase **Auth → "Secure password change"** setting
+   (affects set-password). No `reframe_regions` cache-clear needed (no reframe-logic change). The three:
+   - **YouTube-link import re-enabled (best-effort).** It was only HIDDEN (commit `9ec7f1a` stripped the
+     URL field); the backend was always live. `SourceForm` shows a secondary URL field (upload stays
+     primary). Worker downloads server-side (`download_youtube`): avc1-first ≤1080p (reframe-safe) +
+     `+faststart` + `--match-filter "!is_live & duration<cap"` + `--no-playlist`; `classify_youtube_error`
+     turns yt-dlp failures into clear English "download it yourself (e.g. a Telegram bot / another site)
+     and upload" messages. `YTDLP_PROXY` lever ships OFF. Image dep `yt-dlp`→`yt-dlp[default]` (local
+     n-challenge solver; effective only on redeploy). Caveat: DC-IP bot-gate is intermittent; bump
+     yt-dlp often. (`stage0_import.py`, `run.py`, `config.py`, `SourceForm.tsx`, `deploy/modal/worker.py`.)
+   - **Style templates GLOBAL + remember everything.** "My templates" moved OUT of the Subtitles tab into
+     a header **"Style templates"** popover (`EditorHeader`→`TemplatesPanel`). A template now stores caption
+     position/size + hook timing (`full_clip`/`duration_sec`/`enabled`) + hook position (not just colors);
+     applying it MOVES geometry (old "position-preserved" rule intentionally relaxed per founder; hook text
+     never copied). `HOOK_LOOK_FIELDS` (`style_prefs.py`) ⇄ `HOOK_LOOK_KEYS` (`ClipEditorScreen.tsx`) = one
+     canonical list — keep in lockstep. Reuses JSONB `profiles.style_preferences` (no migration); old
+     templates apply cleanly but don't carry geometry until re-saved.
+   - **Optional "Set a password" on `/account`.** New `AccountSecurity` panel
+     (`supabase.auth.updateUser({password})`) lets Google-OAuth / email-OTP users (created passwordless)
+     enable password sign-in; the login "Invalid credentials" error now steers passwordless users to
+     Google/email-code + Account settings instead of dead-ending. ⚠️ If Supabase "Secure password change"
+     (reauth/nonce) is ON, `updateUser` needs a nonce — founder to confirm. Forgot-password = follow-up.
 
 > Detail of the 2026-06-24 quality sweep (reframe / hooks / diarization-ON / split-removal) is archived
 > at `docs/archive/NIGHT_RUN_2026-06-24.md`.
@@ -183,7 +209,7 @@ Phase 0 pipeline → Editor v3 → production shell (landing/auth/dashboard/pric
 night-audit bug sweep → **billing live** (Polar signature fix, PAYG decrement, usage idempotency)
 → **subscription cancel** (`/account`) → **feedback widget** (floating, → Supabase `feedback`) →
 **site-wide support email** (`ceo@quip.ink`) → **promo codes** (`redeem_promo` RPC; code `PODCAST2`
-= 2 credits live) → **upload-only source form** (YouTube link hidden for now) → **Free per-video cap
+= 2 credits live) → **upload-only source form** (YouTube link hidden, then re-enabled best-effort 2026-06-25 on a branch — see NEXT SESSION pending) → **Free per-video cap
 removed** (video length limited only by remaining minutes + 3h technical ceiling) → dashboard
 flash fix → **hook styling parity** (preset gallery + controls + entrance animation + drag) →
 **editor lag/UX** (instant client-side caption preview, durable edits, libass stale-frame fix, preset

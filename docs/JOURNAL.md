@@ -4,6 +4,33 @@
 > «как и почему так сделано». Актуальное состояние проекта = docs/README.md. Правила = CLAUDE.md.
 > Новые заметные решения дописывай СЮДА (не в CLAUDE.md).
 
+### 2026-06-25 — три фикса (ветка `feat/yt-import-global-templates-set-password`, НЕ задеплоено)
+Три независимых фичи, реализованы 3 параллельными Opus-агентами (строгие границы файлов, один владелец на
+файл), TDD на чистой логике, `just check` зелёный, без деплоя (правило фаундера на эту сессию).
+- **YouTube-импорт вернули (best-effort).** Фича была СПРЯТАНА (коммит `9ec7f1a` убрал URL-инпут из
+  `SourceForm`), бэкенд всё это время жив. `SourceForm` снова показывает вторичное URL-поле (upload —
+  первичен). Воркер качает серверно (`download_youtube`): avc1-first ≤1080p (reframe-safe), `+faststart`
+  (moov-atom), `--match-filter "!is_live & duration<cap"` + `--no-playlist`. Новая чистая
+  `classify_youtube_error(stderr)` → понятные английские сообщения «скачай сам через ТГ-бота/другой сайт и
+  загрузи файл» (bot-gate/429/403, private, members-only, removed, region, age-gate, live; TDD поймал баг
+  порядка: age-gate — подстрока bot-gate). Рычаг `YTDLP_PROXY` (env, OFF — без трат), прокинут через
+  `import_youtube`→`run.py`. Образ `yt-dlp`→`yt-dlp[default]` (локальный EJS-солвер) — вступит в силу при
+  `modal deploy`. Честный caveat: бот-гейт YouTube на DC-IP нестабилен, yt-dlp надо часто бампать. 44 теста.
+- **Стиль-темплейты: глобально + помнят ВСЁ.** UI «My templates» вынесен из таба субтитров в поповер
+  «Style templates» в шапке редактора (`EditorHeader`→`TemplatesPanel`). Темплейт теперь хранит
+  позицию/размер субтитров + тайминг хука (`full_clip`/`duration_sec`/`enabled`) + позицию хука (раньше —
+  только цвета); применение ДВИГАЕТ геометрию (старое правило «position preserved» осознанно снято по
+  просьбе фаундера; текст хука НЕ копируется — это контент). `HOOK_LOOK_FIELDS`⇄`HOOK_LOOK_KEYS` — один
+  канонический список (lockstep). Переиспользована JSONB-колонка `profiles.style_preferences` (без
+  миграции), back-compat для старых темплейтов (геометрию подхватят при пересохранении). 15 тестов.
+- **Опциональный set-password в `/account`.** Новая панель `AccountSecurity`
+  (`supabase.auth.updateUser({password})`) — OAuth/OTP-юзеры (без пароля) могут включить вход по паролю;
+  текст ошибки «Invalid credentials» на логине теперь ведёт passwordless-юзеров к Google/коду + настройкам,
+  а не в тупик. ⚠️ Если в Supabase включён «Secure password change» (reauth/nonce) — `updateUser` потребует
+  nonce (config-only, фаундеру проверить). Forgot-password — отложено. 56 web-тестов.
+- **i18n:** зафиксировано (память + Octarin), что RU+EN — это ПЛАН (`next-intl`, отложенная фаза, НЕ
+  установлен); до тех пор весь UI — английский, без хардкода смеси.
+
 ### 2026-06-24 (follow-up #2) — хуки: убрать «Имя:»-ярлык и 1-е лицо, писать в 3-м лице вопросом
 Фаундер по скрину: хук «TOM HOLLAND: WHY I DELETED INSTAGRAM» — мёртвый. Хочет живое «почему Том удалил
 инсту». Ужесточил `prompts/select_moments.v2.txt` + `regenerate_hook.v1.txt`: ⛔ HARD BAN на (а)
