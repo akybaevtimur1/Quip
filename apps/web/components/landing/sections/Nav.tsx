@@ -2,16 +2,16 @@
 
 import { useState } from "react";
 import { useScroll, useMotionValueEvent, AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { Play, List, X } from "@phosphor-icons/react/dist/ssr";
+import { List, X } from "@phosphor-icons/react/dist/ssr";
 import { NAV, ROUTES } from "@/lib/landingContent";
 import { PrimaryCTA } from "../components/CTA";
 
 export function Logo() {
   return (
     <a href="#top" className="flex items-center gap-2.5" aria-label="Quip home">
-      <span className="grid size-7 place-items-center rounded-[7px] bg-accent">
-        <Play weight="fill" className="size-3.5 text-bg" />
-      </span>
+      {/* Brand mark (the Quip "Q"). Plain <img> for a tiny static logo, like ClipCard. */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src="/icon.png" alt="Quip" width={28} height={28} className="size-7 object-contain" />
       <span className="text-[19px] font-extrabold tracking-[-0.02em] text-ink">Quip</span>
     </a>
   );
