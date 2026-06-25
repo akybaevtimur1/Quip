@@ -543,8 +543,10 @@ def probe_youtube_pot(url: str = "https://www.youtube.com/watch?v=Ks-_Mh1QhMc") 
         cmd += ["--cookies", str(tmp)]
     if s.ytdlp_pot_server_home:
         cmd += ["--extractor-args", f"youtubepot-bgutilscript:server_home={s.ytdlp_pot_server_home}"]
+    if s.ytdlp_player_client:
+        cmd += ["--extractor-args", f"youtube:player_client={s.ytdlp_player_client}"]
     cmd.append(url)
-    print(f"[probe] cookies={has_cookies} pot={bool(s.ytdlp_pot_server_home)} url={url}")
+    print(f"[probe] cookies={has_cookies} pot={bool(s.ytdlp_pot_server_home)} client={s.ytdlp_player_client} url={url}")
     proc = subprocess.run(cmd, capture_output=True, text=True)
     markers = (
         "PO Token", "[pot", "Retrieved", "Sign in to confirm", "not a bot", "ERROR:",

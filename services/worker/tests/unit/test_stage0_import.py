@@ -282,3 +282,22 @@ class TestBuildYoutubeCmd:
         assert cmd[cmd.index("--extractor-args") + 1] == (
             f"youtubepot-bgutilscript:server_home={self._POT_HOME}"
         )
+
+    # ── player_client (tv,android_vr pass the DC-IP bot-gate WITHOUT a PO token) ──
+    def test_no_player_client_arg_by_default(self) -> None:
+        # Empty player_client → no youtube:player_client extractor-arg (unchanged behavior).
+        assert "youtube:player_client" not in " ".join(self._cmd())
+
+    def test_player_client_extractor_args_when_set(self) -> None:
+        cmd = self._cmd(player_client="tv,android_vr")
+        ea = [cmd[i + 1] for i, a in enumerate(cmd) if a == "--extractor-args"]
+        assert "youtube:player_client=tv,android_vr" in ea
+        assert cmd[-1] == "https://youtu.be/x"  # URL stays last
+
+    def test_player_client_and_pot_are_separate_extractor_args(self) -> None:
+        # Both emit their OWN --extractor-args (yt-dlp merges multiple); URL stays last.
+        cmd = self._cmd(player_client="tv", pot_server_home=self._POT_HOME)
+        ea = [cmd[i + 1] for i, a in enumerate(cmd) if a == "--extractor-args"]
+        assert "youtube:player_client=tv" in ea
+        assert f"youtubepot-bgutilscript:server_home={self._POT_HOME}" in ea
+        assert cmd[-1] == "https://youtu.be/x"

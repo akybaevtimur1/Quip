@@ -88,6 +88,10 @@ class Settings(BaseSettings):
     # без прокси = $0 (дефолт, OFF). Формат yt-dlp --proxy: "http://host:port" / "socks5://...".
     # Когда заполнен — stage0.download_youtube добавляет "--proxy <url>". Ставим ВЫКЛ.
     ytdlp_proxy: str = ""
+    # YouTube player client(s) for yt-dlp (comma-separated, tried in order). "tv,android_vr" pass
+    # the DC-IP bot-gate WITHOUT a GVS PO token (and still honor cookies) → removes the flaky cold
+    # bgutil-POT dependency for most videos. Empty = yt-dlp default (env YTDLP_PLAYER_CLIENT).
+    ytdlp_player_client: str = "tv,android_vr"
     # bgutil PO-token (Proof-of-Origin) provider, SCRIPT mode. Layered ON TOP of cookies: cookies
     # authenticate the session, the PO token attests proof-of-origin of the player request —
     # YouTube's DC-IP bot-gate checks both. When set, stage0.build_youtube_cmd appends

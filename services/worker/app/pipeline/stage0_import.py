@@ -149,6 +149,7 @@ def build_youtube_cmd(
     cookies_file: str = "",
     proxy: str = "",
     pot_server_home: str = "",
+    player_client: str = "",
 ) -> list[str]:
     """Собрать yt-dlp-команду для скачивания ``url`` → ``out_dir/source.mp4``. PURE.
 
@@ -208,6 +209,11 @@ def build_youtube_cmd(
     # generator per-token (no HTTP server). Layered on TOP of cookies, not a replacement.
     if pot_server_home:
         cmd += ["--extractor-args", f"youtubepot-bgutilscript:server_home={pot_server_home}"]
+    if player_client:
+        # tv/android_vr pass the DC-IP bot-gate WITHOUT a GVS PO token (and still honor cookies),
+        # so choosing the client removes the flaky cold-deno POT dependency for most videos
+        # (bgutil POT above stays as a backstop for any residual POT-requiring client).
+        cmd += ["--extractor-args", f"youtube:player_client={player_client}"]
     cmd.append(url)
     return cmd
 
@@ -290,6 +296,7 @@ def download_youtube(
     cookies_file: str = "",
     proxy: str = "",
     pot_server_home: str = "",
+    player_client: str = "",
 ) -> Path:
     """yt-dlp → ``out_dir/source.mp4`` (+ source.info.json). Возвращает путь к mp4.
 
@@ -305,6 +312,7 @@ def download_youtube(
         cookies_file=cookies_file,
         proxy=proxy,
         pot_server_home=pot_server_home,
+        player_client=player_client,
     )
     try:
         _run(cmd)
@@ -447,6 +455,7 @@ def import_youtube(
     cookies_file: str = "",
     proxy: str = "",
     pot_server_home: str = "",
+    player_client: str = "",
 ) -> SourceMeta:
     """Полный Stage 0 для YouTube: download → audio → probe → meta.json. Возвращает SourceMeta."""
     mp4 = download_youtube(
@@ -456,6 +465,7 @@ def import_youtube(
         cookies_file=cookies_file,
         proxy=proxy,
         pot_server_home=pot_server_home,
+        player_client=player_client,
     )
     extract_audio(mp4, out_dir / "source.wav")
     probe = probe_video(mp4)

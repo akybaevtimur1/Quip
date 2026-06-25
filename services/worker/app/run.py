@@ -335,6 +335,7 @@ def run_pipeline(
             cookies_file=cookies_file,
             proxy=s.ytdlp_proxy,  # reliability lever, "" = off (no proxy/no cost)
             pot_server_home=s.ytdlp_pot_server_home,  # bgutil PO-token (script mode)
+            player_client=s.ytdlp_player_client,  # tv,android_vr pass the gate without a PO token
         )  # fmt: skip
         # Push the yt-dlp-rotated jar back to R2 ONLY after a SUCCESSFUL import (import_youtube
         # raises JobError on failure → we skip the push, keeping the last-known-good session).
