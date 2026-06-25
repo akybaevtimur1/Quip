@@ -93,7 +93,12 @@ image = (
         "scipy>=1.11",
         "python_speech_features>=0.6",
         "google-genai>=2.8.0",
-        "yt-dlp>=2026.3.17",
+        # yt-dlp[default] (НЕ bare yt-dlp): бандлит yt-dlp-ejs → решатель YouTube nsig/«n»-
+        # челленджа ЛОКАЛЕН в образе (а не качается с GitHub в рантайме через
+        # --remote-components ejs:github). ⚠️ Вступает в силу ТОЛЬКО при следующем
+        # `modal deploy deploy/modal/worker.py` (оркестратор/фаундер деплоит позже — здесь НЕ
+        # деплоим). yt-dlp обновлять ЧАСТО: бот-гейт YouTube дрейфует, старый клиент = провалы.
+        "yt-dlp[default]>=2026.3.17",
         "boto3>=1.35",
     )
     # Наш код + ассеты в /root (PYTHONPATH=/root → import app.*). copy=True = слой образа.

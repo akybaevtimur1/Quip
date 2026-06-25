@@ -1,6 +1,6 @@
 "use client";
 
-import { Minus, Plus, Scissors, Upload, X } from "lucide-react";
+import { Link2, Minus, Plus, Scissors, Upload, X } from "lucide-react";
 import { useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Eyebrow } from "@/components/ui/Eyebrow";
@@ -19,25 +19,36 @@ const DEFAULT_CLIPS = 8;
 const MAX_UPLOAD_MB = 10000;
 const MAX_UPLOAD_LABEL = "10 GB";
 
+/** Client-side YouTube-URL sanity check (server still validates + downloads best-effort).
+ *  Loose by design: matches youtube.com / youtu.be and asks for a plausible length. */
+function isLikelyYoutubeUrl(url: string): boolean {
+  return /youtu\.?be/i.test(url) && url.trim().length > 12;
+}
+
 export function SourceForm({
+  onSubmit,
   onSubmitFile,
   busy,
 }: {
-  // onSubmit (YouTube-link path) kept optional for compatibility — the link input is hidden
-  // for now (upload-only); re-add the URL field here to restore it.
+  // onSubmit = YouTube-link path (best-effort import). Optional for back-compat: callers that
+  // don't pass it simply don't offer the link field. Upload is the primary affordance.
   onSubmit?: (url: string, maxClips: number) => void;
   onSubmitFile: (file: File, maxClips: number) => void;
   busy: boolean;
 }) {
   const [file, setFile] = useState<File | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
+  // YouTube link — a SECONDARY option under the drop-zone (best-effort; may fall back to upload).
+  const [url, setUrl] = useState("");
   // auto = «сколько найдётся, максимум 30» (без жёсткого выбора числа); custom = ровно N клипов.
   const [auto, setAuto] = useState(true);
   const [count, setCount] = useState(DEFAULT_CLIPS);
   const [dragging, setDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const canSubmit = !busy && file != null;
+  const urlValid = isLikelyYoutubeUrl(url);
+  // A file always wins; otherwise a valid YouTube link (only if the link path is wired in).
+  const canSubmit = !busy && (file != null || (onSubmit != null && urlValid));
   const clamp = (n: number) => Math.max(MIN_CLIPS, Math.min(MAX_CLIPS, n));
   // Auto → шлём потолок (30): воркер вернёт ДО стольких сильных моментов, сколько найдёт.
   const clipsRequested = auto ? MAX_CLIPS : count;
@@ -63,8 +74,13 @@ export function SourceForm({
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!canSubmit || !file) return;
-    onSubmitFile(file, clipsRequested);
+    if (!canSubmit) return;
+    // A picked file is the primary path; a YouTube link is the best-effort secondary path.
+    if (file) {
+      onSubmitFile(file, clipsRequested);
+    } else if (onSubmit && urlValid) {
+      onSubmit(url.trim(), clipsRequested);
+    }
   }
 
   return (
@@ -164,6 +180,46 @@ export function SourceForm({
         onChange={(e) => pickFile(e.target.files?.[0] ?? null)}
       />
       {fileError ? <p className="mt-2 text-sm text-bad">{fileError}</p> : null}
+
+      {/* Secondary option: a YouTube link (best-effort import — may not work for every video, in
+          which case we ask you to upload the file). Hidden once a file is picked (file wins).
+          Only rendered when the link path is wired (onSubmit) so upload-only callers stay clean. */}
+      {onSubmit && file == null ? (
+        <div className="mt-4">
+          <div className="flex items-center gap-3">
+            <span className="h-px flex-1 bg-line" />
+            <span className="font-mono text-eyebrow uppercase tracking-wide text-faint">or paste a link</span>
+            <span className="h-px flex-1 bg-line" />
+          </div>
+          <label
+            className={cn(
+              "mt-3 flex items-center gap-2.5 rounded-lg border bg-surface px-3.5 transition duration-200 ease-snappy",
+              url.length > 0 && !urlValid ? "border-bad" : "border-line focus-within:border-accent",
+              busy && "pointer-events-none opacity-50",
+            )}
+          >
+            <Link2 className="size-4 shrink-0 text-muted" aria-hidden />
+            <input
+              type="url"
+              inputMode="url"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              disabled={busy}
+              aria-label="YouTube video link"
+              aria-invalid={url.length > 0 && !urlValid}
+              placeholder="https://youtube.com/watch?v=…"
+              className="h-11 w-full min-w-0 bg-transparent text-sm text-ink placeholder:text-faint focus:outline-none"
+            />
+          </label>
+          {url.length > 0 && !urlValid ? (
+            <p className="mt-2 text-sm text-bad">Enter a valid YouTube link.</p>
+          ) : (
+            <p className="mt-2 text-xs leading-relaxed text-faint">
+              Best-effort — if YouTube blocks our fetch, we’ll ask you to upload the file instead.
+            </p>
+          )}
+        </div>
+      ) : null}
 
       <div className="mt-5">
         <Eyebrow tone="faint">Clip count</Eyebrow>

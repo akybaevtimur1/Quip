@@ -263,6 +263,7 @@ def run_pipeline(
             source_url, out, job_id=job_id,
             cookies_browser=s.ytdlp_cookies_browser,
             cookies_file=s.ytdlp_cookies_file,
+            proxy=s.ytdlp_proxy,  # reliability lever, "" = off (no proxy/no cost)
         )  # fmt: skip
         print(f"[0] import: {meta.duration:.0f}s {meta.width}x{meta.height}")
     else:

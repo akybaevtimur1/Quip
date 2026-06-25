@@ -75,6 +75,133 @@ def parse_fps(rate: str) -> float:
     return round(fps, 3)
 
 
+# yt-dlp скачивание best-effort: с DC-IP (Modal) YouTube периодически режет бот-гейтом. Когда
+# не вышло — НЕ молчим: классифицируем stderr в понятное ENG-сообщение, КАЖДОЕ оканчивается
+# призывом «скачай сам и загрузи файл» (graceful fallback на upload-путь).
+_YT_UPLOAD_HINT = (
+    " Please download it yourself — e.g. with a Telegram downloader bot or another "
+    "site — and upload the file."
+)
+
+
+def classify_youtube_error(stderr_tail: str) -> str:
+    """yt-dlp stderr → понятное пользователю ENG-сообщение. PURE.
+
+    Маппит известные сигнатуры провала yt-dlp в ясный текст. Регистронезависимо (yt-dlp
+    меняет регистр/формулировки между версиями). КАЖДОЕ сообщение заканчивается actionable-
+    подсказкой ``_YT_UPLOAD_HINT`` (best-effort: автоскачивание — удобство, не гарантия;
+    всегда есть путь «залей файл сам»).
+    """
+    s = (stderr_tail or "").lower()
+
+    # ВАЖЕН ПОРЯДОК: «Sign in to confirm your AGE» — частный случай «sign in to confirm»,
+    # поэтому возрастной гейт проверяем РАНЬШЕ бот-гейта (иначе age-видео ловится как бот).
+    if "confirm your age" in s or "age-restricted" in s or "inappropriate for some users" in s:
+        return (
+            "This video is age-restricted and requires a sign-in we don’t have." + _YT_UPLOAD_HINT
+        )
+
+    # bot-gate / rate-limit / forbidden — самый частый провал с дата-центрового IP.
+    bot_signatures = (
+        "sign in to confirm you",  # "...you're not a bot" (юникод-апостроф варьируется)
+        "not a bot",
+        "http error 429",
+        "too many requests",
+        "http error 403",
+        "forbidden",
+        "failed to extract any player response",
+    )
+    if any(sig in s for sig in bot_signatures):
+        return (
+            "We could not fetch this video automatically (YouTube blocked our server)."
+            + _YT_UPLOAD_HINT
+        )
+
+    # приватное / только для участников канала.
+    if "members-only" in s or "join this channel" in s:
+        return "This video is members-only, so we can’t fetch it." + _YT_UPLOAD_HINT
+    if "is private" in s or "private video" in s:
+        return "This video is private, so we can’t fetch it." + _YT_UPLOAD_HINT
+
+    # удалено / недоступно.
+    if "video unavailable" in s or "has been removed" in s or "no longer available" in s:
+        return "This video is no longer available on YouTube." + _YT_UPLOAD_HINT
+
+    # региональная блокировка.
+    if "available in your country" in s or "blocked it in your country" in s or "geo" in s:
+        return (
+            "This video is not available in our server’s region (region-locked)." + _YT_UPLOAD_HINT
+        )
+
+    # лайв / премьера (ещё не вышло целиком).
+    if "live event will begin" in s or "premiere" in s or "premieres in" in s or "is live" in s:
+        return "This is a live stream or premiere, which we can’t process yet." + _YT_UPLOAD_HINT
+
+    # неизвестная сигнатура — общий честный фолбэк (всё ещё с upload-подсказкой).
+    return "We could not fetch this video from YouTube automatically." + _YT_UPLOAD_HINT
+
+
+def build_youtube_cmd(
+    url: str,
+    out_dir: Path,
+    *,
+    cookies_browser: str = "",
+    cookies_file: str = "",
+    proxy: str = "",
+) -> list[str]:
+    """Собрать yt-dlp-команду для скачивания ``url`` → ``out_dir/source.mp4``. PURE.
+
+    Ключевые гарантии:
+    - **avc1-first ≤1080p** — предпочитаем H.264 (софт-декод AV1 в reframe-анализе ~2-5×
+      медленнее); потолок 1080p (reframe-safety + стоимость). 1080p мукс = adaptive
+      video+audio + ffmpeg-merge (см. ``--merge-output-format mp4``).
+    - **faststart** — ``--postprocessor-args`` двигает moov-atom в начало файла; иначе yt-dlp
+      кладёт moov в EOF → preview range-requests тянут весь файл перед стартом (gotcha).
+    - **match-filter** — отклоняет лайвстримы и видео длиннее ``MAX_SOURCE_MINUTES`` ДО
+      скачивания (не качаем то, что всё равно упрётся в ``_check_limits``).
+    - **--no-playlist** — один URL = одно видео (ссылка из плейлиста не тянет весь плейлист).
+    - **proxy** (опц.) — будущий рычаг надёжности (обход DC-IP бот-гейта); пусто = без прокси.
+    """
+    max_seconds = MAX_SOURCE_MINUTES * 60
+    cmd = [
+        "yt-dlp",
+        "-f",
+        # Предпочитаем H.264 (avc1) — софт-декод AV1 в reframe-анализе в ~2-5× медленнее и
+        # засыпает лог hw-accel-ошибками. Фолбэки: mp4(av1) → любой 1080 → best.
+        "bestvideo[height<=1080][vcodec^=avc1]+bestaudio[ext=m4a]/bestvideo[height<=1080][ext=mp4]+bestaudio/bestvideo[height<=1080]+bestaudio/best[height<=1080]/best",
+        "--merge-output-format",
+        "mp4",
+        "--no-playlist",
+        # Отсекаем лайв/премьеры и переростки ДО скачивания (живой стрим качать нельзя; видео
+        # длиннее техпотолка всё равно отвалится в _check_limits — не тратим трафик/время).
+        "--match-filter",
+        f"!is_live & duration < {max_seconds}",
+        # moov-atom → начало файла (faststart): без этого yt-dlp кладёт его в EOF и preview
+        # range-requests тянут весь файл перед стартом плеера (gotcha из памяти команды).
+        "--postprocessor-args",
+        "ffmpeg:-movflags +faststart",
+        # YouTube nsig/«n»-челлендж требует JS-рантайм (Deno в образе) + EJS-скрипты решателя.
+        # ejs:github подтягивает их с GitHub в рантайме (yt-dlp #15012). С yt-dlp[default] в
+        # образе решатель локален — этот флаг остаётся безопасным фолбэком.
+        "--remote-components",
+        "ejs:github",
+        "--max-filesize",
+        "2G",
+        "--write-info-json",
+        "--restrict-filenames",
+        "-o",
+        str(out_dir / "source.%(ext)s"),
+    ]
+    if proxy:
+        cmd += ["--proxy", proxy]
+    if cookies_file:
+        cmd += ["--cookies", cookies_file]
+    elif cookies_browser:
+        cmd += ["--cookies-from-browser", cookies_browser]
+    cmd.append(url)
+    return cmd
+
+
 def _video_stream(probe: dict[str, Any]) -> dict[str, Any]:
     streams = probe.get("streams") or []
     if not streams:
@@ -146,40 +273,38 @@ def _run(cmd: list[str], *, cwd: Path | None = None) -> subprocess.CompletedProc
 
 
 def download_youtube(
-    url: str, out_dir: Path, *, cookies_browser: str = "", cookies_file: str = ""
+    url: str,
+    out_dir: Path,
+    *,
+    cookies_browser: str = "",
+    cookies_file: str = "",
+    proxy: str = "",
 ) -> Path:
-    """yt-dlp → ``out_dir/source.mp4`` (+ source.info.json). Возвращает путь к mp4."""
+    """yt-dlp → ``out_dir/source.mp4`` (+ source.info.json). Возвращает путь к mp4.
+
+    Best-effort: на DC-IP (Modal) YouTube периодически режет бот-гейтом. При провале yt-dlp
+    НЕ молчим — классифицируем stderr в понятное ENG-сообщение (``classify_youtube_error``),
+    которое всегда зовёт юзера залить файл вручную (graceful fallback на upload-путь, правило №8).
+    """
     out_dir.mkdir(parents=True, exist_ok=True)
-    cmd = [
-        "yt-dlp",
-        "-f",
-        # Предпочитаем H.264 (avc1) — софт-декод AV1 в reframe-анализе в ~2-5× медленнее и
-        # засыпает лог hw-accel-ошибками. Фолбэки: mp4(av1) → любой 1080 → best.
-        "bestvideo[height<=1080][vcodec^=avc1]+bestaudio[ext=m4a]/bestvideo[height<=1080][ext=mp4]+bestaudio/bestvideo[height<=1080]+bestaudio/best[height<=1080]/best",
-        "--merge-output-format",
-        "mp4",
-        "--no-playlist",
-        # YouTube nsig/«n»-челлендж теперь требует JS-рантайм (Deno в образе) + EJS-скрипты
-        # решателя. ejs:github подтягивает их с GitHub в рантайме (yt-dlp #15012, wiki EJS).
-        # Без этого — «n challenge solving failed → Some formats may be missing» (exit 1).
-        "--remote-components",
-        "ejs:github",
-        "--max-filesize",
-        "2G",
-        "--write-info-json",
-        "--restrict-filenames",
-        "-o",
-        str(out_dir / "source.%(ext)s"),
-    ]
-    if cookies_file:
-        cmd += ["--cookies", cookies_file]
-    elif cookies_browser:
-        cmd += ["--cookies-from-browser", cookies_browser]
-    cmd.append(url)
-    _run(cmd)
+    cmd = build_youtube_cmd(
+        url,
+        out_dir,
+        cookies_browser=cookies_browser,
+        cookies_file=cookies_file,
+        proxy=proxy,
+    )
+    try:
+        _run(cmd)
+    except JobError as e:
+        # _run кидает JobError с хвостом stderr → перекладываем в дружелюбный текст. raise from e
+        # сохраняет техдетали в цепочке исключений (лог), но юзер видит actionable-сообщение.
+        raise JobError(_STAGE, classify_youtube_error(e.reason)) from e
     mp4 = out_dir / "source.mp4"
     if not mp4.exists():
-        raise JobError(_STAGE, f"yt-dlp did not create {mp4}")
+        # yt-dlp вышел с кодом 0, но файла нет (например match-filter отсёк лайв/переросток до
+        # скачивания). Тоже best-effort-провал → понятный текст + upload-подсказка.
+        raise JobError(_STAGE, classify_youtube_error(f"yt-dlp did not create {mp4}"))
     return mp4
 
 
@@ -308,9 +433,12 @@ def import_youtube(
     job_id: str,
     cookies_browser: str = "",
     cookies_file: str = "",
+    proxy: str = "",
 ) -> SourceMeta:
     """Полный Stage 0 для YouTube: download → audio → probe → meta.json. Возвращает SourceMeta."""
-    mp4 = download_youtube(url, out_dir, cookies_browser=cookies_browser, cookies_file=cookies_file)
+    mp4 = download_youtube(
+        url, out_dir, cookies_browser=cookies_browser, cookies_file=cookies_file, proxy=proxy
+    )
     extract_audio(mp4, out_dir / "source.wav")
     probe = probe_video(mp4)
     title = _read_title(out_dir, fallback=url)

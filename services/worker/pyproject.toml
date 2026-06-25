@@ -24,7 +24,11 @@ dependencies = [
     "scipy>=1.11",
     "torch>=2.2",
     "uvicorn[standard]>=0.49.0",
-    "yt-dlp>=2026.3.17",
+    # yt-dlp[default] (НЕ bare yt-dlp): тянет yt-dlp-ejs локально → решатель YouTube nsig/«n»-
+    # челленджа в образе, а не качается с GitHub в рантайме (--remote-components ejs:github =
+    # сетевая зависимость на каждый запуск). NB: на Modal вступает в силу ТОЛЬКО при следующем
+    # `modal deploy` (зеркало в deploy/modal/worker.py). yt-dlp обновлять ЧАСТО (бот-гейт дрейфует).
+    "yt-dlp[default]>=2026.3.17",
 ]
 
 # torch — CPU-колёса (на Linux: --index-url https://download.pytorch.org/whl/cpu).

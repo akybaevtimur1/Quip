@@ -79,6 +79,10 @@ class Settings(BaseSettings):
     # file: абсолютный путь к cookies.txt (Netscape-формат). Приоритет над browser.
     ytdlp_cookies_browser: str = "edge"
     ytdlp_cookies_file: str = ""
+    # Будущий рычаг надёжности YouTube-скачивания: прокси (обход DC-IP бот-гейта). Пусто =
+    # без прокси = $0 (дефолт, OFF). Формат yt-dlp --proxy: "http://host:port" / "socks5://...".
+    # Когда заполнен — stage0.download_youtube добавляет "--proxy <url>". Ставим ВЫКЛ.
+    ytdlp_proxy: str = ""
 
     # pipeline tuning
     # NB: потолок длины исходника НЕ здесь — он в billing.MAX_VIDEO_MINUTES (stage0._check_limits).
