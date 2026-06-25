@@ -4,6 +4,20 @@
 > «как и почему так сделано». Актуальное состояние проекта = docs/README.md. Правила = CLAUDE.md.
 > Новые заметные решения дописывай СЮДА (не в CLAUDE.md).
 
+### 2026-06-25 (YouTube-надёжность ч.2) — мульти-куки фолбэк + видимый статус скачки
+Один cookie-jar на DC-IP — коинфлип. Сделали **пул jar'ов** с фолбэком: фаундер кладёт N
+`www.youtube.com_cookies*.txt` в корень → worker.py печёт их в `/root/cookies/jar_NN.txt`
+(`ytdlp_cookies.baked_jars()`). `run.py` строит кандидаты = [R2-ротирующийся jar] + [каждый
+запечённый jar в writable-temp] и пробует по очереди: бот-гейт (`YoutubeBotGateError`, поднимается
+в `download_youtube` когда `is_bot_gate(stderr)`) → СЛЕДУЮЩИЙ jar; НЕ-бот-провал
+(private/too-long/removed/age) → сразу fail (другой jar не спасёт); первый успех → push победителя в
+R2 (current-best). Падаем ТОЛЬКО если ВСЕ загейтили. Математика: P(хотя бы 1 из N) ≈ 1−(1−p)^N →
+~40-70% на jar превращается в ~99% на 5 jar'ах (потолок IP не двигается — флагнутый IP валит все).
+Фронт (`JobProgress.tsx`): при `downloading`+`source_kind=youtube` показываем «Fetching from
+YouTube» + заметку «best-effort, может упасть → зальёшь файл» — юзер видит фолибл-стадию. Секреты:
+`.gitignore` `*_cookies*.txt` (старый `*_cookies.txt` НЕ матчил `(2)/(3)/(4)`). Верификация: probe
+гоняет весь пул → **5/5 jar'ов прошли** на боевом IP. Octarin-решение записано.
+
 ### 2026-06-25 (YouTube-надёжность) — куки → POT → tv,android_vr; вердикт: best-effort, прокси отклонён
 Бот-гейт YouTube на DC-IP Modal бил даже с валидными ротируемыми куками. Прошли цепочку рычагов
 (research-workflow'ы + probe-диагностика `probe_youtube_pot` на боевом IP):
