@@ -191,14 +191,15 @@ export function SourceForm({
             <span className="font-mono text-eyebrow uppercase tracking-wide text-faint">or paste a link</span>
             <span className="h-px flex-1 bg-line" />
           </div>
-          <label
-            className={cn(
-              "mt-3 flex items-center gap-2.5 rounded-lg border bg-surface px-3.5 transition duration-200 ease-snappy",
-              url.length > 0 && !urlValid ? "border-bad" : "border-line focus-within:border-accent",
-              busy && "pointer-events-none opacity-50",
-            )}
-          >
-            <Link2 className="size-4 shrink-0 text-muted" aria-hidden />
+          {/* The INPUT is the single bordered element (icon sits inside, absolute) so the global
+              :focus-visible ring hugs that one border = one box. The old wrapper-label-with-border +
+              ring-on-input gave a DOUBLE border (the global ring is unlayered → can't be killed by a
+              layered utility). Mirrors components/ui/Input: border stays neutral, coral = the ring. */}
+          <div className="relative mt-3">
+            <Link2
+              className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted"
+              aria-hidden
+            />
             <input
               type="url"
               inputMode="url"
@@ -208,9 +209,13 @@ export function SourceForm({
               aria-label="YouTube video link"
               aria-invalid={url.length > 0 && !urlValid}
               placeholder="https://youtube.com/watch?v=…"
-              className="h-11 w-full min-w-0 bg-transparent text-sm text-ink placeholder:text-faint focus:outline-none focus-visible:shadow-none"
+              className={cn(
+                "h-11 w-full rounded-lg border bg-surface pl-10 pr-3.5 text-sm text-ink placeholder:text-faint transition-colors duration-200 ease-snappy",
+                url.length > 0 && !urlValid ? "border-bad" : "border-line hover:border-line-strong",
+                busy && "pointer-events-none opacity-50",
+              )}
             />
-          </label>
+          </div>
           {url.length > 0 && !urlValid ? (
             <p className="mt-2 text-sm text-bad">Enter a valid YouTube link.</p>
           ) : (

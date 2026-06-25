@@ -6,8 +6,8 @@ import { FinalCta } from "@/components/marketing/FinalCta";
 import { Hero } from "@/components/marketing/Hero";
 import { HowItWorks } from "@/components/marketing/HowItWorks";
 import { Pricing } from "@/components/marketing/Pricing";
+import { PipelineDemo } from "@/components/marketing/PipelineDemo";
 import { ProofStrip } from "@/components/marketing/ProofStrip";
-import { QuipStudio } from "@/components/marketing/QuipStudio";
 import { WhyQuip } from "@/components/marketing/WhyQuip";
 import { buildHomeJsonLd } from "@/lib/jsonld";
 
@@ -27,8 +27,8 @@ export default function HomePage() {
         }}
       />
       <Hero />
-      {/* the page climax: show the instrument working before we explain it */}
-      <QuipStudio />
+      {/* the page climax: a real montaged pipeline run before we explain it */}
+      <PipelineDemo />
       {/* edge-to-edge cost band — sits on the surface ladder, top hairline only */}
       <ProofStrip />
       <HowItWorks />
