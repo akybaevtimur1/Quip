@@ -63,7 +63,10 @@ PLANS: dict[str, PlanLimits] = {
         max_video_minutes=None,  # без per-video кэпа: длина видео ограничена только остатком
         # минут (квота) + техпотолок MAX_VIDEO_MINUTES. Раньше Free капился 60 мин/видео.
         watermark=True,
-        max_resolution=720,
+        # 2026-06-25: free = ПОЛНОЕ качество 1080p (кап 720p снят). Единственный отличитель
+        # free vs платных = ВОТЕРМАРКА (см. stage5_render.build_watermark_drawtext). Энкод free
+        # остаётся быстрым (crf20/veryfast) ради стоимости; платные — crf18/medium.
+        max_resolution=1080,
     ),  # fmt: skip
     "starter": PlanLimits(
         id="starter",
@@ -133,7 +136,8 @@ class RenderPolicy:
     """Серверное решение по рендеру клипа для плана владельца джоба. PURE.
 
     ``watermark``       — прожигать ли вотермарку «Made with Quip» (free=True).
-    ``max_resolution``  — потолок высоты выходного клипа в px (free=720, платные=1080).
+    ``max_resolution``  — потолок высоты выходного клипа в px (free=1080 как платные с 2026-06-25;
+                          free отличается ТОЛЬКО вотермаркой, не разрешением).
     ``video_crf``       — CRF libx264 (меньше = качественнее; free=20, платные=18).
     ``video_preset``    — preset libx264 (медленнее = качественнее; free=veryfast, платные=medium).
 

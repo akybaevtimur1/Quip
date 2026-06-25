@@ -179,13 +179,17 @@ def build_watermark_drawtext(out_w: int, out_h: int, fontfile: str | None) -> st
     fontfile (опц.) — относительный (от cwd ffmpeg) путь к TTF проекта; None → шрифт ffmpeg.
     Запятые НЕ используются в выражениях (drawtext в filtergraph их бы съел как разделитель).
     """
-    fontsize = max(16, round(out_h * 0.022))  # ~42px на 1920 высоте
+    # 2026-06-25: вотермарка сделана ЗАМЕТНОЙ. Free теперь рендерит полное 1080p (кап снят),
+    # значит вотермарка — ЕДИНСТВЕННЫЙ отличитель free/paid и обязана явно читаться: крупнее
+    # (3% высоты vs 2.2%), плотнее (alpha .92 vs .78), сильнее тень. Всё ещё аддитивный оверлей
+    # поверх готового кадра → кадровую сетку (Δ=0) не трогает.
+    fontsize = max(20, round(out_h * 0.030))  # ~58px на 1920 высоте
     pad = max(12, round(out_h * 0.016))
     font = f"fontfile={fontfile}:" if fontfile else ""
     return (
         f"drawtext={font}text='{_WATERMARK_TEXT}':"
-        f"fontsize={fontsize}:fontcolor=white@0.78:"
-        f"shadowcolor=black@0.45:shadowx=2:shadowy=2:"
+        f"fontsize={fontsize}:fontcolor=white@0.92:"
+        f"shadowcolor=black@0.6:shadowx=3:shadowy=3:"
         f"x=w-tw-{pad}:y=h-th-{pad}"
     )
 

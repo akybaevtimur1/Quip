@@ -37,7 +37,7 @@ export const PLANS: PlanDisplay[] = [
       "Explainable clips with hook, score and reason",
       "Smooth 9:16 reframe that tracks the speaker",
       "Full editor and every caption style",
-      "720p export with a small watermark",
+      "1080p export with a Quip watermark",
     ],
   },
   {

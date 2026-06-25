@@ -92,9 +92,10 @@
   `db.set_progress_detail` best-effort). `ClipCard`: `PendingThumb` (client frame-grab из
   preview-прокси, БЕЗ crossOrigin — CDN без CORS) + всплытие карточки + счёт скора. Спека/план:
   `docs/superpowers/{specs,plans}/2026-06-20-live-clip-feed*`.
-- **Качество рендера по плану (2026-06-20).** Энкод клипа больше не захардкожен `veryfast/crf20`
+- **Качество рендера по плану (2026-06-20; free→1080 с 2026-06-25).** Энкод клипа больше не захардкожен `veryfast/crf20`
   для всех: серверная `RenderPolicy` несёт `video_crf/video_preset` (free 20/veryfast, платные
-  **18/medium** — чётче на 1080). Протянут через `render_clip`+`render_timeline`. Только энкод,
+  **18/medium**). **2026-06-25: free тоже рендерит 1080p** (кап 720 снят) — платные отличаются
+  лишь чуть лучшим энкодом + отсутствием вотермарки. Протянут через `render_clip`+`render_timeline`. Только энкод,
   кадровая сетка Δ=0 цела. Источник: `billing.py` + `stage5_render._video_out_args`.
 - **Co-watch / live moment discovery (UX, 2026-06-20, LIVE).** Во время обработки загруженное видео
   играет СРАЗУ из локального File (object URL — без раунд-трипа/CORS), а найденные «моменты» всплывают
@@ -174,8 +175,11 @@
   во всех точках создания, проверка `email_confirmed_at` через Supabase Admin API) + **блок
   одноразовых email-доменов** (`billing.is_disposable_email` + зеркало `lib/disposableEmail.ts`).
   Google OAuth = уже verified. ⚠️ Требует Supabase «Confirm email» = ON (см. `SUPABASE_SETUP §6`).
-- **Вотермарк free (2026-06-18):** план берётся СЕРВЕРНО от владельца джобы; для free прожигается
-  вотермарка в КАЖДЫЙ клип + кап 720p (обход через экспорт из редактора закрыт). Источник:
+- **Вотермарк free (2026-06-18; обновлено 2026-06-25):** план берётся СЕРВЕРНО от владельца джобы; для free прожигается
+  ЗАМЕТНАЯ вотермарка «Made with Quip» в КАЖДЫЙ клип (обход через экспорт из редактора закрыт).
+  ⚠️ **2026-06-25: кап 720p СНЯТ — free рендерит ПОЛНОЕ 1080p** (как платные); единственный
+  отличитель free vs paid теперь = вотермарка (платные ещё чуть чётче по энкоду: crf18/medium vs
+  free crf20/veryfast). Источник:
   `billing.resolve_render_policy` + `stage5_render`.
 - **Uploads = direct browser→R2** (presigned PUT), NOT through the worker. `POST /jobs/upload-url`
   → browser PUTs straight to R2 → `POST /jobs/{id}/upload-complete` spawns processing. Needs an R2

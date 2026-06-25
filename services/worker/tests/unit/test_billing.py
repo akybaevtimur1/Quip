@@ -62,16 +62,17 @@ class TestResolvePlan:
 class TestResolveRenderPolicy:
     """Pure decision: plan → (watermark, max_resolution). Server-side enforcement source.
 
-    Free прожигает вотермарку + капится 720p; платные — чисто, 1080p. Unknown/None → free
+    Free = вотермарка + ПОЛНОЕ 1080p (кап 720p снят 2026-06-25; вотермарка — единственный
+    отличитель free/paid); платные — чисто, 1080p. Unknown/None → free
     (безопасный дефолт через resolve_plan). local_dev (нет owner) → НИКОГДА не вотермаркаем
     (dev-удобство), но БЕЗ user в cloud это не наступает — там user_id всегда есть.
     """
 
-    def test_free_watermark_and_720(self) -> None:
+    def test_free_watermark_and_1080(self) -> None:
         p = resolve_render_policy("free", local_dev=False)
         assert isinstance(p, RenderPolicy)
         assert p.watermark is True
-        assert p.max_resolution == 720
+        assert p.max_resolution == 1080  # free = full quality (watermark differentiates)
 
     def test_starter_clean_1080(self) -> None:
         p = resolve_render_policy("starter", local_dev=False)
@@ -87,12 +88,12 @@ class TestResolveRenderPolicy:
         # Безопасный дефолт: неизвестный план НЕ выдаёт чистый клип (free-семантика).
         p = resolve_render_policy("bogus", local_dev=False)
         assert p.watermark is True
-        assert p.max_resolution == 720
+        assert p.max_resolution == 1080
 
     def test_none_plan_defaults_to_free_watermark(self) -> None:
         p = resolve_render_policy(None, local_dev=False)
         assert p.watermark is True
-        assert p.max_resolution == 720
+        assert p.max_resolution == 1080
 
     def test_local_dev_never_watermarks(self) -> None:
         # Локальный dev (нет owner/plan) → чистый клип, но НЕ капим разрешение (полный 1080).

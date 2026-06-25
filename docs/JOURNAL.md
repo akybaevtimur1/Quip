@@ -28,6 +28,13 @@
   текст ошибки «Invalid credentials» на логине теперь ведёт passwordless-юзеров к Google/коду + настройкам,
   а не в тупик. ⚠️ Если в Supabase включён «Secure password change» (reauth/nonce) — `updateUser` потребует
   nonce (config-only, фаундеру проверить). Forgot-password — отложено. 56 web-тестов.
+- **Free-тир: качество как у платных + ЯВНАЯ вотермарка (решение фаундера 2026-06-25).** Снят кап
+  720p → free рендерит ПОЛНОЕ 1080p; единственный отличитель free/paid теперь = вотермарка (сделана
+  заметнее: крупнее 3% vs 2.2% высоты / плотнее alpha .92 vs .78 / сильнее тень — в
+  `stage5_render.build_watermark_drawtext`). `billing.py` free `max_resolution` 720→1080 (энкод free
+  остался crf20/veryfast ради стоимости рендера; платные — crf18/medium + без вотермарки) + зеркало
+  `lib/plans.ts` («1080p export with a Quip watermark») + тесты `test_billing`. Скачивание yt-dlp
+  (≤1080p avc1) от плана и так не зависело — теперь и ВЫХОД free до 1080p.
 - **i18n:** зафиксировано (память + Octarin), что RU+EN — это ПЛАН (`next-intl`, отложенная фаза, НЕ
   установлен); до тех пор весь UI — английский, без хардкода смеси.
 
