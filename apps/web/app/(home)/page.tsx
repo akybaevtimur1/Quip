@@ -17,7 +17,7 @@ import { WhyQuip } from "@/components/landing/sections/WhyQuip";
   Home / marketing landing ("Readout" direction). Server Component so the single
   auth seam is read here: `authed` flows into Nav, Hero, and FinalCta only. When
   logged in their CTAs become "Open the app / Dashboard" (/dashboard), otherwise
-  "Try it free / Paste a video link" (/signup). getOptionalUser is dual-mode safe
+  "Try it free / Upload a video" (/signup). getOptionalUser is dual-mode safe
   (returns null without touching cookies until Supabase is configured).
 */
 export default async function Page() {

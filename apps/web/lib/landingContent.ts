@@ -49,7 +49,7 @@ export const HERO = {
   headlinePost: " they're worth posting.",
   // <= 20 words, fits the viewport. Fuller version lives in the demo section.
   sub: "Drop a podcast, interview, or stream. Quip cuts the few clips worth posting, and reports why each one lands.",
-  primary: "Paste a video link",
+  primary: "Upload a video",
   secondary: "See how it works",
   trust: "No card. 2 free videos / month.",
 };
@@ -129,8 +129,8 @@ export const HOW_IT_WORKS = {
   steps: [
     {
       n: "01",
-      title: "Paste a link or upload",
-      body: "Drop a YouTube link or a file: podcast, interview, stream, or lecture. Up to 90 minutes.",
+      title: "Upload your video",
+      body: "Drop your video: podcast, interview, stream, or lecture. Up to 90 minutes.",
     },
     {
       n: "02",
