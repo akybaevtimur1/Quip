@@ -66,6 +66,30 @@ image = (
         "rm /tmp/deno.zip",
         "/usr/local/bin/deno --version",  # доказать в логах сборки
     )
+    # ── bgutil PO-token (Proof-of-Origin) provider v1.3.1 — SCRIPT mode, DENO runtime ──
+    # YouTube bot-gates Modal DC-IPs; cookies (above) authenticate the session, the PO token
+    # attests proof-of-origin of the player request. Both signals are checked → we layer POT on
+    # top of cookies. We REUSE the Deno already in the image (no Node added): the bgutil plugin
+    # registers a Deno script-provider (higher preference than Node) that runs server/src/
+    # generate_once.ts directly — NO `npx tsc` build step. node-canvas (the only native dep)
+    # resolves via its NAPI-7 glibc PREBUILT tarball at `deno install` time, so debian-slim needs
+    # ZERO extra apt build deps (confirmed: bgutil's own Dockerfile installs none). Clone shallow,
+    # pin tag 1.3.1, resolve+cache deps at BUILD time (runtime token-gen does no network fetch of
+    # deps), then strip .git to keep the layer small. server_home = the `server/` dir (NOT build/).
+    .run_commands(
+        "git clone --depth 1 --single-branch --branch 1.3.1 "
+        "https://github.com/Brainicism/bgutil-ytdlp-pot-provider.git "
+        "/opt/bgutil-ytdlp-pot-provider",
+        # canvas is the only native module needing --allow-scripts; --frozen uses the committed
+        # lockfile for a reproducible build (drop --frozen only if a 1.3.x lock drifts at build).
+        "cd /opt/bgutil-ytdlp-pot-provider/server && "
+        "deno install --allow-scripts=npm:canvas --frozen",
+        # warm the module cache so per-token `deno run` does zero dependency network fetches
+        "cd /opt/bgutil-ytdlp-pot-provider/server && deno cache src/generate_once.ts",
+        # trim build cruft (keep server/src, deno.json, deno.lock, node_modules/canvas)
+        "rm -rf /opt/bgutil-ytdlp-pot-provider/.git",
+        "ls /opt/bgutil-ytdlp-pot-provider/server/src/generate_once.ts",  # доказать в логах сборки
+    )
     # СТАТИК-ffmpeg ≥7 в /usr/local/bin (НЕ apt-ffmpeg — он крашит crop-рендер).
     .run_commands(
         f"wget -q {_FFMPEG_STATIC} -O /tmp/ffmpeg.tar.xz",
@@ -99,6 +123,11 @@ image = (
         # `modal deploy deploy/modal/worker.py` (оркестратор/фаундер деплоит позже — здесь НЕ
         # деплоим). yt-dlp обновлять ЧАСТО: бот-гейт YouTube дрейфует, старый клиент = провалы.
         "yt-dlp[default]>=2026.3.17",
+        # bgutil PO-token yt-dlp PLUGIN (pip side). Auto-loaded by yt-dlp via the yt_dlp_plugins
+        # namespace — no plugins dir needed. MUST be the SAME version (1.3.1) as the provider
+        # built above (a plugin↔server version mismatch yields tokens YouTube rejects with 403).
+        # Pairs with --extractor-args youtubepot-bgutilscript:server_home=... (stage0_import).
+        "bgutil-ytdlp-pot-provider==1.3.1",
         "boto3>=1.35",
     )
     # Наш код + ассеты в /root (PYTHONPATH=/root → import app.*). copy=True = слой образа.
@@ -113,6 +142,11 @@ image = (
             # YTDLP_COOKIES_FILE ставится НИЖЕ, ТОЛЬКО если файл реально кладётся в образ
             # (иначе yt-dlp с несуществующим --cookies путём падает / тянет пустой jar).
             "YTDLP_COOKIES_BROWSER": "",
+            # bgutil PO-token provider (SCRIPT mode) — the `server/` dir of the bgutil repo we
+            # built above. config.ytdlp_pot_server_home reads this; stage0.build_youtube_cmd then
+            # appends --extractor-args youtubepot-bgutilscript:server_home=<this>. yt-dlp finds
+            # `deno` on PATH (/usr/local/bin) and spawns it per-token (no Node, no HTTP server).
+            "YTDLP_POT_SERVER_HOME": "/opt/bgutil-ytdlp-pot-provider/server",
             # R2 кастомный домен (production, кэш CDN, без rate-limit) → клипы получают вечный
             # публичный URL вместо presigned (D6 re-presign больше не нужен для новых джоб).
             # Это ПУБЛИЧНЫЙ CDN-домен, не секрет. NB: бакет публичен по ключу — исходники тоже.

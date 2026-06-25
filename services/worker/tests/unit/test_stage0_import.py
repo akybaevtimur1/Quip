@@ -257,3 +257,28 @@ class TestBuildYoutubeCmd:
 
     def test_url_is_last(self) -> None:
         assert self._cmd()[-1] == "https://youtu.be/x"
+
+    # ── bgutil PO-token provider (SCRIPT mode) ──
+    # Exact extractor-args the bgutil plugin reads: youtubepot-bgutilscript:server_home=<path>.
+    _POT_HOME = "/opt/bgutil-ytdlp-pot-provider/server"
+
+    def test_no_pot_arg_by_default(self) -> None:
+        # Local dev leaves pot_server_home="" → no POT arg, unchanged behavior.
+        assert "--extractor-args" not in self._cmd()
+
+    def test_pot_extractor_args_when_set(self) -> None:
+        cmd = self._cmd(pot_server_home=self._POT_HOME)
+        # Exact flag + value (the plugin parses this verbatim).
+        assert cmd[cmd.index("--extractor-args") + 1] == (
+            f"youtubepot-bgutilscript:server_home={self._POT_HOME}"
+        )
+        # POT layers BEFORE the trailing URL (URL must stay last for yt-dlp).
+        assert cmd[-1] == "https://youtu.be/x"
+
+    def test_cookies_and_pot_coexist(self) -> None:
+        # POT is layered ON TOP of cookies — both must appear in one command.
+        cmd = self._cmd(cookies_file="/c.txt", pot_server_home=self._POT_HOME)
+        assert cmd[cmd.index("--cookies") + 1] == "/c.txt"
+        assert cmd[cmd.index("--extractor-args") + 1] == (
+            f"youtubepot-bgutilscript:server_home={self._POT_HOME}"
+        )

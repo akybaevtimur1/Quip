@@ -148,6 +148,7 @@ def build_youtube_cmd(
     cookies_browser: str = "",
     cookies_file: str = "",
     proxy: str = "",
+    pot_server_home: str = "",
 ) -> list[str]:
     """Собрать yt-dlp-команду для скачивания ``url`` → ``out_dir/source.mp4``. PURE.
 
@@ -161,6 +162,10 @@ def build_youtube_cmd(
       скачивания (не качаем то, что всё равно упрётся в ``_check_limits``).
     - **--no-playlist** — один URL = одно видео (ссылка из плейлиста не тянет весь плейлист).
     - **proxy** (опц.) — будущий рычаг надёжности (обход DC-IP бот-гейта); пусто = без прокси.
+    - **pot_server_home** (опц.) — bgutil PO-token provider в SCRIPT-режиме поверх cookies.
+      Заполнен → добавляем ``--extractor-args youtubepot-bgutilscript:server_home=<path>``
+      (yt-dlp вызывает Deno-генератор PO-токена per-token). Пусто = без POT (локальный dev,
+      провайдер не собран). Pip-плагин bgutil-ytdlp-pot-provider авто-подхватывается yt-dlp.
     """
     max_seconds = MAX_SOURCE_MINUTES * 60
     cmd = [
@@ -198,6 +203,11 @@ def build_youtube_cmd(
         cmd += ["--cookies", cookies_file]
     elif cookies_browser:
         cmd += ["--cookies-from-browser", cookies_browser]
+    # bgutil PO-token (SCRIPT mode): the pip plugin (bgutil-ytdlp-pot-provider) auto-loads and the
+    # `server_home` points at the bgutil `server/` dir built into the image. yt-dlp spawns the Deno
+    # generator per-token (no HTTP server). Layered on TOP of cookies, not a replacement.
+    if pot_server_home:
+        cmd += ["--extractor-args", f"youtubepot-bgutilscript:server_home={pot_server_home}"]
     cmd.append(url)
     return cmd
 
@@ -279,6 +289,7 @@ def download_youtube(
     cookies_browser: str = "",
     cookies_file: str = "",
     proxy: str = "",
+    pot_server_home: str = "",
 ) -> Path:
     """yt-dlp → ``out_dir/source.mp4`` (+ source.info.json). Возвращает путь к mp4.
 
@@ -293,6 +304,7 @@ def download_youtube(
         cookies_browser=cookies_browser,
         cookies_file=cookies_file,
         proxy=proxy,
+        pot_server_home=pot_server_home,
     )
     try:
         _run(cmd)
@@ -434,10 +446,16 @@ def import_youtube(
     cookies_browser: str = "",
     cookies_file: str = "",
     proxy: str = "",
+    pot_server_home: str = "",
 ) -> SourceMeta:
     """Полный Stage 0 для YouTube: download → audio → probe → meta.json. Возвращает SourceMeta."""
     mp4 = download_youtube(
-        url, out_dir, cookies_browser=cookies_browser, cookies_file=cookies_file, proxy=proxy
+        url,
+        out_dir,
+        cookies_browser=cookies_browser,
+        cookies_file=cookies_file,
+        proxy=proxy,
+        pot_server_home=pot_server_home,
     )
     extract_audio(mp4, out_dir / "source.wav")
     probe = probe_video(mp4)
