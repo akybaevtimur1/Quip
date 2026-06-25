@@ -89,7 +89,10 @@ def default_caption_track(
     провалидированы вызывающим (ensure_edit), None = нет сохранённого стиля → preset A.
 
     hook (T1) — текст топ-заголовка от Gemini: задан → сидим включённый HookOverlay
-    (бренд-плашка по дефолту); None/пусто → без хука (track.hook = None).
+    (бренд-плашка по дефолту); None/пусто → без хука (track.hook = None). Если у дефолт-стиля
+    в pref_hook_look лежат тайминг (full_clip/duration_sec/enabled) и позиция (margin_v/pos_*/
+    wrap_width) — они тоже сидятся (founder 2026-06-25: шаблон помнит ВСЁ). ТЕКСТ хука всегда от
+    сегмента, его look НЕ подменяет.
     """
     from app.editor.preset_seeds import DEFAULT_PRESET_ID, seed_presets
 
@@ -104,6 +107,8 @@ def default_caption_track(
     if hook_overlay is not None and pref_hook_look:
         from app.editor.style_prefs import HOOK_LOOK_FIELDS
 
+        # HOOK_LOOK_FIELDS теперь шире (тайминг+позиция) → сид несёт их в новый клип.
+        # text НЕ входит в HOOK_LOOK_FIELDS → текст сегмента не перетирается.
         look = {k: pref_hook_look[k] for k in HOOK_LOOK_FIELDS if k in pref_hook_look}
         hook_overlay = hook_overlay.model_copy(update=look)
     return CaptionTrack(

@@ -6,9 +6,12 @@ Three levels of style reuse:
   • cross-video   — a user saves their look (profiles.style_preferences) → NEW clips of
                     FUTURE jobs seed from it instead of the hardcoded preset_a.
 
-A "look" = caption style + karaoke highlight + hook STYLE fields. Content & position stay
-per-clip: replies, caption margin/alignment/free-position, and hook text/enabled/timing are
-NEVER overwritten — mirrors apply_preset's position-preserving convention (founder rule).
+A "look" = caption style (incl. POSITION + SIZE) + karaoke highlight + hook style + hook
+TIMING + hook POSITION. Founder ask (2026-06-25): a template REMEMBERS EVERYTHING, so applying
+it MOVES caption/hook geometry and copies hook full_clip/duration_sec/enabled. The ONLY things
+that stay per-clip are CONTENT: replies/text_override/hidden, source_intervals, reframe and the
+hook's TEXT (a look never fabricates hook text — if the target clip has no hook text the style/
+timing/enabled are still copied, the hook just won't render until text exists).
 """
 
 from __future__ import annotations
@@ -17,8 +20,11 @@ from typing import Any
 
 from app.models import CaptionStyle, ClipEdit, HighlightStyle, HookOverlay
 
-# Hook fields that are LOOK (copied by a style). Everything else on HookOverlay is content
-# (text/enabled), timing (full_clip/duration_sec) or position (margin_v/pos_*) → preserved.
+# Hook fields a LOOK copies. Founder ask (2026-06-25): templates remember EVERYTHING, so this
+# now spans the hook's look fields + TIMING (full_clip/duration_sec/enabled) + POSITION
+# (margin_v/pos_x/pos_y/wrap_width). The ONLY excluded field is "text" — content, never a look.
+# This is the SINGLE canonical list; the frontend HOOK_LOOK_KEYS (ClipEditorScreen.tsx) mirrors
+# it EXACTLY — keep them in LOCKSTEP. All members exist on HookOverlay (codegen contract).
 HOOK_LOOK_FIELDS: tuple[str, ...] = (
     "font",
     "size",
@@ -30,6 +36,15 @@ HOOK_LOOK_FIELDS: tuple[str, ...] = (
     "box_opacity",
     "uppercase",
     "animation",
+    # timing (founder: templates remember "first N seconds")
+    "full_clip",
+    "duration_sec",
+    "enabled",
+    # position
+    "margin_v",
+    "pos_x",
+    "pos_y",
+    "wrap_width",
 )
 
 
@@ -39,23 +54,17 @@ def apply_style_to_edit(
     highlight: HighlightStyle | None,
     hook_look: dict[str, Any] | None,
 ) -> ClipEdit:
-    """Copy a look onto one clip, preserving its content & position. PURE.
+    """Copy a look onto one clip, preserving its CONTENT. PURE.
 
-    Keeps caption margin_v/alignment/pos_x/pos_y/wrap_width (manual position) and the hook's
-    text/enabled/full_clip/duration_sec/margin_v/pos_* — only the look fields change.
+    Founder ask (2026-06-25): a template remembers position + size, so the caption style is
+    copied WHOLE (incl. margin_v/alignment/pos_x/pos_y/wrap_width) and the hook gets every
+    HOOK_LOOK_FIELDS member — look + TIMING (full_clip/duration_sec/enabled) + POSITION. Only
+    per-clip CONTENT is preserved: replies, intervals, reframe and the hook's TEXT (never copied).
     """
-    cur = edit.captions.style
-    new_style = style.model_copy(
-        update={
-            "margin_v": cur.margin_v,
-            "alignment": cur.alignment,
-            "pos_x": cur.pos_x,
-            "pos_y": cur.pos_y,
-            "wrap_width": cur.wrap_width,
-        }
-    )
+    new_style = style.model_copy()
     new_hook = edit.captions.hook
     if new_hook is not None and hook_look:
+        # absent key = leave that hook field unchanged (back-compat: old looks miss timing/pos)
         look = {k: hook_look[k] for k in HOOK_LOOK_FIELDS if k in hook_look}
         new_hook = new_hook.model_copy(update=look)
     captions = edit.captions.model_copy(

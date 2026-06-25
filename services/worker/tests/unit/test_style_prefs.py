@@ -43,11 +43,28 @@ def _edit() -> ClipEdit:
     )
 
 
-def test_apply_style_copies_look_keeps_content_and_position() -> None:
+def test_apply_style_copies_look_position_keeps_content() -> None:
+    """Founder ask: a template now REMEMBERS position + size, so applying it MOVES the
+    caption + hook geometry. CONTENT (replies / hook text / intervals) is still preserved."""
     edit = _edit()
     style = CaptionStyle(font="Poppins", size=120, color="#FFFFFF", margin_v=999, pos_x=0.9)
     highlight = HighlightStyle(color="#0000FF", animation="bounce")
-    out = apply_style_to_edit(edit, style, highlight, {"font": "Bebas Neue", "size": 70})
+    out = apply_style_to_edit(
+        edit,
+        style,
+        highlight,
+        {
+            "font": "Bebas Neue",
+            "size": 70,
+            "full_clip": False,
+            "duration_sec": 2.0,
+            "enabled": False,
+            "margin_v": 88,
+            "pos_x": 0.25,
+            "pos_y": 0.1,
+            "wrap_width": 0.7,
+        },
+    )
 
     # look copied
     assert out.captions.style.font == "Poppins"
@@ -61,15 +78,42 @@ def test_apply_style_copies_look_keeps_content_and_position() -> None:
     assert out.captions.hook.font == "Bebas Neue"
     assert out.captions.hook.size == 70
 
-    # position PRESERVED (per-clip manual position is never overwritten by a style)
-    assert out.captions.style.margin_v == 300
-    assert out.captions.style.pos_x == 0.4
-    assert out.captions.hook.margin_v == 120
+    # POSITION + SIZE now MOVED by the template (the relaxed founder rule)
+    assert out.captions.style.margin_v == 999
+    assert out.captions.style.pos_x == 0.9
+    assert out.captions.hook.margin_v == 88
+    assert out.captions.hook.pos_x == 0.25
+    assert out.captions.hook.pos_y == 0.1
+    assert out.captions.hook.wrap_width == 0.7
+    # hook TIMING now copied by the template
+    assert out.captions.hook.full_clip is False
+    assert out.captions.hook.duration_sec == 2.0
+    assert out.captions.hook.enabled is False
     # content PRESERVED (replies + hook text + intervals untouched)
     assert out.captions.replies[0].text_override == "hi there"
     assert out.captions.hook.text == "My hook"
-    assert out.captions.hook.enabled is True
     assert out.source_intervals == edit.source_intervals
+
+
+def test_apply_style_old_shape_look_applies_cleanly() -> None:
+    """BACK-COMPAT: an OLD saved blob (no new hook keys) must still apply without error —
+    absent key = leave that field unchanged (no required-field validation explosion)."""
+    edit = _edit()  # hook full_clip=True (default), margin_v=120, enabled=True
+    out = apply_style_to_edit(
+        edit,
+        CaptionStyle(font="Poppins"),
+        None,
+        {"font": "Bebas Neue", "size": 70},  # legacy hook_style: look fields ONLY
+    )
+    assert out.captions.hook is not None
+    assert out.captions.hook.font == "Bebas Neue"
+    assert out.captions.hook.size == 70
+    # absent new keys → hook timing/position left exactly as they were
+    assert out.captions.hook.full_clip is True
+    assert out.captions.hook.duration_sec == 4.0
+    assert out.captions.hook.enabled is True
+    assert out.captions.hook.margin_v == 120
+    assert out.captions.hook.text == "My hook"
 
 
 def test_apply_style_highlight_none_clears_karaoke() -> None:
@@ -95,9 +139,9 @@ def test_build_pref_blob_roundtrips_through_parse() -> None:
     assert style.color == "#FF0000"
     assert highlight is not None and highlight.animation == "pop"
     assert hook_look is not None and hook_look["font"] == "Rubik"
-    # hook_look carries ONLY look fields, not text/position
+    # hook_look now carries position/timing too (templates remember everything) — but NEVER text
     assert "text" not in hook_look
-    assert "margin_v" not in hook_look
+    assert hook_look["margin_v"] == 120
 
 
 def test_parse_pref_absent_returns_none() -> None:
@@ -125,6 +169,32 @@ def test_default_caption_track_seeds_from_preference() -> None:
     assert track.hook.font == "Anton"  # hook look from preference
 
 
+def test_default_caption_track_seeds_hook_timing_and_position() -> None:
+    """A starred default now also carries hook TIMING + POSITION into NEW jobs (founder ask).
+    The hook TEXT still comes from the segment (never fabricated by the look)."""
+    words = [Word(text="a", start=1.0, end=1.4)]
+    intervals = [SourceInterval(source_start=1.0, source_end=5.0)]
+    track = default_caption_track(
+        words,
+        intervals,
+        hook="Hooky",
+        pref_hook_look={
+            "font": "Anton",
+            "full_clip": False,
+            "duration_sec": 3.0,
+            "margin_v": 77,
+            "pos_x": 0.2,
+        },
+    )
+    assert track.hook is not None
+    assert track.hook.text == "Hooky"  # from the segment, NOT the look
+    assert track.hook.font == "Anton"
+    assert track.hook.full_clip is False
+    assert track.hook.duration_sec == 3.0
+    assert track.hook.margin_v == 77
+    assert track.hook.pos_x == 0.2
+
+
 def test_default_caption_track_falls_back_to_preset_a() -> None:
     from app.editor.preset_seeds import DEFAULT_PRESET_ID, seed_presets
 
@@ -150,10 +220,10 @@ def test_build_template_carries_look_only() -> None:
     assert t["id"] == "t1" and t["name"] == "Bold"
     assert t["look"]["style"]["font"] == "Anton"
     assert t["look"]["highlight"]["animation"] == "pop"
-    # hook_style keeps ONLY look fields, not content/position
+    # hook_style keeps look + position/timing (templates remember everything) but DROPS text
     assert t["look"]["hook_style"]["font"] == "Rubik"
+    assert t["look"]["hook_style"]["margin_v"] == 999
     assert "text" not in t["look"]["hook_style"]
-    assert "margin_v" not in t["look"]["hook_style"]
 
 
 def test_template_crud_newest_first_and_upsert_by_id() -> None:

@@ -117,8 +117,10 @@ function cxAt(points: { t: number; cx: number | null }[] | undefined, clipT: num
 
 // Caption/hook font-size bounds (ASS units) — mirror the StyleTab/HookTab "Size" sliders.
 // Module-level so the caption auto-fit (refitCaption) can reference them without TDZ/deps churn.
-// Hook "look" fields copied by style memory (mirror backend HOOK_LOOK_FIELDS) — module-level
-// so it's a stable reference (not a hook dependency).
+// Hook fields copied by style memory (mirror backend HOOK_LOOK_FIELDS — KEEP IN LOCKSTEP).
+// Founder ask (2026-06-25): templates remember EVERYTHING, so this now spans the hook's look +
+// TIMING (full_clip/duration_sec/enabled) + POSITION (margin_v/pos_x/pos_y/wrap_width). The
+// ONLY excluded field is "text" — content, never a look. Module-level = stable reference.
 const HOOK_LOOK_KEYS = [
   "font",
   "size",
@@ -130,10 +132,16 @@ const HOOK_LOOK_KEYS = [
   "box_opacity",
   "uppercase",
   "animation",
+  // timing (founder: templates remember "first N seconds")
+  "full_clip",
+  "duration_sec",
+  "enabled",
+  // position
+  "margin_v",
+  "pos_x",
+  "pos_y",
+  "wrap_width",
 ] as const;
-
-// Caption style fields that are POSITION (per-clip, preserved when applying a template look).
-const STYLE_POSITION_KEYS = ["margin_v", "alignment", "pos_x", "pos_y", "wrap_width"];
 
 const CAPTION_SIZE_MIN = 40;
 const CAPTION_SIZE_MAX = 140;
@@ -956,7 +964,9 @@ export default function ClipEditorScreen({
   );
 
   // ── Style memory (домен 5): собрать «look» текущего клипа (стиль + караоке + стиль хука) ──
-  // Только ВИД, не текст/тайминг/позиция хука — бэкенд их сохраняет на каждом клипе.
+  // Founder ask (2026-06-25): шаблон помнит ВСЁ — стиль субтитров целиком (вкл. позицию/размер)
+  // + HOOK_LOOK_KEYS хука (вид + тайминг full_clip/duration_sec/enabled + позиция). НЕ берём
+  // ТОЛЬКО hook.text (контент, не look) — он остаётся per-clip.
   const buildStylePayload = useCallback((): StylePreferencePayload => {
     const cur = editRef.current ?? edit;
     const caps = cur?.captions;
@@ -974,19 +984,17 @@ export default function ClipEditorScreen({
   }, [edit]);
 
   // Apply a template's LOOK to the CURRENT clip INSTANTLY (optimistic libass + debounced
-  // persist via editCaptions). Per-clip POSITION is preserved (margin_v/alignment/pos_*/
-  // wrap_width never overwritten) — mirrors the backend apply_style_to_edit rule.
+  // persist via editCaptions). Founder ask (2026-06-25): a template REMEMBERS position + size,
+  // so the caption style is copied WHOLE (incl. margin_v/pos_*/wrap_width) and the hook gets
+  // every HOOK_LOOK_KEYS field (look + timing + position). Mirrors backend apply_style_to_edit.
+  // The hook's TEXT is never copied — if the clip has no hook text the style/timing still apply,
+  // the hook just won't render until text exists (we do NOT fabricate hook text here).
   const applyLookLocal = useCallback(
     (look: StylePreferencePayload) => {
       setActivePresetId(null);
-      const styleLook = Object.fromEntries(
-        Object.entries(look.style as Record<string, unknown>).filter(
-          ([k]) => !STYLE_POSITION_KEYS.includes(k),
-        ),
-      ) as Partial<CaptionStyle>;
       editCaptions((caps) => ({
         ...caps,
-        style: { ...caps.style, ...styleLook },
+        style: { ...caps.style, ...(look.style as Partial<CaptionStyle>) },
         highlight: look.highlight ? { ...look.highlight } : null,
         hook:
           caps.hook && look.hook_style
@@ -1543,13 +1551,6 @@ export default function ClipEditorScreen({
           onError={setError}
           onStyleChange={handleStyleChange}
           onHighlightChange={handleHighlightChange}
-          templates={templates}
-          defaultTemplateId={defaultTemplateId}
-          onApplyTemplateClip={handleApplyTemplateClip}
-          onApplyTemplateAll={handleApplyTemplateAll}
-          onSaveTemplate={handleSaveTemplate}
-          onDeleteTemplate={handleDeleteTemplate}
-          onSetDefaultTemplate={handleSetDefaultTemplate}
         />
       )}
       {tab === "hook" && (
@@ -1619,6 +1620,14 @@ export default function ClipEditorScreen({
         onBeforeLeave={flushPending}
         onSwitchClip={onSwitchClip}
         onRender={handleRender}
+        templates={templates}
+        defaultTemplateId={defaultTemplateId}
+        onApplyTemplateClip={handleApplyTemplateClip}
+        onApplyTemplateAll={handleApplyTemplateAll}
+        onSaveTemplate={handleSaveTemplate}
+        onDeleteTemplate={handleDeleteTemplate}
+        onSetDefaultTemplate={handleSetDefaultTemplate}
+        onError={setError}
       />
 
       {/* ── signature strip: the confidence readout the editor loads but never showed.
