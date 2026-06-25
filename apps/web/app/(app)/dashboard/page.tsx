@@ -43,7 +43,7 @@ function labelFromUrl(url: string): string {
  *  mono % readout + a determinate bar — no icon-in-circle. */
 function UploadProgress({ pct }: { pct: number }) {
   return (
-    <div className="w-full max-w-2xl">
+    <div className="mx-auto w-full max-w-2xl">
       <div className="flex items-end justify-between gap-4 border-b border-line pb-4">
         <div>
           <Eyebrow tone="accent">Uploading</Eyebrow>
@@ -263,9 +263,10 @@ function DashboardInner() {
           // done branch → flipping to "done" doesn't remount (no flicker, selection preserved).
           <ClipGrid key={job.id} job={job} />
         ) : phase === "tracking" ? (
-          // Left-aligned (NOT centered) so submit → process → done never jumps to the middle.
+          // Centered (mx-auto on each panel) so the transient upload/processing screens don't sit
+          // jammed against the left edge with a dead right half (founder call). Idle + done fill width.
           openingProject ? (
-            <div className="flex items-center gap-3 py-10">
+            <div className="flex items-center justify-center gap-3 py-10">
               <Spinner size="md" className="text-accent" />
               <p className="text-sm text-muted">Opening your project…</p>
             </div>
@@ -299,7 +300,7 @@ function DashboardInner() {
             <ClipGrid key={job.id} job={job} />
           </>
         ) : phase === "cancelled" ? (
-          <div className="max-w-xl">
+          <div className="mx-auto max-w-xl">
             <Eyebrow tone="faint">Run stopped</Eyebrow>
             <h2 className="mt-2 font-display text-h3 text-ink">This project was stopped</h2>
             <p className="mt-2 text-sm leading-relaxed text-muted">

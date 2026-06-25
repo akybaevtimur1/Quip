@@ -67,7 +67,7 @@ export function CoWatchPanel({
   }, [shown, all.length]);
 
   return (
-    <div className="flex w-full max-w-3xl flex-col items-start">
+    <div className="mx-auto flex w-full max-w-3xl flex-col items-start">
       <CoWatch
         src={src}
         moments={all.slice(0, shown)}

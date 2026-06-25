@@ -76,7 +76,7 @@ export function JobProgress({
   ];
 
   return (
-    <div className="w-full max-w-3xl">
+    <div className="mx-auto w-full max-w-3xl">
       {/* header: stage readout + elapsed + stop */}
       <div className="flex items-end justify-between gap-4 border-b border-line pb-4">
         <div>

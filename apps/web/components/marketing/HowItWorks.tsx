@@ -39,21 +39,23 @@ export function HowItWorks() {
         {/* timeline spine — a hairline track with mono-numeral nodes and a coral tick
             parked on the analysis step (the work that defines the product) */}
         <Reveal>
-          <ol className="mt-16 grid gap-12 sm:mt-20 sm:grid-cols-3 sm:gap-0">
+          <ol className="mt-16 grid gap-10 sm:mt-20 sm:grid-cols-3 sm:gap-0">
             {steps.map((s, i) => (
               <li key={s.n} className="group relative sm:px-7 first:sm:pl-0 last:sm:pr-0">
-                {/* the spine: a continuous hairline behind the nodes (desktop) */}
+                {/* the spine: a continuous hairline connecting the nodes — vertical on
+                    mobile, horizontal on desktop. (Was `hidden` with no `sm:block`, so it
+                    never rendered → the nodes read as disconnected.) */}
                 {i < steps.length - 1 && (
                   <span
                     aria-hidden
-                    className="absolute left-[7px] top-12 hidden h-[calc(100%-3rem)] w-px bg-line sm:left-0 sm:top-[7px] sm:h-px sm:w-full"
+                    className="absolute left-[7px] top-7 block h-[calc(100%-1rem)] w-px bg-line-strong sm:left-0 sm:top-[7px] sm:h-px sm:w-full"
                   />
                 )}
                 {/* node */}
                 <span
                   aria-hidden
                   className={cn(
-                    "absolute left-0 top-1 size-3.5 rounded-pill border-2 bg-bg sm:top-0",
+                    "absolute left-0 top-0.5 z-10 size-3.5 rounded-pill border-2 bg-bg sm:top-0",
                     s.lead ? "border-accent" : "border-line-strong",
                   )}
                 >
@@ -62,7 +64,7 @@ export function HowItWorks() {
                   )}
                 </span>
 
-                <div className="pl-7 sm:pl-0 sm:pt-9">
+                <div className="pl-7 sm:pl-0 sm:pt-8">
                   <Numeral
                     className={cn(
                       "text-sm",
@@ -73,7 +75,7 @@ export function HowItWorks() {
                   </Numeral>
                   <h3
                     className={cn(
-                      "mt-3 font-display text-ink",
+                      "mt-2.5 font-display text-ink",
                       s.lead ? "text-h2" : "text-h3",
                     )}
                   >
