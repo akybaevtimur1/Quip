@@ -148,7 +148,20 @@ export function AuthForm({ mode, next }: { mode: "login" | "signup"; next: strin
         router.refresh();
       }
     } catch (e) {
-      fail(e, "Something went wrong. Try again.");
+      // OAuth/OTP accounts have NO password set, so signInWithPassword returns the
+      // generic "Invalid login credentials" — a dead-end. Steer those users to a method
+      // that works (Google / email code) + point at where they can add a password.
+      if (
+        mode === "login" &&
+        e instanceof Error &&
+        /invalid login credentials/i.test(e.message)
+      ) {
+        setError(
+          "No password on this account yet? Sign in with Google or an email code, then add a password in Account settings.",
+        );
+      } else {
+        fail(e, "Something went wrong. Try again.");
+      }
     } finally {
       setLoading(false);
     }

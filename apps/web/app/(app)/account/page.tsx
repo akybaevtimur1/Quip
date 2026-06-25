@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { AccountBilling } from "@/components/app/AccountBilling";
+import { AccountSecurity } from "@/components/app/AccountSecurity";
 import { AppHeader } from "@/components/app/AppHeader";
 import { PromoRedeem } from "@/components/app/PromoRedeem";
 import { Container } from "@/components/ui/Container";
@@ -28,9 +29,13 @@ export default function AccountPage() {
           </p>
         </header>
 
-        {/* Asymmetric: subscription = wide primary panel, redeem + support = narrow rail. */}
+        {/* Asymmetric: subscription + sign-in = wide primary column, redeem + support = narrow rail. */}
         <Split variant="main-rail" gap="mt-8 gap-6 lg:gap-8">
-          <AccountBilling />
+          {/* Main column: billing on top, the optional set-password panel below it. */}
+          <div className="space-y-6">
+            <AccountBilling />
+            <AccountSecurity />
+          </div>
           <aside className="space-y-6">
             <PromoRedeem />
             {/* Refund / support note — its own quiet fascia in the rail. */}
