@@ -56,6 +56,7 @@ image = (
         "xz-utils",
         "unzip",  # распаковать deno-zip
         "ca-certificates",  # https-загрузки deno/ffmpeg/ejs
+        "git",  # git clone bgutil PO-token провайдера (нет в debian-slim по умолчанию)
     )
     # Deno — JS-рантайм для yt-dlp (решение YouTube nsig/«n»-челленджа). Без него скачивание
     # падает: «n challenge solving failed». yt-dlp находит deno на PATH (/usr/local/bin).
@@ -83,7 +84,7 @@ image = (
         # canvas is the only native module needing --allow-scripts; --frozen uses the committed
         # lockfile for a reproducible build (drop --frozen only if a 1.3.x lock drifts at build).
         "cd /opt/bgutil-ytdlp-pot-provider/server && "
-        "deno install --allow-scripts=npm:canvas --frozen",
+        "deno install --allow-scripts=npm:canvas",
         # warm the module cache so per-token `deno run` does zero dependency network fetches
         "cd /opt/bgutil-ytdlp-pot-provider/server && deno cache src/generate_once.ts",
         # trim build cruft (keep server/src, deno.json, deno.lock, node_modules/canvas)
@@ -515,3 +516,42 @@ def seed_ytdlp_cookies() -> None:
         return
     ytdlp_cookies.push_cookies(baked)
     print(f"[ytdlp-cookies] seeded R2 cookie jar (r2://{ytdlp_cookies.cookies_r2_key()}) from {baked}")
+
+
+# DIAGNOSTIC (CLI: `modal run deploy/modal/worker.py::probe_youtube_pot --url <youtube-url>`).
+# Runs yt-dlp -v --skip-download on the PROD image with the SAME cookies + bgutil PO-token path the
+# real download uses, prints the PO-token markers + any bot-gate, so we can verify POT works and how
+# stable it is from Modal's DC-IP WITHOUT running the whole pipeline. _SECRET gives R2 creds.
+@app.function(secrets=[_SECRET], timeout=300, serialized=True)
+def probe_youtube_pot(url: str = "https://www.youtube.com/watch?v=Ks-_Mh1QhMc") -> None:
+    """Probe: does yt-dlp extract the video info (cookies + POT) from a Modal DC-IP, or bot-gate?"""
+    import subprocess
+    import sys
+    import tempfile
+    from pathlib import Path
+
+    if "/root" not in sys.path:
+        sys.path.insert(0, "/root")
+    from app import ytdlp_cookies
+    from app.config import get_settings
+
+    s = get_settings()
+    tmp = Path(tempfile.gettempdir()) / "probe_cookies.txt"
+    has_cookies = ytdlp_cookies.pull_cookies(tmp)
+    cmd = ["yt-dlp", "-v", "--skip-download", "--no-playlist", "--remote-components", "ejs:github"]
+    if has_cookies:
+        cmd += ["--cookies", str(tmp)]
+    if s.ytdlp_pot_server_home:
+        cmd += ["--extractor-args", f"youtubepot-bgutilscript:server_home={s.ytdlp_pot_server_home}"]
+    cmd.append(url)
+    print(f"[probe] cookies={has_cookies} pot={bool(s.ytdlp_pot_server_home)} url={url}")
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    markers = (
+        "PO Token", "[pot", "Retrieved", "Sign in to confirm", "not a bot", "ERROR:",
+        "Forbidden", "HTTP Error 4", "429", "n challenge", "Some formats may be missing",
+    )
+    for line in (proc.stdout + "\n" + proc.stderr).splitlines():
+        if any(m in line for m in markers):
+            print("  | " + line.strip())
+    verdict = "OK (info extracted -> download would work)" if proc.returncode == 0 else "FAILED"
+    print(f"[probe] exit={proc.returncode} -> {verdict}")
