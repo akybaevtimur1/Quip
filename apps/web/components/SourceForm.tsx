@@ -19,6 +19,13 @@ const DEFAULT_CLIPS = 8;
 const MAX_UPLOAD_MB = 10000;
 const MAX_UPLOAD_LABEL = "10 GB";
 
+// YouTube-link import is DISABLED for now. Server-side download bot-gates on Modal's DC-IP often
+// enough that users would just get an error in the face, so we hide the entry point until it's
+// solved properly (residential proxy / founder-IP tunnel). The WHOLE path behind this — the form
+// handler, createJob(youtube), the worker download + multi-cookie fallback — is intact; flip this
+// to true to restore the "or paste a link" field. See docs/JOURNAL.md 2026-06-25.
+const YOUTUBE_LINK_ENABLED: boolean = false;
+
 /** Client-side YouTube-URL sanity check (server still validates + downloads best-effort).
  *  Loose by design: matches youtube.com / youtu.be and asks for a plausible length. */
 function isLikelyYoutubeUrl(url: string): boolean {
@@ -184,7 +191,7 @@ export function SourceForm({
       {/* Secondary option: a YouTube link (best-effort import — may not work for every video, in
           which case we ask you to upload the file). Hidden once a file is picked (file wins).
           Only rendered when the link path is wired (onSubmit) so upload-only callers stay clean. */}
-      {onSubmit && file == null ? (
+      {YOUTUBE_LINK_ENABLED && onSubmit && file == null ? (
         <div className="mt-4">
           <div className="flex items-center gap-3">
             <span className="h-px flex-1 bg-line" />
