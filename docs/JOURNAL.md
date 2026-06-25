@@ -4,6 +4,26 @@
 > «как и почему так сделано». Актуальное состояние проекта = docs/README.md. Правила = CLAUDE.md.
 > Новые заметные решения дописывай СЮДА (не в CLAUDE.md).
 
+### 2026-06-25 (YouTube-надёжность) — куки → POT → tv,android_vr; вердикт: best-effort, прокси отклонён
+Бот-гейт YouTube на DC-IP Modal бил даже с валидными ротируемыми куками. Прошли цепочку рычагов
+(research-workflow'ы + probe-диагностика `probe_youtube_pot` на боевом IP):
+1. **bgutil PO-token (deno script mode)** — собрали в образ (переиспользован Deno, без Node; canvas
+   ставится prebuilt'ом — 0 apt-депов; `git clone --branch 1.3.1` + `deno install`). Работает, КОГДА
+   генерируется, но ненадёжно (~1/6): захардкоженный таймаут плагина 15/20с, холодный
+   `deno run generate_once.ts` (компиляция TS + нативный canvas + BotGuard) не успевает на
+   scale-to-zero контейнере (известный баг bgutil #232).
+2. **Корень глубже (синтез-агент):** клиент `web_safari` ПРИНУЖДАЕТ GVS PO-token. Клиенты
+   **`tv`/`android_vr` POT не требуют** и чтут куки → `config.ytdlp_player_client="tv,android_vr"`
+   (через `--extractor-args youtube:player_client=...`); POT остаётся бэкстопом для остаточных клиентов.
+3. **Честный замер на боевом IP:** ~4/10, ДЕГРАДИРУЕТ под нагрузкой. Причина — НЕ видео/клиент/POT, а
+   **репутация IP**: 16+ авто-запросов за ~10 мин сами захардили Modal-IP. Это ровно потолок из
+   brutally-honest синтеза: **$0 не пробивает флагнутый DC-IP** (надёжно — только residential-прокси
+   ~$10-20/мес на extractor-запрос; seam `YTDLP_PROXY` готов в `build_youtube_cmd`).
+**Решение фаундера:** оставить **best-effort бесплатно**, прокси НЕ подключать. Отказы → graceful
+«скачай сам и залей» (`classify_youtube_error`). bgutil HTTP-сервер (#2 из синтеза) пропущен: чинит
+POT, но POT для tv/android_vr не нужен, а IP-гейт не бьёт. Диагностика в проде:
+`modal run deploy/modal/worker.py::probe_youtube_pot --url <u>`. Octarin-решение записано.
+
 ### 2026-06-25 (фиксы #2 + ДЕПЛОЙ) — редактор + worker-устойчивость + ротация куков (в ПРОДЕ)
 **Деплой:** всё из записи ниже (3 фичи) + эти фиксы уехали в ПРОД: воркер `modal deploy` (Modal),
 фронт `vercel deploy --prod` (CLI — GitHub-автодеплой мёртв, акк `akybaevtimur1` заблокан), ветка
