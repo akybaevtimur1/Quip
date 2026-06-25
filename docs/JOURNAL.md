@@ -4,6 +4,27 @@
 > «как и почему так сделано». Актуальное состояние проекта = docs/README.md. Правила = CLAUDE.md.
 > Новые заметные решения дописывай СЮДА (не в CLAUDE.md).
 
+### 2026-06-25 (лендинг) — новый «Readout»-лендинг интегрирован на /
+Перенесли отдельный пакет `quip-landing-delivery/` в прод `apps/web` как боевую главную. Новая
+route-group `app/(home)/page.tsx` — async Server Component: читает сессию через `getOptionalUser` и
+прокидывает `authed` в Nav/Hero/FinalCta (залогинен → CTA на `/dashboard` «Open the app», гость →
+`/signup`). Свои Nav+Footer; старый `app/(marketing)/page.tsx` удалён; под-страницы
+(`pricing/terms/privacy/use-case`) остались на общем `MarketingNav`+`Footer` (НЕ тронуты) — на сайте
+намеренно два chrome'а (новый на `/`, старый на под-страницах). Секции/компоненты →
+`components/landing/{sections,components}`, контент-слой → `lib/landingContent.ts`, депы `motion` +
+`@phosphor-icons/react`. `globals.css` — ТОЛЬКО аддитивно (`container-page/graticule/grain/lift/num/
+mark-accent/edge-fade`); кривая `--ease-out` (emil) ЗАСКОУПЛЕНА на `.grain`, чтобы глобальная
+Tailwind-утилита `ease-out` (dashboard/NavProgress) НЕ менялась. Ассеты `public/clips`+`public/media`
+(3 mp4 + постеры/кадры); `.vercelignore` негейтит 3 лендинг-mp4 после неякорного `*.mp4` и исключает
+`quip-landing-delivery/` из загрузки. Metadata `/` (title/desc/OG/twitter) задан по брифу, без em-dash.
+Ревью 6-мерным адверсариальным workflow (CSS/токены, RSC/Next16, ассеты/деплой, бренд, auth/роутинг,
+регрессии — все находки разобраны); фиксы: скоуп `--ease-out`, демоут построчных коралловых галочек в
+таблице сравнения → нейтральный ink (правило coral-scarcity, DESIGN.md). Гейт `just check` зелёный
+(eslint/mypy/tsc/968 pytest/62 vitest/anti-drift), `next build` чист, 8 ассетов = 200, копия лендинга
+0 em-dash. Остаток em-dash в HTML (8) — host JSON-LD (`faq`/`plans`/`siteConfig`), пред-существующий,
+невидимый, вне scope задачи. Coral-confidence-гейдж оставлен (намеренный signature motif брифа, хоть
+DESIGN.md и предписывает зелёный confidence для in-app дашборда). Octarin-память записана.
+
 ### 2026-06-25 (YouTube-надёжность ч.2) — мульти-куки фолбэк + видимый статус скачки
 Один cookie-jar на DC-IP — коинфлип. Сделали **пул jar'ов** с фолбэком: фаундер кладёт N
 `www.youtube.com_cookies*.txt` в корень → worker.py печёт их в `/root/cookies/jar_NN.txt`

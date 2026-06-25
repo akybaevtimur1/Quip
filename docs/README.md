@@ -25,8 +25,10 @@
    clips** until you run `update public.job_artifacts set reframe_regions = null;` (the `/reframe`
    fast-path serves persisted regions — see `CLAUDE.md` reframe rule #1). Diarize/prompt changes affect
    NEW jobs only.
-2. **Wire the demo `<video>` into the landing hero** — assets in `apps/web/public/demo/`
-   (`quip-demo-pipeline.{mp4,webm}` + `-poster.jpg`, now tracked); snippet exists, not yet wired.
+2. ~~Wire the demo `<video>` into the landing hero~~ **DONE 2026-06-25 — superseded.** The new
+   product-native **"Readout"** landing (ported from `quip-landing-delivery/` into `app/(home)`) is now
+   `/`, with its own in-view-playing hero clip + a full demo video (`public/clips/*`,
+   `public/media/demo.mp4`). See JOURNAL "2026-06-25 (лендинг)".
 3. **(Optional) Set the Modal `LLM_MODEL` secret to `gemini-2.5-flash`** — belt-and-suspenders; the
    `config.pin_llm_model` validator already coerces any `*-latest`/`gemini-3*`, so non-urgent.
 4. **✅ SHIPPED to prod 2026-06-25** (merged to `main`) — 3 features + a fixes round (see JOURNAL
@@ -71,6 +73,12 @@
   auto-deploy DEAD since 2026-06-25 — the `akybaevtimur1` GitHub account is blocked).
   (The old note "apps/web isn't deployed / the `quip` Vercel project is the landing repo" is
   **OUTDATED**. `quip` = old landing; `quip-app` = the real app.)
+- **Landing (home `/`, 2026-06-25):** the new product-native **"Readout"** landing (ported from
+  `quip-landing-delivery/` into **`app/(home)`**) — self-contained Nav/Footer, auth-aware CTAs
+  (`getOptionalUser` → `/dashboard` vs `/signup`), real captioned clips + the coral confidence gauge.
+  Marketing sub-pages (`/pricing /terms /privacy /use-case`) stay on the older `(marketing)` chrome.
+  Source: `app/(home)/`, `components/landing/{sections,components}`, `lib/landingContent.ts`. The old
+  `components/marketing/*` home components are now orphaned (dead code, safe to prune later).
 - **Worker:** Modal app **`quip-worker`** — `https://akybaevtimur7--quip-worker-web.modal.run`
   (functions `web` / `run_job` / `upload_job` / `render_job` / **`reframe_render_clip`** (per-clip
   fan-out) / **`preview_job`**; `/healthz` → 200). Redeploy = `modal deploy deploy/modal/worker.py`

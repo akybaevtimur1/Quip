@@ -9,11 +9,16 @@ docs/
 **/.venv/
 .claude/
 .playwright-mcp/
+quip-landing-delivery/
 *.mp4
 *.mov
-# ...but DO ship the landing hero demo video. `*.mp4` above is UNanchored (unlike `/*.jpg`), so it
-# would 404 the public demo clip; negate exactly that one file (heavy test mp4s under services/ stay out).
+# ...but DO ship the landing videos. `*.mp4` above is UNanchored (unlike `/*.jpg`), so it
+# would 404 the public clips; negate exactly the files the landing serves (heavy test mp4s
+# under services/ stay out). Keep these in sync with the landing's referenced assets.
 !apps/web/public/demo/pipeline-demo.mp4
+!apps/web/public/media/demo.mp4
+!apps/web/public/clips/clip-1.mp4
+!apps/web/public/clips/clip-2.mp4
 /*.png
 /*.jpeg
 /*.jpg
