@@ -24,7 +24,7 @@ export function PipelineDemo() {
           </h2>
           <p className="mt-4 text-lead text-muted">
             A real run, end to end: upload &rarr; find the moments &rarr; cut vertical clips, each with a
-            reason. Montaged from the actual pipeline &mdash; not a mock.
+            reason.
           </p>
         </div>
 
@@ -35,7 +35,7 @@ export function PipelineDemo() {
             muted
             loop
             playsInline
-            preload="metadata"
+            preload="auto"
             poster="/demo/pipeline-demo-poster.jpg"
             aria-label="Quip pipeline demo: from an uploaded video to finished vertical clips"
           >

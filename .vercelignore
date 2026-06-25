@@ -11,6 +11,9 @@ docs/
 .playwright-mcp/
 *.mp4
 *.mov
+# ...but DO ship the landing hero demo video. `*.mp4` above is UNanchored (unlike `/*.jpg`), so it
+# would 404 the public demo clip; negate exactly that one file (heavy test mp4s under services/ stay out).
+!apps/web/public/demo/pipeline-demo.mp4
 /*.png
 /*.jpeg
 /*.jpg
