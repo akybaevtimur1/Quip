@@ -292,6 +292,7 @@ function DashboardInner() {
               transcriptWords={job?.transcript_words ?? null}
               momentsFound={job?.moments_found ?? null}
               requestedClips={requestedClips}
+              sourceKind={job?.source_kind ?? null}
             />
           )
         ) : phase === "done" && job ? (

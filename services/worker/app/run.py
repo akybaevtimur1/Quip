@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import sys
 import time
 from collections.abc import Callable
@@ -21,7 +22,7 @@ from typing import Any
 from app import billing, db, dispatch, storage, ytdlp_cookies
 from app.config import get_settings
 from app.editor.reframe_cache import build_persist_payload
-from app.errors import JobError
+from app.errors import JobError, YoutubeBotGateError
 from app.models import ClipOut, Job, JobStatus, Metrics, Segment, Transcript, Word
 from app.pipeline.preview_moments import (
     detect_energy_moments,
@@ -316,31 +317,50 @@ def run_pipeline(
         meta = SourceMeta.model_validate_json(meta_path.read_text(encoding="utf-8"))
         print(f"[0] import: cached ({meta.duration:.0f}s {meta.width}x{meta.height})")
     elif source_url:
-        # ── Rotating YouTube cookies (free bot-gate bypass). In cloud (STORAGE_BACKEND=r2)
-        #    pull the SELF-ROTATING jar from R2 into a writable temp; yt-dlp rewrites it with a
-        #    fresh session, then we push it back (only on success). Local dev keeps using the
-        #    plain config cookies_file/browser (cookies_enabled() is False without R2). See
-        #    app.ytdlp_cookies + docstring. Every miss/failure is LOGGED (rule #8, no silence). ──
-        cookies_file = s.ytdlp_cookies_file
-        cookies_tmp: Path | None = None
+        # ── Multi-cookie YouTube fallback (free bot-gate bypass, BEST-EFFORT). YouTube bot-gates
+        #    DC-IPs; one cookie jar passing is a coin-flip, so we try a POOL of jars and only give
+        #    up if ALL are bot-gated. Candidate order: the R2 self-rotating jar (last-known-good
+        #    winner) FIRST, then each baked jar from the founder's dropped pool. Each candidate is a
+        #    WRITABLE temp (yt-dlp rewrites it with a fresh session). On the FIRST success we push
+        #    that rotated jar back to R2 as the new current-best. A bot-gated jar → try the next; a
+        #    NON-bot failure (private/too-long/removed) → give up now (another jar won't help).
+        #    Local dev (no R2): a single config cookies_file. Every step LOGGED (rule #8). ──
+        candidates: list[tuple[str, str]] = []  # (label, cookies_file path; "" = no cookies)
         if ytdlp_cookies.cookies_enabled():
-            cookies_tmp = ytdlp_cookies.cookies_temp_path(out)
-            if ytdlp_cookies.pull_cookies(cookies_tmp):
-                cookies_file = str(cookies_tmp)  # writable jar → yt-dlp rotates it in place
-            else:
-                cookies_tmp = None  # pull miss → no rotated file to push back; fall through
-        meta = import_youtube(
-            source_url, out, job_id=job_id,
-            cookies_browser=s.ytdlp_cookies_browser,
-            cookies_file=cookies_file,
-            proxy=s.ytdlp_proxy,  # reliability lever, "" = off (no proxy/no cost)
-            pot_server_home=s.ytdlp_pot_server_home,  # bgutil PO-token (script mode)
-            player_client=s.ytdlp_player_client,  # tv,android_vr pass the gate without a PO token
-        )  # fmt: skip
-        # Push the yt-dlp-rotated jar back to R2 ONLY after a SUCCESSFUL import (import_youtube
-        # raises JobError on failure → we skip the push, keeping the last-known-good session).
-        if cookies_tmp is not None:
-            ytdlp_cookies.push_cookies(cookies_tmp)
+            r2_tmp = ytdlp_cookies.cookies_temp_path(out)
+            if ytdlp_cookies.pull_cookies(r2_tmp):
+                candidates.append(("r2-rotating", str(r2_tmp)))
+        for jar in ytdlp_cookies.baked_jars():
+            writable = out / f"cookies_{jar.stem}.txt"  # baked is read-only → copy to writable temp
+            shutil.copyfile(jar, writable)
+            candidates.append((jar.name, str(writable)))
+        if not candidates:  # local dev / no pool → single config jar (may be "")
+            candidates.append(("config", s.ytdlp_cookies_file))
+
+        meta_or_none: SourceMeta | None = None
+        last_gate: YoutubeBotGateError | None = None
+        for i, (label, cfile) in enumerate(candidates, 1):
+            print(f"[0] import: cookie attempt {i}/{len(candidates)} ({label})")
+            try:
+                meta_or_none = import_youtube(
+                    source_url, out, job_id=job_id,
+                    cookies_browser=s.ytdlp_cookies_browser,
+                    cookies_file=cfile,
+                    proxy=s.ytdlp_proxy,  # reliability lever, "" = off (no proxy/no cost)
+                    pot_server_home=s.ytdlp_pot_server_home,  # bgutil PO-token (script mode)
+                    player_client=s.ytdlp_player_client,  # tv,android_vr pass the gate w/o a POT
+                )  # fmt: skip
+            except YoutubeBotGateError as e:
+                last_gate = e  # remember the friendly gate message in case ALL jars fail
+                print(f"[0] import: attempt {i} ({label}) bot-gated — trying next cookie jar")
+                continue
+            # Success → persist the WINNING rotated jar to R2 as the new current-best (cloud only).
+            if ytdlp_cookies.cookies_enabled() and cfile:
+                ytdlp_cookies.push_cookies(Path(cfile))
+            break
+        if meta_or_none is None:  # every jar bot-gated → friendly gate message (upload hint)
+            raise last_gate or JobError("import", "all YouTube cookie jars failed (bot-gated)")
+        meta = meta_or_none  # narrowed → SourceMeta (matches the cached branch's type below)
         print(f"[0] import: {meta.duration:.0f}s {meta.width}x{meta.height}")
     else:
         raise JobError("import", f"no data/{job_id}/source.mp4 and no URL provided")

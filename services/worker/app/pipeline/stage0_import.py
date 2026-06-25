@@ -20,7 +20,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from app.billing import MAX_VIDEO_MINUTES
-from app.errors import JobError
+from app.errors import JobError, YoutubeBotGateError
 from app.models import SourceKind
 
 _STAGE = "import"
@@ -83,6 +83,31 @@ _YT_UPLOAD_HINT = (
     "site — and upload the file."
 )
 
+# bot-gate / rate-limit / forbidden — самый частый провал с дата-центрового IP. Вынесено отдельно
+# (не только в classify), чтобы run.py РЕТРАИЛ именно эти провалы на СЛЕДУЮЩЕМ cookie-jar (бот-гейт
+# = «эта сессия забанена», другой jar может пройти), но НЕ ретраил private/too-long/removed/age.
+_BOT_GATE_SIGNATURES = (
+    "sign in to confirm you",  # "...you're not a bot" (юникод-апостроф варьируется)
+    "not a bot",
+    "http error 429",
+    "too many requests",
+    "http error 403",
+    "forbidden",
+    "failed to extract any player response",
+)
+
+
+def is_bot_gate(stderr_tail: str) -> bool:
+    """yt-dlp stderr → это бот-гейт/рейт-лимит (RETRYABLE на ДРУГОМ cookie-jar)? PURE.
+
+    ВАЖЕН ПОРЯДОК (как в classify_youtube_error): «sign in to confirm your AGE» — частный случай
+    «sign in to confirm», но возрастной гейт НЕ бот-гейт (другой jar не поможет) → исключаем явно.
+    """
+    s = (stderr_tail or "").lower()
+    if "confirm your age" in s or "age-restricted" in s:
+        return False
+    return any(sig in s for sig in _BOT_GATE_SIGNATURES)
+
 
 def classify_youtube_error(stderr_tail: str) -> str:
     """yt-dlp stderr → понятное пользователю ENG-сообщение. PURE.
@@ -101,17 +126,9 @@ def classify_youtube_error(stderr_tail: str) -> str:
             "This video is age-restricted and requires a sign-in we don’t have." + _YT_UPLOAD_HINT
         )
 
-    # bot-gate / rate-limit / forbidden — самый частый провал с дата-центрового IP.
-    bot_signatures = (
-        "sign in to confirm you",  # "...you're not a bot" (юникод-апостроф варьируется)
-        "not a bot",
-        "http error 429",
-        "too many requests",
-        "http error 403",
-        "forbidden",
-        "failed to extract any player response",
-    )
-    if any(sig in s for sig in bot_signatures):
+    # bot-gate / rate-limit / forbidden — самый частый провал с дата-центрового IP (вынесено в
+    # is_bot_gate; его же зовёт run.py, чтобы ретраить на следующем cookie-jar).
+    if is_bot_gate(stderr_tail):
         return (
             "We could not fetch this video automatically (YouTube blocked our server)."
             + _YT_UPLOAD_HINT
@@ -319,7 +336,12 @@ def download_youtube(
     except JobError as e:
         # _run кидает JobError с хвостом stderr → перекладываем в дружелюбный текст. raise from e
         # сохраняет техдетали в цепочке исключений (лог), но юзер видит actionable-сообщение.
-        raise JobError(_STAGE, classify_youtube_error(e.reason)) from e
+        # Бот-гейт → YoutubeBotGateError (RETRYABLE: run.py пробует следующий cookie-jar); прочие
+        # провалы (private/too-long/removed) → обычный JobError (другой jar не спасёт, не ретраим).
+        msg = classify_youtube_error(e.reason)
+        if is_bot_gate(e.reason):
+            raise YoutubeBotGateError(_STAGE, msg) from e
+        raise JobError(_STAGE, msg) from e
     mp4 = out_dir / "source.mp4"
     if not mp4.exists():
         # yt-dlp вышел с кодом 0, но файла нет (например match-filter отсёк лайв/переросток до

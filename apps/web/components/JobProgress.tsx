@@ -5,7 +5,7 @@ import { Meter } from "@/components/ui/Meter";
 import { Numeral } from "@/components/ui/Numeral";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { mmss } from "@/lib/format";
-import type { JobStatus } from "@/lib/types";
+import type { JobStatus, SourceKind } from "@/lib/types";
 
 const ORDER: JobStatus[] = ["queued", "downloading", "transcribing", "selecting", "rendering", "done"];
 const STEPS: { key: JobStatus; label: string }[] = [
@@ -35,6 +35,7 @@ export function JobProgress({
   transcriptWords = null,
   momentsFound = null,
   requestedClips = 3,
+  sourceKind = null,
 }: {
   status: JobStatus;
   elapsed: number;
@@ -49,10 +50,16 @@ export function JobProgress({
   momentsFound?: number | null;
   // How many clips the user asked for — drives the reserved skeleton count.
   requestedClips?: number;
+  // Source of the job — drives YouTube-specific "fetching" copy (the import can still fail).
+  sourceKind?: SourceKind | null;
 }) {
   // While "queued" (cur=0) the first real step ("Downloading", index 1) reads as active,
   // so the stepper never looks dead between submit and the first status change.
   const cur = Math.max(ORDER.indexOf(status), 1);
+  // YouTube import (download_youtube) is the one BEST-EFFORT stage that can still fail mid-run
+  // (the DC-IP bot-gate). Surface it explicitly so the user watches it and isn't surprised by a
+  // late failure — vs an uploaded file, where "downloading" is just local prep that won't fail.
+  const isYoutubeFetch = status === "downloading" && sourceKind === "youtube";
   // Local disable between click and the next poll (which flips cancellable→false) so a
   // double-click can't fire two cancels.
   const [stopping, setStopping] = useState(false);
@@ -81,7 +88,9 @@ export function JobProgress({
       <div className="flex items-end justify-between gap-4 border-b border-line pb-4">
         <div>
           <Eyebrow tone="accent">Processing</Eyebrow>
-          <h2 className="mt-1.5 font-display text-h3 text-ink">{STAGE_HINT[status] ?? "Working"}</h2>
+          <h2 className="mt-1.5 font-display text-h3 text-ink">
+            {isYoutubeFetch ? "Fetching from YouTube" : (STAGE_HINT[status] ?? "Working")}
+          </h2>
         </div>
         <div className="flex items-end gap-4">
           <div className="text-right" aria-live="polite">
@@ -123,6 +132,13 @@ export function JobProgress({
         ))}
       </div>
 
+      {isYoutubeFetch && (
+        <p className="mt-5 rounded-lg border border-line bg-surface px-4 py-3 text-xs leading-relaxed text-muted">
+          Pulling this video from YouTube — best-effort, and it can take a moment. If YouTube blocks
+          our server this step fails and we&rsquo;ll ask you to upload the file instead.
+        </p>
+      )}
+
       {/* timeline spine: hairline rail + dot nodes (coral active / thought done / hollow pending) */}
       <ol className="relative mt-7 ml-1.5">
         {/* the vertical rail */}
@@ -155,7 +171,9 @@ export function JobProgress({
               <span
                 className={`text-sm font-medium ${active || done ? "text-ink" : "text-muted"}`}
               >
-                {step.label}
+                {step.key === "downloading" && sourceKind === "youtube"
+                  ? "Fetching from YouTube"
+                  : step.label}
               </span>
               {count && <Numeral className="text-xs text-muted">· {count}</Numeral>}
             </li>

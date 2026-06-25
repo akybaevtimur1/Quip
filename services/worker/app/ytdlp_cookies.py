@@ -78,6 +78,25 @@ def cookies_temp_path(out_dir: Path) -> Path:
     return out_dir / _TEMP_COOKIES_NAME
 
 
+# Baked cookie-jar POOL for multi-cookie fallback. The founder drops one or more
+# www.youtube.com_cookies*.txt at the repo root; deploy/modal/worker.py bakes them into the image
+# under this read-only dir. run.py tries each jar in turn (a bot-gated jar → next) and only gives
+# up if ALL are bot-gated → far more resilient than one jar (stale burner cookies are common).
+BAKED_COOKIES_DIR = Path("/root/cookies")
+
+
+def baked_jars() -> list[Path]:
+    """Baked cookie-jar files (the founder's dropped pool), sorted by name. [] if none. PURE-ish.
+
+    Read-only IMAGE files — the caller COPIES each to a writable temp before yt-dlp (which rewrites
+    the --cookies file with a rotated session). Sorted name order → deterministic, stable try order.
+    """
+    d = BAKED_COOKIES_DIR
+    if not d.is_dir():
+        return []
+    return sorted(p for p in d.iterdir() if p.is_file() and p.suffix == ".txt")
+
+
 # ─────────────────────────── R2 I/O (reuses app.storage client; logged, never silent) ──────────
 
 

@@ -16,6 +16,7 @@ from app.pipeline.stage0_import import (
     build_source_meta,
     build_youtube_cmd,
     classify_youtube_error,
+    is_bot_gate,
     parse_fps,
 )
 
@@ -201,6 +202,43 @@ class TestClassifyYoutubeError:
         # Сигнатуры yt-dlp иногда меняют регистр между версиями — матч регистронезависим.
         msg = classify_youtube_error("error: SIGN IN TO CONFIRM YOU'RE NOT A BOT")
         assert "blocked our server" in msg.lower()
+
+
+class TestIsBotGate:
+    """is_bot_gate: bot-gate/rate-limit detection (drives multi-cookie fallback)."""
+
+    @pytest.mark.parametrize(
+        "stderr",
+        [
+            "ERROR: [youtube] x: Sign in to confirm you’re not a bot",
+            "ERROR: SIGN IN TO CONFIRM YOU'RE NOT A BOT",  # регистронезависимо
+            "ERROR: HTTP Error 429: Too Many Requests",
+            "ERROR: HTTP Error 403: Forbidden",
+            "ERROR: [youtube] x: Failed to extract any player response",
+        ],
+    )
+    def test_bot_gate_signatures_are_retryable(self, stderr: str) -> None:
+        assert is_bot_gate(stderr) is True
+
+    @pytest.mark.parametrize(
+        "stderr",
+        [
+            "ERROR: [youtube] x: Sign in to confirm your age",  # age-gate ≠ bot-gate
+            "ERROR: [youtube] x: This video is age-restricted",
+            "ERROR: [youtube] x: Private video",
+            "ERROR: [youtube] x: This video is no longer available",
+            "ERROR: [youtube] x: not made this video available in your country",
+            "",  # пусто → не бот-гейт
+            "some unrelated yt-dlp internal error",
+        ],
+    )
+    def test_non_bot_gate_is_not_retryable(self, stderr: str) -> None:
+        assert is_bot_gate(stderr) is False
+
+    def test_age_gate_overlaps_bot_signature_but_excluded(self) -> None:
+        # «sign in to confirm your age» содержит «sign in to confirm you» — но это НЕ бот-гейт
+        # (RETRY на другом jar не спасёт age-видео), как и в classify_youtube_error.
+        assert is_bot_gate("Sign in to confirm your age") is False
 
 
 class TestBuildYoutubeCmd:

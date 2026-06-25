@@ -36,3 +36,13 @@ class JobError(Exception):
         # Явный reduce: гарантирует реконструкцию ``JobError(stage, reason)`` независимо от
         # того, как пиклер читает ``args`` (страховка к super().__init__ выше).
         return (self.__class__, (self.stage, self.reason))
+
+
+class YoutubeBotGateError(JobError):
+    """yt-dlp упёрся в бот-гейт/рейт-лимит YouTube НА ЭТОМ cookie-jar — RETRYABLE-провал.
+
+    Подкласс ``JobError`` (значит обычный ``except JobError`` всё ещё пометит job=failed, когда
+    jar'ы кончились), НО run.py ловит ИМЕННО этот тип, чтобы попробовать СЛЕДУЮЩИЙ cookie-jar до
+    того как сдаться (мульти-cookie фолбэк: бот-гейт = «эта сессия забанена», другой jar может
+    пройти). Несёт те же ``(stage, reason)`` → наследует ``__reduce__``, пиклится между Modal-
+    контейнерами как родитель. НЕ ретраим так private/too-long/removed (см. ``is_bot_gate``)."""

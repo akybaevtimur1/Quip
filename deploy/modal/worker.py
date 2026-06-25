@@ -35,7 +35,9 @@ import modal
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _WORKER_APP = _REPO_ROOT / "services" / "worker" / "app"  # пакет `app` (импорт-имя)
 _WORKER_FONTS = _REPO_ROOT / "services" / "worker" / "fonts"  # TTF для прожига субтитров
-_COOKIES = _REPO_ROOT / "www.youtube.com_cookies.txt"  # gitignored; нужен для скачивания с DC-IP
+# gitignored cookie POOL at repo root (www.youtube.com_cookies*.txt). Baked into /root/cookies/ for
+# the multi-cookie bot-gate fallback: run.py tries each jar in turn, fails only if ALL are bot-gated.
+_COOKIE_JARS = sorted(_REPO_ROOT.glob("www.youtube.com_cookies*.txt"))
 
 # Современный статик-ffmpeg (John Van Sickle). Версия ≥7 (release) с libdav1d (декод AV1).
 _FFMPEG_STATIC = "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz"
@@ -156,12 +158,15 @@ image = (
     )
 )
 
-# cookies.txt — gitignored, кладём в образ если есть локально (иначе скачивание упрётся в бот-гейт).
-# ⚠️ YTDLP_COOKIES_FILE ставим ТОЛЬКО когда файл реально добавлен: yt-dlp с указанным, но
-# отсутствующим --cookies путём падает (cookie-jar save в несуществующий каталог) ИЛИ тянет
-# пустой jar (нулевой обход бот-гейта). Нет файла → переменная не задаётся, yt-dlp идёт без cookies.
-if _COOKIES.exists():
-    image = image.add_local_file(str(_COOKIES), "/root/cookies.txt", copy=True).env(
+# cookies POOL — gitignored www.youtube.com_cookies*.txt at repo root, baked into /root/cookies/ as
+# jar_NN.txt. run.py tries each jar in turn (bot-gated jar → next) and fails only if ALL fail
+# (multi-cookie fallback; ytdlp_cookies.baked_jars reads this dir). jar_01 is ALSO baked as the
+# legacy /root/cookies.txt + YTDLP_COOKIES_FILE — the single-file config fallback used by the
+# seed/keep-warm/probe single-key R2 path. No jars present → no cookies (download hits the gate).
+for _i, _jar in enumerate(_COOKIE_JARS, 1):
+    image = image.add_local_file(str(_jar), f"/root/cookies/jar_{_i:02d}.txt", copy=True)
+if _COOKIE_JARS:
+    image = image.add_local_file(str(_COOKIE_JARS[0]), "/root/cookies.txt", copy=True).env(
         {"YTDLP_COOKIES_FILE": "/root/cookies.txt"}
     )
 
@@ -519,12 +524,14 @@ def seed_ytdlp_cookies() -> None:
 
 
 # DIAGNOSTIC (CLI: `modal run deploy/modal/worker.py::probe_youtube_pot --url <youtube-url>`).
-# Runs yt-dlp -v --skip-download on the PROD image with the SAME cookies + bgutil PO-token path the
-# real download uses, prints the PO-token markers + any bot-gate, so we can verify POT works and how
-# stable it is from Modal's DC-IP WITHOUT running the whole pipeline. _SECRET gives R2 creds.
-@app.function(secrets=[_SECRET], timeout=300, serialized=True)
+# Probes the WHOLE multi-cookie pool: runs yt-dlp -v --skip-download (cookies + bgutil POT + player
+# client, exactly the real download path) with EACH jar — the R2 rotating jar + every baked jar —
+# and prints pass/fail per jar + a summary, mirroring run.py's fallback. Verifies the pool is baked
+# and shows which jars currently pass YouTube's DC-IP gate. _SECRET gives R2 creds.
+@app.function(secrets=[_SECRET], timeout=600, serialized=True)
 def probe_youtube_pot(url: str = "https://www.youtube.com/watch?v=Ks-_Mh1QhMc") -> None:
-    """Probe: does yt-dlp extract the video info (cookies + POT) from a Modal DC-IP, or bot-gate?"""
+    """Probe every cookie jar (R2 + baked pool) against YouTube from the DC-IP; print pass/fail each."""
+    import shutil
     import subprocess
     import sys
     import tempfile
@@ -536,24 +543,39 @@ def probe_youtube_pot(url: str = "https://www.youtube.com/watch?v=Ks-_Mh1QhMc") 
     from app.config import get_settings
 
     s = get_settings()
-    tmp = Path(tempfile.gettempdir()) / "probe_cookies.txt"
-    has_cookies = ytdlp_cookies.pull_cookies(tmp)
-    cmd = ["yt-dlp", "-v", "--skip-download", "--no-playlist", "--remote-components", "ejs:github"]
-    if has_cookies:
-        cmd += ["--cookies", str(tmp)]
-    if s.ytdlp_pot_server_home:
-        cmd += ["--extractor-args", f"youtubepot-bgutilscript:server_home={s.ytdlp_pot_server_home}"]
-    if s.ytdlp_player_client:
-        cmd += ["--extractor-args", f"youtube:player_client={s.ytdlp_player_client}"]
-    cmd.append(url)
-    print(f"[probe] cookies={has_cookies} pot={bool(s.ytdlp_pot_server_home)} client={s.ytdlp_player_client} url={url}")
-    proc = subprocess.run(cmd, capture_output=True, text=True)
-    markers = (
-        "PO Token", "[pot", "Retrieved", "Sign in to confirm", "not a bot", "ERROR:",
-        "Forbidden", "HTTP Error 4", "429", "n challenge", "Some formats may be missing",
+    tmpdir = Path(tempfile.gettempdir())
+    candidates: list[tuple[str, str]] = []  # (label, cookies_file path; "" = no cookies)
+    r2 = tmpdir / "probe_r2_cookies.txt"
+    if ytdlp_cookies.pull_cookies(r2):
+        candidates.append(("r2-rotating", str(r2)))
+    for jar in ytdlp_cookies.baked_jars():
+        dst = tmpdir / f"probe_{jar.stem}.txt"
+        shutil.copyfile(jar, dst)
+        candidates.append((jar.name, str(dst)))
+    if not candidates:
+        candidates.append(("no-cookies", ""))
+    print(
+        f"[probe] {len(candidates)} cookie candidate(s); pot={bool(s.ytdlp_pot_server_home)} "
+        f"client={s.ytdlp_player_client} url={url}"
     )
-    for line in (proc.stdout + "\n" + proc.stderr).splitlines():
-        if any(m in line for m in markers):
-            print("  | " + line.strip())
-    verdict = "OK (info extracted -> download would work)" if proc.returncode == 0 else "FAILED"
-    print(f"[probe] exit={proc.returncode} -> {verdict}")
+    oks = 0
+    for i, (label, cfile) in enumerate(candidates, 1):
+        cmd = ["yt-dlp", "-v", "--skip-download", "--no-playlist", "--remote-components", "ejs:github"]
+        if cfile:
+            cmd += ["--cookies", cfile]
+        if s.ytdlp_pot_server_home:
+            cmd += ["--extractor-args", f"youtubepot-bgutilscript:server_home={s.ytdlp_pot_server_home}"]
+        if s.ytdlp_player_client:
+            cmd += ["--extractor-args", f"youtube:player_client={s.ytdlp_player_client}"]
+        cmd.append(url)
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+        ok = proc.returncode == 0
+        oks += int(ok)
+        tail = ""
+        if not ok:
+            for line in (proc.stderr or "").splitlines():
+                if "ERROR:" in line or "Sign in to confirm" in line:
+                    tail = "| " + line.strip()[:120]
+                    break
+        print(f"[probe] jar {i}/{len(candidates)} ({label}): {'OK' if ok else 'FAILED'} {tail}")
+    print(f"[probe] {oks}/{len(candidates)} jar(s) passed — the real download succeeds if >= 1")
