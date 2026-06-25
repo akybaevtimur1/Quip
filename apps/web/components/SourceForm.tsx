@@ -208,7 +208,7 @@ export function SourceForm({
               aria-label="YouTube video link"
               aria-invalid={url.length > 0 && !urlValid}
               placeholder="https://youtube.com/watch?v=…"
-              className="h-11 w-full min-w-0 bg-transparent text-sm text-ink placeholder:text-faint focus:outline-none"
+              className="h-11 w-full min-w-0 bg-transparent text-sm text-ink placeholder:text-faint focus:outline-none focus-visible:shadow-none"
             />
           </label>
           {url.length > 0 && !urlValid ? (

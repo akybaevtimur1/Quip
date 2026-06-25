@@ -1364,6 +1364,7 @@ class TemplateBody(StylePrefBody):
     """Save a NAMED style template = the look (caption style + highlight + hook style) + a name
     + an optional flag to make it the default that seeds new clips of future videos."""
 
+    id: str | None = None  # present → overwrite THAT template in place (Update); absent → mint new
     name: str = "My style"
     set_default: bool = False
 
@@ -1398,7 +1399,9 @@ def save_my_template(
     user_id = _resolve_user(authorization, x_user_id)
     if not user_id:
         raise HTTPException(status_code=401, detail="Sign in to save a template")
-    tid = uuid.uuid4().hex[:12]
+    # Client-supplied id (Update button) overwrites that template in place via upsert_template;
+    # absent → mint a new id (Save). Bogus ids only affect the user's own style_preferences blob.
+    tid = body.id or uuid.uuid4().hex[:12]
     name = body.name.strip()[:60] or "My style"
     tpl = style_prefs.build_template(tid, name, body.style, body.highlight, body.hook_style)
     blob = style_prefs.upsert_template(db.get_style_preference(user_id), tpl)

@@ -10,6 +10,7 @@ import {
 } from "@/lib/api";
 import { Eyebrow } from "@/components/ui/Eyebrow";
 import type { AgentEvent, AgentRun, AgentRunStatus } from "@/lib/types";
+import { type ChatItem, groupEvents, processLiveFlags } from "@/lib/agentChat";
 
 // ── Таб «Agent» (W3): чат-редактор клипа. Агент правит ИНТЕРВАЛ и ХУК тулзами (не субтитры,
 // не кадр), показывает мысли/действия, фоновый прогон с поллингом и Stop (как у джоба).
@@ -26,32 +27,8 @@ function isTerminal(s: AgentRunStatus | "idle"): boolean {
   return s === "done" || s === "failed" || s === "cancelled";
 }
 
-// thinking/action = внутренний прогресс. Для юзера это шум на жаргоне («thought»/«action»),
-// поэтому объединяем подряд идущие thinking/action в ОДИН ненавязчивый блок «процесса»
-// (свёрнутый по умолчанию), а финальный ответ агента (role=agent) оставляем крупным.
-type ProcessGroup = { kind: "process"; steps: AgentEvent[] };
-type ChatItem = AgentEvent | ProcessGroup;
-
-function isProcessRole(role: AgentEvent["role"]): boolean {
-  return role === "thinking" || role === "action";
-}
-
-function groupEvents(events: AgentEvent[]): ChatItem[] {
-  const items: ChatItem[] = [];
-  for (const ev of events) {
-    if (isProcessRole(ev.role)) {
-      const last = items[items.length - 1];
-      if (last && "kind" in last && last.kind === "process") {
-        last.steps.push(ev);
-      } else {
-        items.push({ kind: "process", steps: [ev] });
-      }
-    } else {
-      items.push(ev);
-    }
-  }
-  return items;
-}
+// thinking/action grouping + the per-turn "is this still working?" derivation live in
+// lib/agentChat (PURE, unit-tested) — see groupEvents/processLiveFlags imported above.
 
 // Свёрнутая «работа агента»: муфта-строка «Working…/Готово · N шагов» + раскрытие в
 // человекочитаемые строки. Спиннер — ТОЛЬКО пока прогон живой (после терминала это история).
@@ -274,6 +251,14 @@ export function AgentTab({
     const optimistic: AgentEvent[] = pendingUser.map((text) => ({ role: "user", text }));
     return groupEvents([...events, ...optimistic]);
   }, [events, pendingUser]);
+  // Per-turn "Working on it…" flag — ONLY the in-flight run's (last) process group is live;
+  // completed earlier turns stay as their final reply (fixes stale pills stacking on a new run).
+  const liveFlags = useMemo(() => processLiveFlags(chatItems, running), [chatItems, running]);
+  // Footer "Working on it…" pill: only while the request is in flight but the live run has NOT
+  // yet produced a process group to carry the spinner (POST not returned, or running with no
+  // thinking/action yet). Once a live process group exists it already shows the spinner — avoid
+  // a duplicate footer pill (and never show one for completed history).
+  const hasLiveProcess = liveFlags.some(Boolean);
   const isEmpty = chatItems.length === 0;
 
   return (
@@ -306,9 +291,9 @@ export function AgentTab({
             </div>
           </div>
         ) : (
-          chatItems.map((item, i) => <ChatItemRow key={i} item={item} live={running} />)
+          chatItems.map((item, i) => <ChatItemRow key={i} item={item} live={liveFlags[i]} />)
         )}
-        {inFlight && (
+        {inFlight && !hasLiveProcess && (
           <p className="flex items-center gap-1.5 px-1 text-xs text-muted">
             <Loader2 className="size-3 animate-spin" /> Working on it…
           </p>

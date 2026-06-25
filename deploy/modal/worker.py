@@ -294,19 +294,33 @@ def reframe_render_clip(
     if "/root" not in sys.path:
         sys.path.insert(0, "/root")
     from app import artifacts
+    from app.errors import JobError
     from app.models import Segment
     from app.pipeline.stage0_import import SourceMeta
-    from app.run import render_one_clip
+    from app.run import failed_clip_result, render_one_clip
 
     src = artifacts.ensure_source(job_id)  # качает source из R2 на свежий контейнер
-    return render_one_clip(
-        src.parent,
-        src.name,
-        clip_index,
-        Segment.model_validate(seg),
-        SourceMeta.model_validate(meta),
-        user_id,
-    )
+    # КОНТЕЙНИРОВАНИЕ per-clip провала: ловим ЗДЕСЬ (в дочернем контейнере), а НЕ даём
+    # исключению вылететь — иначе starmap ре-рейзит его в координаторе run_job и валит ВЕСЬ
+    # джоб. Возвращаем failed_clip_result (пустой video_url = still/failed по streaming-
+    # контракту) → координатор соберёт ClipOut с пустым url, остальные клипы дойдут, джоб
+    # done. Провал ЯВНО логируем (правило №8). Тотальный провал (все клипы упали) ловит
+    # run._render_all_clips → JobError → джоб честно failed. НЕ трогает stage3/stage5.
+    try:
+        return render_one_clip(
+            src.parent,
+            src.name,
+            clip_index,
+            Segment.model_validate(seg),
+            SourceMeta.model_validate(meta),
+            user_id,
+        )
+    except JobError as e:
+        print(f"[reframe_render_clip] clip_{clip_index:02d} FAILED (contained): {e}")
+        return failed_clip_result(clip_index, str(e))
+    except Exception as e:
+        print(f"[reframe_render_clip] clip_{clip_index:02d} FAILED (contained, unexpected): {e}")
+        return failed_clip_result(clip_index, f"unexpected: {e}")
 
 
 # Preview-прокси (perf #3) — отдельная функция: run_job спавнит её ПАРАЛЛЕЛЬНО с клипами, она НЕ
@@ -395,3 +409,75 @@ def cleanup_stale_sources() -> None:
 
     n = delete_stale_editor_artifacts()
     print(f"[retention] deleted {n} stale source/preview objects")
+
+
+# ── Rotating YouTube cookies (free bot-gate bypass) ──────────────────────────────────────────
+# yt-dlp rewrites the --cookies file with a fresh session after each run; we persist that jar in
+# R2 (app.ytdlp_cookies) so the rotation survives Modal's read-only/ephemeral containers. The two
+# functions below KEEP it alive and SEED it. Both reuse _SECRET (R2 creds) and the baked image's
+# yt-dlp + Deno (n-challenge JS runtime). They do NOT touch reframe/render or per-clip containment.
+
+# KEEP-WARM: even with zero user traffic the YouTube session would idle-expire. Every ~2 days we
+# pull the jar from R2, run a LIGHTWEIGHT --skip-download rotation against a stable public CC clip
+# (KEEP_WARM_VIDEO_URL), and push the rotated jar back → session stays fresh. _SECRET gives R2 creds.
+@app.function(secrets=[_SECRET], timeout=600, schedule=modal.Cron("0 5 */2 * *"), serialized=True)
+def refresh_ytdlp_cookies() -> None:
+    """Keep the YouTube cookie session alive (R2 jar) via a lightweight --skip-download ping."""
+    import subprocess
+    import sys
+    import tempfile
+    from pathlib import Path
+
+    if "/root" not in sys.path:
+        sys.path.insert(0, "/root")
+    from app import ytdlp_cookies
+
+    tmp = Path(tempfile.gettempdir()) / "ytdlp_cookies_keepwarm.txt"
+    if not ytdlp_cookies.pull_cookies(tmp):
+        print("[ytdlp-cookies] keep-warm SKIP: no cookie jar in R2 yet (run seed_ytdlp_cookies once)")
+        return
+    # --skip-download: no media fetched, but yt-dlp still touches the session and REWRITES tmp with
+    # refreshed cookies (the whole point). --remote-components ejs:github keeps the n-challenge
+    # solver available (mirrors stage0_import.build_youtube_cmd). Best-effort: log result, then push.
+    cmd = [
+        "yt-dlp",
+        "--skip-download",
+        "--no-playlist",
+        "--remote-components",
+        "ejs:github",
+        "--cookies",
+        str(tmp),
+        ytdlp_cookies.KEEP_WARM_VIDEO_URL,
+    ]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        tail = (proc.stderr or "").strip()[-500:]
+        print(f"[ytdlp-cookies] keep-warm yt-dlp exit {proc.returncode}: {tail}")
+    else:
+        print(f"[ytdlp-cookies] keep-warm rotation ok against {ytdlp_cookies.KEEP_WARM_VIDEO_URL}")
+    ytdlp_cookies.push_cookies(tmp)  # push rotated jar back (logged; keeps last-known-good on fail)
+
+
+# ONE-TIME SEED (CLI: `modal run deploy/modal/worker.py::seed_ytdlp_cookies`). Reads the baked image
+# file /root/cookies.txt (the www.youtube.com_cookies.txt the founder dropped at repo root) and
+# uploads it to the R2 cookie key. After this, R2 is the rotating store; the baked file is only the
+# seed source. Absent /root/cookies.txt → clear message (no crash). _SECRET gives R2 creds.
+@app.function(secrets=[_SECRET], timeout=300, serialized=True)
+def seed_ytdlp_cookies() -> None:
+    """One-time: upload the baked /root/cookies.txt to the R2 cookie key (seeds the rotating jar)."""
+    import sys
+    from pathlib import Path
+
+    if "/root" not in sys.path:
+        sys.path.insert(0, "/root")
+    from app import ytdlp_cookies
+
+    baked = Path("/root/cookies.txt")
+    if not baked.exists():
+        print(
+            "[ytdlp-cookies] seed SKIP: /root/cookies.txt absent. Drop "
+            "www.youtube.com_cookies.txt at repo root, redeploy, then run this seed again."
+        )
+        return
+    ytdlp_cookies.push_cookies(baked)
+    print(f"[ytdlp-cookies] seeded R2 cookie jar (r2://{ytdlp_cookies.cookies_r2_key()}) from {baked}")

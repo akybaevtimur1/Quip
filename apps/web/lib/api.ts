@@ -731,9 +731,14 @@ export async function listTemplates(): Promise<TemplatesResponse> {
   return res.json();
 }
 
-/** Save the current look as a NAMED template (optionally make it the new-clip default). */
+/** Save the current look as a NAMED template (optionally make it the new-clip default).
+ *
+ * Pass `id` to OVERWRITE an existing template's stored look with the current style instead of
+ * creating a new one — the backend `style_prefs.upsert_template` replaces by id (the "Update"
+ * action). Omit `id` to create a fresh template (the "Save current" action). When updating, also
+ * send the template's existing `name` so the overwrite keeps it. */
 export async function saveTemplate(
-  payload: StylePreferencePayload & { name: string; set_default?: boolean },
+  payload: StylePreferencePayload & { name: string; set_default?: boolean; id?: string },
 ): Promise<{ template: StyleTemplate; default_id: string | null }> {
   const res = await fetch(`${BASE}/me/templates`, {
     method: "POST",

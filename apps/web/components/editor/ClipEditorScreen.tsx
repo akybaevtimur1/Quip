@@ -1038,6 +1038,28 @@ export default function ClipEditorScreen({
     [buildStylePayload, flushPending],
   );
 
+  // Overwrite an EXISTING template's stored look with the CURRENT clip style (founder ask:
+  // tweak a template in place instead of delete + re-add). Reuses the save path — same
+  // buildStylePayload() as "Save current", but carries the existing template id so the backend
+  // upserts BY ID (style_prefs.upsert_template replaces by id) rather than creating a duplicate.
+  // Resends the template's current name so the overwrite keeps it. flushPending() first so the
+  // saved look reflects the user's latest (debounced) edits, not a stale snapshot.
+  const handleUpdateTemplate = useCallback(
+    async (id: string): Promise<void> => {
+      await flushPending();
+      const existing = templates.find((t) => t.id === id);
+      const { template } = await saveTemplate({
+        ...buildStylePayload(),
+        id,
+        name: existing?.name ?? "My style",
+      });
+      // Replace by id, keeping the row's position (an update isn't a "new" template → don't
+      // jump it to the top the way a fresh save does).
+      setTemplates((prev) => prev.map((t) => (t.id === template.id ? template : t)));
+    },
+    [buildStylePayload, flushPending, templates],
+  );
+
   const handleDeleteTemplate = useCallback(async (id: string): Promise<void> => {
     await deleteTemplate(id);
     setTemplates((prev) => prev.filter((t) => t.id !== id));
@@ -1625,6 +1647,7 @@ export default function ClipEditorScreen({
         onApplyTemplateClip={handleApplyTemplateClip}
         onApplyTemplateAll={handleApplyTemplateAll}
         onSaveTemplate={handleSaveTemplate}
+        onUpdateTemplate={handleUpdateTemplate}
         onDeleteTemplate={handleDeleteTemplate}
         onSetDefaultTemplate={handleSetDefaultTemplate}
         onError={setError}

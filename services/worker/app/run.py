@@ -18,7 +18,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from app import billing, db, dispatch, storage
+from app import billing, db, dispatch, storage, ytdlp_cookies
 from app.config import get_settings
 from app.editor.reframe_cache import build_persist_payload
 from app.errors import JobError
@@ -198,6 +198,52 @@ def render_one_clip(
     }
 
 
+def failed_clip_result(clip_index: int, reason: str) -> dict[str, Any]:
+    """PURE. Sentinel-результат для УПАВШЕГО клипа: пустой ``video_url`` (= still/failed по
+    контракту инкрементальной выдачи), нулевые латентности, флаг ``failed`` + текст причины.
+
+    Контейнирование per-clip провала (правило №8 — НЕ тихо): один сбойный клип НЕ валит весь
+    джоб. Координатор собирает ClipOut с пустым video_url (карточка остаётся «pending/failed»,
+    как персистнули после select), остальные клипы рендерятся, джоб ДОХОДИТ до done. Если ВСЕ
+    клипы упали — вызыватель (_render_all_clips) поднимет JobError (тотальный провал не прячем).
+    """
+    return {
+        "clip_id": f"clip_{clip_index:02d}",
+        "clip_index": clip_index,
+        "video_url": "",  # пусто = клип не отрендерился (still/failed по streaming-контракту)
+        "reframe_lat": 0.0,
+        "render_lat": 0.0,
+        "face_found": False,
+        "failed": True,
+        "error": reason,
+    }
+
+
+def render_one_clip_contained(
+    out: Path,
+    source_name: str,
+    clip_index: int,
+    seg: Segment,
+    meta: SourceMeta,
+    user_id: str | None = None,
+) -> dict[str, Any]:
+    """render_one_clip с КОНТЕЙНИРОВАНИЕМ per-clip провала (локальный цикл).
+
+    Один клип упал (JobError из stage3/5 ИЛИ любое неожиданное) → ловим, ЯВНО логируем
+    (не молча, правило №8) и возвращаем ``failed_clip_result`` (пустой video_url). Остальные
+    клипы рендерятся, джоб доходит до done. Так зеркалит контейнирование Modal-фан-аута в
+    worker.reframe_render_clip — единый контракт «провал клипа = пустой url, не падение джоба».
+    """
+    try:
+        return render_one_clip(out, source_name, clip_index, seg, meta, user_id)
+    except JobError as e:
+        print(f"  clip_{clip_index:02d}: RENDER FAILED (contained, clip stays empty): {e}")
+        return failed_clip_result(clip_index, str(e))
+    except Exception as e:  # noqa: BLE001 — per-clip изоляция: один клип не валит весь джоб
+        print(f"  clip_{clip_index:02d}: RENDER FAILED (contained, unexpected): {e}")
+        return failed_clip_result(clip_index, f"unexpected: {e}")
+
+
 def _render_all_clips(
     job_id: str,
     out: Path,
@@ -210,13 +256,24 @@ def _render_all_clips(
     локально → последовательный цикл (идентично прежнему поведению). Результаты — в порядке
     сегментов (стабильный ``clip_index`` для ассемблинга ClipOut). ``user_id`` несётся в каждый
     клип-контейнер → план владельца (вотермарка/разрешение) резолвится там СЕРВЕРНО.
+
+    КОНТЕЙНИРОВАНИЕ per-clip провала: один сбойный клип (edge-case reframe/render на конкретном
+    видео — ffmpeg 0 видео-кадров) НЕ валит весь джоб. Локально — render_one_clip_contained;
+    на Modal контейнирует сам дочерний reframe_render_clip (возвращает failed_clip_result, не
+    кидает — иначе starmap ре-рейзит в координаторе). ЕСЛИ ВСЕ клипы упали → JobError (тотальный
+    провал НЕ прячем: джоб честно failed, правило №8).
     """
     if dispatch.modal_spawn_enabled():
-        return dispatch.map_render_clips(clip_spawn_args(job_id, segments, meta, user_id))
-    return [
-        render_one_clip(out, source_name, i, seg, meta, user_id)
-        for i, seg in enumerate(segments, start=1)
-    ]
+        results = dispatch.map_render_clips(clip_spawn_args(job_id, segments, meta, user_id))
+    else:
+        results = [
+            render_one_clip_contained(out, source_name, i, seg, meta, user_id)
+            for i, seg in enumerate(segments, start=1)
+        ]
+    if results and all(r.get("failed") for r in results):
+        reasons = "; ".join(str(r.get("error", "")) for r in results)
+        raise JobError("render", f"all {len(results)} clips failed to render: {reasons}")
+    return results
 
 
 def run_pipeline(
@@ -259,12 +316,29 @@ def run_pipeline(
         meta = SourceMeta.model_validate_json(meta_path.read_text(encoding="utf-8"))
         print(f"[0] import: cached ({meta.duration:.0f}s {meta.width}x{meta.height})")
     elif source_url:
+        # ── Rotating YouTube cookies (free bot-gate bypass). In cloud (STORAGE_BACKEND=r2)
+        #    pull the SELF-ROTATING jar from R2 into a writable temp; yt-dlp rewrites it with a
+        #    fresh session, then we push it back (only on success). Local dev keeps using the
+        #    plain config cookies_file/browser (cookies_enabled() is False without R2). See
+        #    app.ytdlp_cookies + docstring. Every miss/failure is LOGGED (rule #8, no silence). ──
+        cookies_file = s.ytdlp_cookies_file
+        cookies_tmp: Path | None = None
+        if ytdlp_cookies.cookies_enabled():
+            cookies_tmp = ytdlp_cookies.cookies_temp_path(out)
+            if ytdlp_cookies.pull_cookies(cookies_tmp):
+                cookies_file = str(cookies_tmp)  # writable jar → yt-dlp rotates it in place
+            else:
+                cookies_tmp = None  # pull miss → no rotated file to push back; fall through
         meta = import_youtube(
             source_url, out, job_id=job_id,
             cookies_browser=s.ytdlp_cookies_browser,
-            cookies_file=s.ytdlp_cookies_file,
+            cookies_file=cookies_file,
             proxy=s.ytdlp_proxy,  # reliability lever, "" = off (no proxy/no cost)
         )  # fmt: skip
+        # Push the yt-dlp-rotated jar back to R2 ONLY after a SUCCESSFUL import (import_youtube
+        # raises JobError on failure → we skip the push, keeping the last-known-good session).
+        if cookies_tmp is not None:
+            ytdlp_cookies.push_cookies(cookies_tmp)
         print(f"[0] import: {meta.duration:.0f}s {meta.width}x{meta.height}")
     else:
         raise JobError("import", f"no data/{job_id}/source.mp4 and no URL provided")

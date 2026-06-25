@@ -15,7 +15,8 @@
 
 > **Git/deploy (2026-06-24):** the old GitHub `Varenik-vkusny` is suspended; the live remote is now
 > **`cloud` → `github.com/akybaevtimur1/Quip`** (`git push cloud main`). Frontend = Vercel `quip-app`
-> (auto-deploys on push to `main`); worker = Modal `quip-worker` (`modal deploy deploy/modal/worker.py`,
+> (⚠️ **GitHub auto-deploy DEAD — `akybaevtimur1` acct blocked → deploy frontend by CLI `vercel deploy
+> --prod`**); worker = Modal `quip-worker` (`modal deploy deploy/modal/worker.py`,
 > on Windows set `$env:PYTHONIOENCODING="utf-8"` first). Full history → `docs/JOURNAL.md`.
 
 **Open pending items:**
@@ -28,12 +29,15 @@
    (`quip-demo-pipeline.{mp4,webm}` + `-poster.jpg`, now tracked); snippet exists, not yet wired.
 3. **(Optional) Set the Modal `LLM_MODEL` secret to `gemini-2.5-flash`** — belt-and-suspenders; the
    `config.pin_llm_model` validator already coerces any `*-latest`/`gemini-3*`, so non-urgent.
-4. **Branch `feat/yt-import-global-templates-set-password` — 3 features READY but NOT deployed/merged
-   (2026-06-25).** Built by 3 parallel agents (strict file boundaries, TDD, `just check` green). To
-   ship: (a) push the branch / merge to `main` → Vercel auto-deploys the frontend; (b) `modal deploy
-   deploy/modal/worker.py` (PowerShell, `$env:PYTHONIOENCODING="utf-8"` first) for the worker changes +
-   the `yt-dlp[default]` image dep; (c) confirm the Supabase **Auth → "Secure password change"** setting
-   (affects set-password). No `reframe_regions` cache-clear needed (no reframe-logic change). The three:
+4. **✅ SHIPPED to prod 2026-06-25** (merged to `main`) — 3 features + a fixes round (see JOURNAL
+   "2026-06-25 (фиксы #2)"), by parallel agents (strict file boundaries, TDD, `just check` green).
+   ⚠️ **DEPLOY METHOD CHANGED — GitHub auto-deploy is DEAD (the `akybaevtimur1` GitHub account is
+   blocked).** Ship by **CLI, not by push**: frontend = **`vercel deploy --prod`** (from repo root,
+   aliases to `quip.ink`); worker = **`modal deploy deploy/modal/worker.py`** (PowerShell,
+   `$env:PYTHONIOENCODING="utf-8"` first). ⚠️ Confirm Supabase **Auth → "Secure password change"**
+   (affects set-password). YouTube reliability now uses **rotating R2 cookies** (`app/ytdlp_cookies.py`;
+   seed once via `modal run deploy/modal/worker.py::seed_ytdlp_cookies`). No `reframe_regions`
+   cache-clear (reframe untouched). The three core features:
    - **YouTube-link import re-enabled (best-effort).** It was only HIDDEN (commit `9ec7f1a` stripped the
      URL field); the backend was always live. `SourceForm` shows a secondary URL field (upload stays
      primary). Worker downloads server-side (`download_youtube`): avc1-first ≤1080p (reframe-safe) +
@@ -63,7 +67,8 @@
 ## 🟢 Current reality (the baseline — many older docs predate this)
 
 - **It's LIVE in production.** Not a local prototype anymore.
-- **Frontend:** Vercel project **`quip-app`** — **auto-deploys on every push to `main`**.
+- **Frontend:** Vercel project **`quip-app`** — **deployed by CLI `vercel deploy --prod`** (⚠️ GitHub
+  auto-deploy DEAD since 2026-06-25 — the `akybaevtimur1` GitHub account is blocked).
   (The old note "apps/web isn't deployed / the `quip` Vercel project is the landing repo" is
   **OUTDATED**. `quip` = old landing; `quip-app` = the real app.)
 - **Worker:** Modal app **`quip-worker`** — `https://akybaevtimur7--quip-worker-web.modal.run`
@@ -296,13 +301,14 @@ Pick [X] by task:
 ## 🏗️ Deploy & infra map
 
 > **2026-06-24:** the old GitHub `Varenik-vkusny` is suspended; the live remote is now
-> **`cloud` → `github.com/akybaevtimur1/Quip`**. Push to **`main`** there (`git push cloud main`) →
-> Vercel `quip-app` auto-deploys. (A Vercel-CLI deploy `vercel deploy --prod` with the committed
-> `.vercelignore` remains a fallback.) The worker deploys independently via `modal deploy`.
+> **`cloud` → `github.com/akybaevtimur1/Quip`** (use `git push cloud main` only to back up history —
+> ⚠️ **GitHub auto-deploy is DEAD, the `akybaevtimur1` account is blocked**). Ship the frontend by CLI:
+> **`vercel deploy --prod`** (from repo root, committed `.vercelignore`, aliases `quip.ink`). The worker
+> deploys independently via `modal deploy deploy/modal/worker.py`.
 
 | Piece | Where | How it deploys | Dashboard |
 |-------|-------|----------------|-----------|
-| Frontend (`apps/web`) | Vercel **`quip-app`** | **auto on push to `main`** (remote `cloud` = `akybaevtimur1/Quip`); CLI `vercel deploy --prod` as fallback | vercel.com/timurkas-projects/quip-app |
+| Frontend (`apps/web`) | Vercel **`quip-app`** | **`vercel deploy --prod`** (CLI, from repo root → aliases `quip.ink`). ⚠️ GitHub auto-deploy DEAD (acct `akybaevtimur1` blocked) | vercel.com/timurkas-projects/quip-app |
 | Worker (`services/worker`) | Modal **`quip-worker`** | `modal deploy deploy/modal/worker.py` | modal.com (workspace akybaevtimur7) |
 | State / auth / billing data | Supabase **`qiagetbnsssvbiowuxpp`** | SQL Editor / migrations `0001–0014` | supabase.com dashboard |
 | Clip storage | Cloudflare **R2** (`cdn.quip.ink`) | n/a | Cloudflare dashboard |

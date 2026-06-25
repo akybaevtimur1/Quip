@@ -79,6 +79,11 @@ class Settings(BaseSettings):
     # file: абсолютный путь к cookies.txt (Netscape-формат). Приоритет над browser.
     ytdlp_cookies_browser: str = "edge"
     ytdlp_cookies_file: str = ""
+    # R2 key для САМО-РОТИРУЮЩЕГОСЯ cookie-jar (boevoy/Modal). yt-dlp переписывает --cookies
+    # файл свежей сессией ПОСЛЕ каждого скачивания; на read-only/эфемерном Modal ротация
+    # терялась бы → храним jar в R2 и пушим обратно (app.ytdlp_cookies). Активен ТОЛЬКО при
+    # STORAGE_BACKEND=r2 (см. cookies_enabled); локально остаётся ytdlp_cookies_file/browser.
+    ytdlp_cookies_r2_key: str = "internal/ytdlp_cookies.txt"
     # Будущий рычаг надёжности YouTube-скачивания: прокси (обход DC-IP бот-гейта). Пусто =
     # без прокси = $0 (дефолт, OFF). Формат yt-dlp --proxy: "http://host:port" / "socks5://...".
     # Когда заполнен — stage0.download_youtube добавляет "--proxy <url>". Ставим ВЫКЛ.

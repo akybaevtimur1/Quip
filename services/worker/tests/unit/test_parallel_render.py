@@ -135,3 +135,122 @@ def test_render_all_clips_cloud_uses_map(monkeypatch, tmp_path: Path) -> None:
     assert len(seen["args"]) == 2
     assert seen["args"][0][4] == "user_42"  # user_id в args фан-аута
     assert [r["clip_index"] for r in results] == [1, 2]
+
+
+# ── Контейнирование per-clip провала: один сбойный клип НЕ валит весь джоб ──
+
+
+def test_render_one_clip_contained_swallows_joberror(monkeypatch, tmp_path: Path) -> None:
+    import app.run as run_mod
+    from app.errors import JobError
+
+    def boom(*a, **k):
+        raise JobError("render", "ffmpeg exit 234 — 0 video frames")
+
+    monkeypatch.setattr(run_mod, "render_one_clip", boom)
+    r = run_mod.render_one_clip_contained(tmp_path, "source.mp4", 3, _seg(0, 10), _meta(), "u")
+    # Провал контейнирован: sentinel-результат, НЕ исключение.
+    assert r["clip_index"] == 3
+    assert r["clip_id"] == "clip_03"
+    assert r["video_url"] == ""  # пусто = still/failed по streaming-контракту
+    assert r["failed"] is True
+    assert "ffmpeg exit 234" in r["error"]
+
+
+def test_render_one_clip_contained_passes_through_success(monkeypatch, tmp_path: Path) -> None:
+    import app.run as run_mod
+
+    ok = {
+        "clip_id": "clip_01",
+        "clip_index": 1,
+        "video_url": "https://cdn/clip_01.mp4",
+        "reframe_lat": 1.0,
+        "render_lat": 2.0,
+        "face_found": True,
+    }
+    monkeypatch.setattr(run_mod, "render_one_clip", lambda *a, **k: ok)
+    r = run_mod.render_one_clip_contained(tmp_path, "source.mp4", 1, _seg(0, 10), _meta(), "u")
+    assert r is ok
+    assert "failed" not in r  # успех не помечается failed
+
+
+def test_render_all_clips_local_one_clip_fails_others_render(monkeypatch, tmp_path: Path) -> None:
+    import app.run as run_mod
+    from app.errors import JobError
+
+    monkeypatch.setattr(run_mod.dispatch, "modal_spawn_enabled", lambda: False)
+
+    def maybe_boom(out, source_name, clip_index, seg, meta, user_id=None):
+        if clip_index == 2:
+            raise JobError("render", "0 video frames for this clip")
+        return {
+            "clip_id": f"clip_{clip_index:02d}",
+            "clip_index": clip_index,
+            "video_url": f"u{clip_index}",
+            "reframe_lat": 1.0,
+            "render_lat": 2.0,
+            "face_found": True,
+        }
+
+    monkeypatch.setattr(run_mod, "render_one_clip", maybe_boom)
+    segs = [_seg(0, 10), _seg(20, 35), _seg(40, 55)]
+    results = run_mod._render_all_clips("job_x", tmp_path, "source.mp4", segs, _meta(), "u")
+    # ОДИН клип упал, но джоб НЕ упал — три результата, клип 2 = пустой url.
+    assert [r["clip_index"] for r in results] == [1, 2, 3]
+    assert results[0]["video_url"] == "u1"
+    assert results[1]["video_url"] == ""
+    assert results[1]["failed"] is True
+    assert results[2]["video_url"] == "u3"
+
+
+def test_render_all_clips_all_fail_raises_job_error(monkeypatch, tmp_path: Path) -> None:
+    import pytest
+
+    import app.run as run_mod
+    from app.errors import JobError
+
+    monkeypatch.setattr(run_mod.dispatch, "modal_spawn_enabled", lambda: False)
+
+    def always_boom(*a, **k):
+        raise JobError("render", "0 video frames")
+
+    monkeypatch.setattr(run_mod, "render_one_clip", always_boom)
+    segs = [_seg(0, 10), _seg(20, 35)]
+    # ВСЕ клипы упали → джоб честно failed (тотальный провал НЕ прячем).
+    with pytest.raises(JobError) as ei:
+        run_mod._render_all_clips("job_x", tmp_path, "source.mp4", segs, _meta(), "u")
+    assert "all 2 clips failed" in str(ei.value)
+
+
+def test_render_all_clips_cloud_failed_sentinels_pass_through(monkeypatch, tmp_path: Path) -> None:
+    # Modal-путь: дочерний reframe_render_clip уже контейнирует и ВОЗВРАЩАЕТ failed-sentinel
+    # (а не кидает). _render_all_clips НЕ должен ронять джоб, пока хоть один клип жив.
+    import app.run as run_mod
+
+    monkeypatch.setattr(run_mod.dispatch, "modal_spawn_enabled", lambda: True)
+
+    def fake_map(args: list[tuple]) -> list[dict]:
+        out = []
+        for a in args:
+            idx = a[1]
+            if idx == 1:
+                out.append(run_mod.failed_clip_result(idx, "render: 0 video frames"))
+            else:
+                out.append(
+                    {
+                        "clip_id": f"clip_{idx:02d}",
+                        "clip_index": idx,
+                        "video_url": f"u{idx}",
+                        "reframe_lat": 1.0,
+                        "render_lat": 2.0,
+                        "face_found": True,
+                    }
+                )
+        return out
+
+    monkeypatch.setattr(run_mod.dispatch, "map_render_clips", fake_map)
+    segs = [_seg(0, 10), _seg(20, 35)]
+    results = run_mod._render_all_clips("job_x", tmp_path, "source.mp4", segs, _meta(), "u")
+    assert results[0]["failed"] is True
+    assert results[0]["video_url"] == ""
+    assert results[1]["video_url"] == "u2"

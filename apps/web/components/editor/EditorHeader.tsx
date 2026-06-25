@@ -45,6 +45,7 @@ export function EditorHeader({
   onApplyTemplateClip,
   onApplyTemplateAll,
   onSaveTemplate,
+  onUpdateTemplate,
   onDeleteTemplate,
   onSetDefaultTemplate,
   onError,
@@ -75,6 +76,8 @@ export function EditorHeader({
   onApplyTemplateAll: (look: StylePreferencePayload) => Promise<number>;
   /** Save the current look as a NAMED template (optionally the new-clip default). */
   onSaveTemplate: (name: string, setDefault: boolean) => Promise<void>;
+  /** Overwrite an existing template's stored look with the CURRENT clip style (update in place). */
+  onUpdateTemplate: (id: string) => Promise<void>;
   onDeleteTemplate: (id: string) => Promise<void>;
   onSetDefaultTemplate: (id: string, isDefault: boolean) => Promise<void>;
   /** Surface a template-action error in the editor's shared error banner. */
@@ -230,6 +233,7 @@ export function EditorHeader({
                 onApplyTemplateClip={onApplyTemplateClip}
                 onApplyTemplateAll={onApplyTemplateAll}
                 onSaveTemplate={onSaveTemplate}
+                onUpdateTemplate={onUpdateTemplate}
                 onDeleteTemplate={onDeleteTemplate}
                 onSetDefaultTemplate={onSetDefaultTemplate}
               />

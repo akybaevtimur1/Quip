@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Plus, Star, Trash2 } from "lucide-react";
+import { Check, Plus, RefreshCw, Star, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { Badge } from "@/components/ui/Badge";
 import { IconButton } from "@/components/ui/IconButton";
@@ -27,6 +27,7 @@ export function TemplatesPanel({
   onApplyTemplateClip,
   onApplyTemplateAll,
   onSaveTemplate,
+  onUpdateTemplate,
   onDeleteTemplate,
   onSetDefaultTemplate,
 }: {
@@ -42,6 +43,8 @@ export function TemplatesPanel({
   onApplyTemplateAll: (look: StylePreferencePayload) => Promise<number>;
   /** Save the current look as a NAMED template (optionally the new-clip default). */
   onSaveTemplate: (name: string, setDefault: boolean) => Promise<void>;
+  /** Overwrite an existing template's stored look with the CURRENT clip style (update in place). */
+  onUpdateTemplate: (id: string) => Promise<void>;
   onDeleteTemplate: (id: string) => Promise<void>;
   onSetDefaultTemplate: (id: string, isDefault: boolean) => Promise<void>;
 }) {
@@ -80,6 +83,20 @@ export function TemplatesPanel({
       flashTpl("Template saved");
     } catch (e) {
       onError(e instanceof Error ? e.message : "Couldn’t save the template");
+    } finally {
+      setTplBusy(null);
+    }
+  };
+
+  // Overwrite this template's saved look with the CURRENT clip style (update in place — no
+  // delete + re-add). Same save path as "Save current", just keyed to this template's id.
+  const updateTpl = async (t: StyleTemplate) => {
+    setTplBusy(`upd:${t.id}`);
+    try {
+      await onUpdateTemplate(t.id);
+      flashTpl(`Updated “${t.name}” to the current style`);
+    } catch (e) {
+      onError(e instanceof Error ? e.message : "Couldn’t update the template");
     } finally {
       setTplBusy(null);
     }
@@ -136,6 +153,7 @@ export function TemplatesPanel({
             const swatch = (t.look.style?.color as string) ?? "#ffffff";
             const hi = (t.look.highlight?.color as string | undefined) ?? null;
             const busyAll = tplBusy === `all:${t.id}`;
+            const busyUpd = tplBusy === `upd:${t.id}`;
             return (
               <div
                 key={t.id}
@@ -175,6 +193,16 @@ export function TemplatesPanel({
                   className="shrink-0 rounded border border-line px-2 py-1 text-xs font-semibold text-muted transition duration-150 ease-snappy enabled:hover:border-line-strong enabled:hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 disabled:opacity-50"
                 >
                   {busyAll ? "Applying…" : "All clips"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void updateTpl(t)}
+                  disabled={busy || tplBusy !== null}
+                  title="Update — overwrite this template with the current clip’s style"
+                  className="inline-flex shrink-0 items-center gap-1 rounded border border-line px-2 py-1 text-xs font-semibold text-muted transition duration-150 ease-snappy enabled:hover:border-line-strong enabled:hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 disabled:opacity-50"
+                >
+                  <RefreshCw className={`size-3 ${busyUpd ? "animate-spin" : ""}`} aria-hidden />
+                  {busyUpd ? "Updating…" : "Update"}
                 </button>
                 <IconButton
                   size="sm"
