@@ -23,9 +23,13 @@ from app.errors import JobError
 from app.models import ClipType, Segment, Transcript, Word
 
 _STAGE = "select"
-# Потолок попыток на primary (cost-cap: на сбойном контенте 7×вызовов кусались). На платном
-# ключе транзиентные 503 редки → 4 хватает; backoff min(2^n, 30)с.
-_MAX_ATTEMPTS = 4
+# Потолок попыток на primary. Долбимся МНОГО (Google регулярно отдаёт транзиентные 429/503 —
+# джоба не должна падать от одного чиха). Ретраятся ТОЛЬКО транзиентные исключения самого
+# вызова generate_content (сеть/HTTP-5xx/429) — это дёшево (запрос отвергнут до биллинга
+# токенов); парсинг ответа идёт ПОСЛЕ цикла, так что «плохой контент» сюда не попадает и
+# деньги не жжёт. backoff equal-jitter min(2^n, 30)с → 20 попыток ≈ покрывают ~5-7 мин
+# сбоя Google (главный пайплайн на Modal timeout=3h — с запасом).
+_MAX_ATTEMPTS = 20
 # При устойчивых сбоях primary пробуем lite (дешевле/другая нагрузка). gemini-2.0-flash УБРАНА
 # (мертва с 2026-06-01). primary тут НЕ дублируем (он = s.llm_model = 2.5-flash).
 _FALLBACK_MODELS = ("gemini-2.5-flash-lite",)

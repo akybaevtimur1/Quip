@@ -111,6 +111,61 @@ class TestIsTransientGeminiError:
         assert is_transient_gemini_error(RuntimeError("???")) is True
 
 
+class TestCallGeminiRetryBudget:
+    """Gemini у Google регулярно отдаёт транзиентные 429/503 — джоба НЕ должна падать от
+    одного чиха. Долбимся в primary-модель МНОГО раз (≥20) с бэкоффом, и только потом сдаёмся.
+    """
+
+    def _api_error(self, code: int) -> Exception:
+        from google.genai import errors
+
+        return errors.APIError(code, {"error": {"message": "transient", "status": "UNAVAILABLE"}})
+
+    def test_primary_hammered_at_least_20_times_on_transient(self, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+        import types as _pytypes
+        from types import SimpleNamespace
+
+        from pydantic import BaseModel
+
+        from app.pipeline import stage2_select as s2
+
+        # бэкофф не должен реально спать в тесте
+        monkeypatch.setattr(s2.time, "sleep", lambda *_a, **_k: None)
+        monkeypatch.setattr(
+            s2,
+            "get_settings",
+            lambda: SimpleNamespace(
+                gemini_api_key="k", llm_model="gemini-2.5-flash", llm_max_output_tokens=2048
+            ),
+        )
+
+        calls: dict[str, int] = {}
+        err = self._api_error(503)
+
+        class _Models:
+            def generate_content(self, *, model, contents, config):  # type: ignore[no-untyped-def]
+                calls[model] = calls.get(model, 0) + 1
+                raise err
+
+        def _fake_client(*_a, **_k):  # type: ignore[no-untyped-def]
+            return _pytypes.SimpleNamespace(models=_Models())
+
+        import google.genai as _genai
+
+        monkeypatch.setattr(_genai, "Client", _fake_client)
+
+        class _Schema(BaseModel):
+            x: int
+
+        with pytest.raises(JobError):
+            s2.call_gemini_structured("u", system_prompt="s", response_schema=_Schema)
+
+        # пользовательское требование: «бейся 20 раз». primary долбится ровно _MAX_ATTEMPTS,
+        # и сам бюджет ≥ 20 (иначе сдаёмся слишком рано на временном сбое Google).
+        assert s2._MAX_ATTEMPTS >= 20
+        assert calls.get("gemini-2.5-flash") == s2._MAX_ATTEMPTS
+
+
 class TestIndicesToTimes:
     def test_maps_to_word_boundaries(self) -> None:
         words = uniform(10)
