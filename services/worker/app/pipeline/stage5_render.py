@@ -167,6 +167,20 @@ def _fontsdir_rel(data_dir: Path) -> str | None:
 
 
 _WATERMARK_TEXT = "Made with Quip"
+# бренд-шрифт вотермарки; ОБЯЗАН лежать в _FONTS_DIR (деплоится в /root/fonts на Modal)
+_WATERMARK_FONT = "Montserrat.ttf"
+
+
+def _watermark_fontfile(fontsdir: str | None) -> str | None:
+    """fontsdir (ПАПКА со шрифтами) → fontfile (КОНКРЕТНЫЙ TTF-ФАЙЛ) для drawtext. PURE.
+
+    subtitles берёт fontsdir=<папка>, а drawtext — fontfile=<файл>; их НЕЛЬЗЯ путать:
+    fontfile=<папка> → ffmpeg не может открыть шрифт → init drawtext падает → весь граф
+    отвергнут («ffmpeg exit 8: Filter not found»). None → drawtext без fontfile (дефолт ffmpeg).
+    """
+    if not fontsdir:
+        return None
+    return f"{fontsdir}/{_WATERMARK_FONT}"
 
 
 def build_watermark_drawtext(out_w: int, out_h: int, fontfile: str | None) -> str:
@@ -353,7 +367,9 @@ def build_smooth_filter(
     if not regions:
         raise JobError(_STAGE, "smooth filter requires ≥1 region")
     n = len(regions)
-    wm = build_watermark_drawtext(out_w, out_h, fontsdir) if watermark else None
+    wm = (
+        build_watermark_drawtext(out_w, out_h, _watermark_fontfile(fontsdir)) if watermark else None
+    )
     heads = "".join(f"[a{i}]" for i in range(n))
     parts = [f"[0:v]setpts=PTS-STARTPTS,split={n}{heads};"]
     for i, r in enumerate(regions):
@@ -478,7 +494,9 @@ def render_frame_by_frame(
     if ass_name:
         vf_filters.append(f"subtitles={ass_name}")
     if watermark:
-        vf_filters.append(build_watermark_drawtext(out_w, out_h, _fontsdir_rel(data_dir)))
+        vf_filters.append(
+            build_watermark_drawtext(out_w, out_h, _watermark_fontfile(_fontsdir_rel(data_dir)))
+        )
     ffmpeg_cmd = [
         "ffmpeg", "-y", "-loglevel", "error",
         "-f", "rawvideo", "-pix_fmt", "bgr24",
@@ -676,7 +694,9 @@ def build_timeline_filter(
     if not segments:
         raise JobError(_STAGE, "build_timeline_filter: empty timeline")
     n = len(segments)
-    wm = build_watermark_drawtext(out_w, out_h, fontsdir) if watermark else None
+    wm = (
+        build_watermark_drawtext(out_w, out_h, _watermark_fontfile(fontsdir)) if watermark else None
+    )
     vheads = "".join(f"[v{i}]" for i in range(n))
     aheads = "".join(f"[a{i}]" for i in range(n))
     parts = [f"[0:v]split={n}{vheads};[0:a]asplit={n}{aheads};"]

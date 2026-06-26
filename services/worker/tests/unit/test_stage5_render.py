@@ -11,12 +11,14 @@ import pytest
 from app.errors import JobError
 from app.pipeline.stage3_reframe import TrackPoint, TrackRegion
 from app.pipeline.stage5_render import (
+    TimelineSegment,
     _chain_video_segs,
     _interp_cx,
     aspect_to_dims,
     build_fill_crop_expr,
     build_single_pass_cmd,
     build_smooth_filter,
+    build_timeline_filter,
     build_watermark_drawtext,
     clamp_output_dims,
     fill_crop_dims,
@@ -361,6 +363,39 @@ class TestBuildSmoothFilterWatermark:
         fc = build_smooth_filter(regions, 1920, 1080, 30.0, "c.ass", watermark=True)
         assert fc.count("drawtext=") == 1  # одна вотермарка на весь клип, не на регион
         assert fc.rstrip().endswith("[outv]")
+
+    def test_watermark_fontfile_is_a_ttf_file_not_the_fonts_dir(self) -> None:
+        # РЕГРЕССИЯ (рендер падал «ffmpeg exit 8: Filter not found»): drawtext.fontfile
+        # ОБЯЗАН указывать на TTF-ФАЙЛ, а не на ПАПКУ. subtitles берёт fontsdir=<папка>,
+        # а drawtext — fontfile=<файл>; раньше в drawtext по ошибке отдавали тот же fontsdir
+        # (папку) → ffmpeg не мог открыть шрифт → init drawtext падал → весь граф отвергнут.
+        fc = build_smooth_filter(
+            [_fill_region(0.0, 5.0, [0.5])], 1920, 1080, 24.0, "c.ass",
+            fontsdir="../../fonts", watermark=True,
+        )  # fmt: skip
+        assert "fontfile=../../fonts/" in fc  # путь ВНУТРЬ папки (конкретный файл)
+        assert ".ttf" in fc  # и это .ttf
+        assert "fontfile=../../fonts:" not in fc  # НЕ голая директория (это и был баг)
+
+
+class TestBuildTimelineFilterWatermark:
+    """build_timeline_filter (мульти-интервал, редактор): тот же fontfile-инвариант."""
+
+    def _fill_seg(self) -> TimelineSegment:
+        return TimelineSegment(
+            src_f0=0, src_f1=120, src_t0=0.0, src_t1=5.0, mode="fill",
+            points=(TrackPoint(t=0.0, mode="fill", cx=0.5),), region_t0=0.0,
+        )  # fmt: skip
+
+    def test_watermark_fontfile_is_a_ttf_file_not_the_fonts_dir(self) -> None:
+        # РЕГРЕССИЯ: см. build_smooth_filter — fontfile=<файл>, не <папка>.
+        fc = build_timeline_filter(
+            [self._fill_seg()], 1920, 1080, 24.0, "c.ass",
+            fontsdir="../../fonts", watermark=True,
+        )  # fmt: skip
+        assert "fontfile=../../fonts/" in fc
+        assert ".ttf" in fc
+        assert "fontfile=../../fonts:" not in fc
 
 
 # ─────────────────────── TestChainVideoSegs ───────────────────────

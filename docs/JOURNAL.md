@@ -4,6 +4,19 @@
 > «как и почему так сделано». Актуальное состояние проекта = docs/README.md. Правила = CLAUDE.md.
 > Новые заметные решения дописывай СЮДА (не в CLAUDE.md).
 
+### 2026-06-26 (прод-фиксы) — рендер вотермарки + живучесть Gemini
+Два бага воркера. **(1) Рендер.** ВСЕ free-клипы падали `ffmpeg exit 8: Filter not found`, потому что
+`build_watermark_drawtext` получал `fontsdir` (ПАПКУ `../../fonts`, как для фильтра субтитров) в
+`drawtext fontfile=`, который ждёт ФАЙЛ-шрифт → init drawtext падал → весь filter_complex отвергался.
+Стало рвать всё только сейчас: коммит `cdfae20` сделал free-вотермарку всегда-включённой, и битый путь
+впервые реально выполнился. Фикс: хелпер `_watermark_fontfile(fontsdir) → <dir>/Montserrat.ttf` во всех
+3 местах вызова (build_smooth_filter / Engine B / build_timeline_filter). Регресс-тесты (fontfile=ФАЙЛ,
+не папка) + проверено реальным ffmpeg (exit 0). Вотермарка собирается заново на каждый рендер →
+`reframe_regions`-кэш чистить НЕ надо. **(2) Gemini.** Google часто отдаёт транзиентные 429/503/таймаут;
+джоба не должна падать от чиха. `_MAX_ATTEMPTS` 4 → 20 (агент `clip_agent` подхватил централизованно).
+Ретраится ТОЛЬКО вызов generate_content (дёшево — до биллинга токенов), парсинг ответа вне цикла.
+Поведенческий тест. Гейт `just check` зелёный (971 pytest + 62 vitest + anti-drift).
+
 ### 2026-06-25 (лендинг) — новый «Readout»-лендинг интегрирован на /
 Перенесли отдельный пакет `quip-landing-delivery/` в прод `apps/web` как боевую главную. Новая
 route-group `app/(home)/page.tsx` — async Server Component: читает сессию через `getOptionalUser` и
