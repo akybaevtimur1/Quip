@@ -18,3 +18,12 @@ export function clipRange(start: number, end: number): string {
 export function usd(n: number): string {
   return `$${(Number.isFinite(n) ? n : 0).toFixed(2)}`;
 }
+
+/** Длительность процесса: `42s` или `1m 03s`. */
+export function elapsed(seconds: number): string {
+  const s = Number.isFinite(seconds) ? Math.max(0, Math.round(seconds)) : 0;
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  const sec = (s % 60).toString().padStart(2, "0");
+  return `${m}m ${sec}s`;
+}

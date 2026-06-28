@@ -7,7 +7,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { Eyebrow } from "@/components/ui/Eyebrow";
 import { Numeral } from "@/components/ui/Numeral";
 import { Spinner } from "@/components/ui/Spinner";
-import { mmss } from "@/lib/format";
+import { elapsed, mmss } from "@/lib/format";
 import type { ClipOut, Job } from "@/lib/types";
 import { ClipCard, resolveUrl } from "./ClipCard";
 
@@ -140,7 +140,7 @@ export function ClipGrid({ job }: { job: Job }) {
           <div className="flex flex-wrap items-end gap-x-8 gap-y-3">
             <StripStat label="Avg confidence" value={`${Math.round(avgScore * 100)}/100`} />
             {m && <StripStat label="Source" value={mmss(m.duration_sec)} />}
-            {m && <StripStat label="Time taken" value={`${Math.round(m.elapsed_sec)}s`} />}
+            {m && <StripStat label="Time taken" value={elapsed(m.elapsed_sec)} />}
           </div>
         </div>
       </header>
