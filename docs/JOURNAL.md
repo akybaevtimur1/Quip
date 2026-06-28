@@ -4,6 +4,9 @@
 > «как и почему так сделано». Актуальное состояние проекта = docs/README.md. Правила = CLAUDE.md.
 > Новые заметные решения дописывай СЮДА (не в CLAUDE.md).
 
+### 2026-06-28 (дизайн) — спека «Remove silences» (Phase 1 client-side)
+Забраундстормили и записали полный дизайн фичи удаления пауз из клипов. Phase 1 = чисто фронт: `lib/silenceMap.ts` вычисляет `keepIntervals` из готовых word-timestamps Deepgram, `PreviewPlayer` прыгает через тишину в rVFC-loop (`video.currentTime = silenceEnd`). Новая вкладка `SilenceTab` в редакторе: toggle + slider Natural↔Tight + advanced panel (padding, max_pause). Глобальные дефолты в `/account` через `profiles.style_preferences`. Данные клипа через `ClipEdit.silence_config` + `just types`. Phase 2 (FFmpeg concat re-render + Silero VAD) задокументирована, но ОТЛОЖЕНА. Спека: `docs/superpowers/specs/2026-06-28-silence-removal-design.md`.
+
 ### 2026-06-26 (прод-фиксы) — рендер вотермарки + живучесть Gemini
 Два бага воркера. **(1) Рендер.** ВСЕ free-клипы падали `ffmpeg exit 8: Filter not found`, потому что
 `build_watermark_drawtext` получал `fontsdir` (ПАПКУ `../../fonts`, как для фильтра субтитров) в
