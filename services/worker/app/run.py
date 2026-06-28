@@ -108,6 +108,8 @@ def build_clip_out(
         hook=seg.hook,
         why_works=seg.why_works,
         hook_style=seg.hook_style,
+        tone=seg.tone,
+        key_quote=seg.key_quote,
     )
 
 

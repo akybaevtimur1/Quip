@@ -4,6 +4,9 @@
 > «как и почему так сделано». Актуальное состояние проекта = docs/README.md. Правила = CLAUDE.md.
 > Новые заметные решения дописывай СЮДА (не в CLAUDE.md).
 
+### 2026-06-28 (фича) — clip card redesign: tone/key_quote/glow/accordion + stable sort + tiered score color
+Полная реализация спека `2026-06-28-clip-card-redesign.md`. Бэкенд: `tone`+`key_quote` добавлены в `Segment`/`ClipOut`/`_LlmSegment`, `postprocess()` читает оба поля, промпт получил STEP 5 `key_quote`, `build_clip_out()` маппит оба поля, новый эндпоинт `POST /jobs/{id}/clips/{id}/refresh-analysis` (+ `RefreshClipBody` в models.py, `patch_clip_analysis` в cloud_state+db). Фронт: `ClipCard` — amber→tiered score (≥90 green/70 amber/50 orange/<50 rose, цвет анимируется при count-up), tone glow на Card, emoji badge, key moment blockquote, accordion «Why this clip ↓» с 4 signal bars, stale banner + Refresh. `ClipGrid` — stable sort по score (useMemo на ID-ключе, позиция не меняется при render complete). Баг пофикшен: `"standalone"` не ClipType → заменён на `"hook"` (4 бара). `just types` прогнан, `just check` зелёный (1023 pytest).
+
 ### 2026-06-28 (дизайн) — спека «Remove silences» (Phase 1 client-side)
 Забраундстормили и записали полный дизайн фичи удаления пауз из клипов. Phase 1 = чисто фронт: `lib/silenceMap.ts` вычисляет `keepIntervals` из готовых word-timestamps Deepgram, `PreviewPlayer` прыгает через тишину в rVFC-loop (`video.currentTime = silenceEnd`). Новая вкладка `SilenceTab` в редакторе: toggle + slider Natural↔Tight + advanced panel (padding, max_pause). Глобальные дефолты в `/account` через `profiles.style_preferences`. Данные клипа через `ClipEdit.silence_config` + `just types`. Phase 2 (FFmpeg concat re-render + Silero VAD) задокументирована, но ОТЛОЖЕНА. Спека: `docs/superpowers/specs/2026-06-28-silence-removal-design.md`.
 

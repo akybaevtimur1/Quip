@@ -177,6 +177,33 @@ def set_progress_detail(
         print(f"[set_progress_detail] WARN job={job_id}: {e}")
 
 
+def patch_clip_analysis(job_id: str, clip_id: str, fields: dict[str, Any]) -> None:
+    """Update analysis fields for one clip (read-modify-write; safe post-pipeline)."""
+    r = httpx.get(
+        f"{_base()}/jobs",
+        params={"id": f"eq.{job_id}", "select": "clips"},
+        headers=_headers(),
+        timeout=_TIMEOUT,
+    )
+    r.raise_for_status()
+    row = first_row(r.json())
+    if row is None:
+        return
+    clips = list(row.get("clips") or [])
+    for clip in clips:
+        if clip.get("id") == clip_id:
+            clip.update(fields)
+            break
+    p = httpx.patch(
+        f"{_base()}/jobs",
+        params={"id": f"eq.{job_id}"},
+        headers=_headers({"Prefer": "return=minimal"}),
+        json={"clips": clips},
+        timeout=_TIMEOUT,
+    )
+    p.raise_for_status()
+
+
 def set_clip_ready(job_id: str, idx: int, url: str) -> None:
     """Атомарно проставить ``clips[idx].video_url`` ОДНОГО клипа (per-clip контейнер закончил).
 

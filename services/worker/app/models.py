@@ -89,6 +89,8 @@ class Segment(BaseModel):
     # W2: стиль хука (pov/relatable/informative/shock/…). Свободная строка, НЕ enum:
     # словарь стилей живёт в prompts/select_moments.v2.txt → крутится без передеплоя/codegen.
     hook_style: str | None = None
+    tone: str | None = None  # эмоциональный тон (shocking/funny/touching/…); None = не определён
+    key_quote: str | None = None  # самая сильная дословная цитата из клипа (для карточки)
 
 
 class CropWindow(BaseModel):
@@ -136,6 +138,15 @@ class ClipOut(BaseModel):
     hook: str | None = None  # T1: цепляющий топ-заголовок (объяснимость)
     why_works: str | None = None  # T2: разбор «почему сработает»
     hook_style: str | None = None  # W2: стиль хука (pov/relatable/informative/shock/…)
+    tone: str | None = None  # эмоциональный тон клипа (shocking/funny/touching/…)
+    key_quote: str | None = None  # самая сильная дословная цитата из клипа
+
+
+class RefreshClipBody(BaseModel):
+    """Тело запроса `POST /jobs/{job_id}/clips/{clip_id}/refresh-analysis`."""
+
+    start: float  # новая левая граница клипа (секунды в координатах source)
+    end: float  # новая правая граница клипа
 
 
 class Metrics(BaseModel):

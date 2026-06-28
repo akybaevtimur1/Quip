@@ -59,8 +59,10 @@ from app.models import (
     CaptionPreset,
     CaptionStyle,
     CaptionTrack,
+    ClipOut,
     CropOverride,
     HighlightStyle,
+    RefreshClipBody,
 )
 from app.pipeline.stage5_render import aspect_to_dims
 from app.run import DATA_ROOT
@@ -1258,6 +1260,72 @@ def get_analysis(job_id: str, clip_id: str) -> dict[str, Any]:
         if any(iv.source_start <= w.start < iv.source_end for iv in edit.source_intervals)
     ]
     return {"intervals": [iv.model_dump() for iv in edit.source_intervals], "words": in_clip}
+
+
+@app.post("/jobs/{job_id}/clips/{clip_id}/refresh-analysis")
+def refresh_clip_analysis(
+    job_id: str,
+    clip_id: str,
+    body: RefreshClipBody,
+    authorization: str | None = Header(default=None),
+    x_user_id: str | None = Header(default=None),
+) -> ClipOut:
+    """Re-run tone/key_quote/score analysis for a single clip after user edits its boundaries."""
+    from app import artifacts
+    from app.models import Transcript
+    from app.pipeline.stage2_select import select_segments
+    from app.run import build_clip_out
+
+    _resolve_user(authorization, x_user_id)
+
+    job = db.get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="job not found")
+    existing = next((c for c in (job.get("clips") or []) if c.get("id") == clip_id), None)
+    if existing is None:
+        raise HTTPException(status_code=404, detail="clip not found")
+
+    try:
+        transcript = artifacts.load_transcript(job_id)
+        meta = artifacts.load_meta(job_id)
+    except JobError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+    sliced_words = [w for w in transcript.words if body.start <= w.start and w.end <= body.end]
+    if not sliced_words:
+        raise HTTPException(status_code=422, detail="no words found in requested range")
+
+    transcript_slice = Transcript(
+        language=transcript.language,
+        duration=body.end - body.start,
+        words=sliced_words,
+    )
+    try:
+        segments = select_segments(transcript_slice, meta.title, max_clips=1, usage_sink={})
+    except JobError as e:
+        raise HTTPException(status_code=502, detail=f"analysis failed: {e}") from e
+    if not segments:
+        raise HTTPException(status_code=422, detail="model returned no segment for this range")
+
+    video_url = existing.get("video_url") or ""
+    clip_out = build_clip_out(clip_id, segments[0], transcript.words, video_url)
+    clip_out = clip_out.model_copy(update={"thumbnail_url": existing.get("thumbnail_url")})
+
+    db.patch_clip_analysis(
+        job_id,
+        clip_id,
+        {
+            "score": clip_out.score,
+            "reason": clip_out.reason,
+            "type": clip_out.type if isinstance(clip_out.type, str) else clip_out.type.value,
+            "hook": clip_out.hook,
+            "why_works": clip_out.why_works,
+            "hook_style": clip_out.hook_style,
+            "tone": clip_out.tone,
+            "key_quote": clip_out.key_quote,
+        },
+    )
+    return clip_out
 
 
 # ──────────────────────────── Preset endpoints ────────────────────────────

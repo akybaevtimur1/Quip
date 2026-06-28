@@ -77,6 +77,10 @@ For each moment ALSO produce:
 - `why_works`: ONE short sentence (transcript language) on WHY it performs standalone.
 - `score` in [0,1] = your confidence this clip will perform standalone.
 
+STEP 5 — `key_quote`: copy the single most impactful verbatim line from within this clip's word
+range. Must be a direct quote (exact words spoken), not a paraphrase. Max 180 chars. This is the
+line a viewer would screenshot or share. If no single line stands out, pick the strongest sentence.
+
 SELECTION QUALITY (be generous with STRONG moments, ruthless with weak ones):
 - A 30-90 min talk usually holds 10-20 genuinely strong standalone clips. Surface them ALL (up to
   the requested number), SPREAD across the WHOLE video (beginning, middle AND end) and across
@@ -96,4 +100,4 @@ HARD RULES (selection):
 - Moments MUST NOT overlap.
 - High bar, but surface ALL genuinely strong standalone moments — never pad to hit a number.
 - Use ONLY word indices that exist in the transcript.
-- `tone`, `hook_style`, `hook`, `why_works` are REQUIRED and specific to EACH moment.
+- `tone`, `hook_style`, `hook`, `why_works`, `key_quote` are REQUIRED and specific to EACH moment.

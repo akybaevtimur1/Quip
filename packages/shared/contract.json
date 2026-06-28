@@ -507,6 +507,17 @@
         "id": {
           "type": "string"
         },
+        "key_quote": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "reason": {
           "type": "string"
         },
@@ -519,6 +530,17 @@
           "type": "number"
         },
         "thumbnail_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "tone": {
           "anyOf": [
             {
               "type": "string"
@@ -965,6 +987,17 @@
           ],
           "default": null
         },
+        "key_quote": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "reason": {
           "type": "string"
         },
@@ -975,6 +1008,17 @@
         },
         "start": {
           "type": "number"
+        },
+        "tone": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "type": {
           "$ref": "#/$defs/ClipType"

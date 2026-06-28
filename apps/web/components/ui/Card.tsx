@@ -5,17 +5,20 @@ import { cn } from "@/lib/cn";
  *  in with a coral ring (the "selection by ring, not dimming" rule). */
 export function Card({
   className,
+  style,
   children,
   interactive = false,
   selected = false,
 }: {
   className?: string;
+  style?: React.CSSProperties;
   children: React.ReactNode;
   interactive?: boolean;
   selected?: boolean;
 }) {
   return (
     <div
+      style={style}
       className={cn(
         "rounded-lg border bg-surface",
         selected ? "border-accent-line ring-1 ring-accent-line" : "border-line",

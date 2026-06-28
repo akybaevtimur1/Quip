@@ -2,17 +2,14 @@
 
 import { Check, Loader2, Pencil } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ExportMenu } from "@/components/ExportMenu";
 import { Card } from "@/components/ui/Card";
-import { Eyebrow } from "@/components/ui/Eyebrow";
 import { Numeral } from "@/components/ui/Numeral";
-import { Stat } from "@/components/ui/Stat";
 import { clipRange } from "@/lib/format";
 import type { ClipOut } from "@/lib/types";
 import { ClipPreview } from "./ClipPreview";
 import { PendingThumb } from "./PendingThumb";
-import { ReasonChip } from "./ReasonChip";
 
 function prefersReducedMotion(): boolean {
   return (
@@ -28,43 +25,102 @@ export function resolveUrl(videoUrl: string): string {
   return `${WORKER_BASE}/${videoUrl}`;
 }
 
+const TONE_GLOW: Record<string, { border: string; shadow: string }> = {
+  shocking:     { border: '#2a1515', shadow: '0 0 0 1px rgba(255,70,70,0.14), 0 0 18px rgba(255,70,70,0.09), inset 0 0 28px rgba(255,60,60,0.04)' },
+  funny:        { border: '#2a2510', shadow: '0 0 0 1px rgba(250,204,21,0.14), 0 0 18px rgba(250,204,21,0.09), inset 0 0 28px rgba(250,200,20,0.04)' },
+  touching:     { border: '#1e1228', shadow: '0 0 0 1px rgba(192,132,252,0.14), 0 0 18px rgba(192,132,252,0.09), inset 0 0 28px rgba(192,132,252,0.04)' },
+  relatable:    { border: '#131d13', shadow: '0 0 0 1px rgba(74,222,128,0.14), 0 0 18px rgba(74,222,128,0.09), inset 0 0 28px rgba(74,222,128,0.04)' },
+  inspiring:    { border: '#1a1710', shadow: '0 0 0 1px rgba(251,146,60,0.14), 0 0 18px rgba(251,146,60,0.09), inset 0 0 28px rgba(251,146,60,0.04)' },
+  controversial:{ border: '#160e20', shadow: '0 0 0 1px rgba(167,139,250,0.14), 0 0 18px rgba(167,139,250,0.09), inset 0 0 28px rgba(167,139,250,0.04)' },
+  insightful:   { border: '#101820', shadow: '0 0 0 1px rgba(56,189,248,0.14), 0 0 18px rgba(56,189,248,0.09), inset 0 0 28px rgba(56,189,248,0.04)' },
+};
+
+const TONE_EMOJI: Record<string, string> = {
+  shocking: '😮', funny: '😂', touching: '🥺',
+  relatable: '🙌', inspiring: '🔥', controversial: '🤔', insightful: '💡',
+};
+
+function computeSignalBars(clip: ClipOut): { label: string; bars: number }[] {
+  const score = clip.score;
+  return [
+    {
+      label: 'Hook',
+      bars: score >= 0.85 ? 4 : score >= 0.70 ? 3 : score >= 0.55 ? 2 : 1,
+    },
+    {
+      label: 'Standalone',
+      bars: ['hook', 'emotional_peak'].includes(clip.type) ? 4
+          : clip.type === 'complete_thought' ? 3
+          : clip.type === 'strong_quote' ? 3
+          : 2,
+    },
+    {
+      label: 'Energy',
+      bars: ['shocking', 'funny', 'controversial'].includes(clip.tone ?? '') ? 4
+          : ['inspiring', 'relatable', 'insightful'].includes(clip.tone ?? '') ? 3
+          : clip.tone === 'touching' ? 2
+          : 1,
+    },
+    {
+      label: 'Speaker',
+      bars: (clip.hook?.length ?? 0) > 60 ? 3 + (clip.why_works ? 1 : 0)
+          : (clip.hook?.length ?? 0) > 30 ? 2 + (clip.why_works ? 1 : 0)
+          : 1 + (clip.why_works ? 1 : 0),
+    },
+  ].map(s => ({ ...s, bars: Math.min(4, Math.max(1, s.bars)) }));
+}
+
+function getScoreTier(score100: number): { textClass: string; gradient: string; glow: string } {
+  if (score100 >= 90) return {
+    textClass: 'text-emerald-400',
+    gradient: 'linear-gradient(90deg, rgba(74,222,128,0.55) 0%, #4ade80 55%, #86efac 100%)',
+    glow: '0 0 7px rgba(74,222,128,0.5)',
+  };
+  if (score100 >= 70) return {
+    textClass: 'text-amber-400',
+    gradient: 'linear-gradient(90deg, rgba(251,191,36,0.55) 0%, #fbbf24 55%, #fde68a 100%)',
+    glow: '0 0 7px rgba(251,191,36,0.5)',
+  };
+  if (score100 >= 50) return {
+    textClass: 'text-orange-400',
+    gradient: 'linear-gradient(90deg, rgba(251,146,60,0.55) 0%, #fb923c 55%, #fdba74 100%)',
+    glow: '0 0 7px rgba(251,146,60,0.4)',
+  };
+  return {
+    textClass: 'text-rose-400',
+    gradient: 'linear-gradient(90deg, rgba(251,113,133,0.55) 0%, #fb7185 55%, #fda4af 100%)',
+    glow: '0 0 7px rgba(251,113,133,0.4)',
+  };
+}
+
 export function ClipCard({
   jobId,
   clip,
   selected,
   onToggle,
-  topClip = false,
 }: {
   jobId: string;
   clip: ClipOut;
   selected: boolean;
   onToggle: () => void;
-  /** The single highest-scoring clip in the grid — gets the one coral score meter (the
-   *  scarce "peak reading" signal). Every other card uses a neutral meter. */
   topClip?: boolean;
 }) {
-  // A clip whose render hasn't finished arrives with an empty video_url: its metadata
-  // (hook/reason/score) is final, but it's not yet playable or editable. Show the card so
-  // the user sees it's coming — with a skeleton over the video area instead of the player.
   const pending = !clip.video_url;
   const videoSrc = pending ? "" : resolveUrl(clip.video_url);
 
-  // ── arrival animation (per card instance; ClipGrid mounts one <ClipCard key=id>) ──
-  // `mounted` drives a one-time fade + scale "pop" on mount via Tailwind transition.
-  // `displayScore` counts up 0 → clip.score on first appearance. Both respect
-  // prefers-reduced-motion → final values are the INITIAL state (no animation, no
-  // synchronous setState in the effect — which the React Compiler lint forbids).
   const reduced = prefersReducedMotion();
   const [mounted, setMounted] = useState(reduced);
   const [displayScore, setDisplayScore] = useState(() => (reduced ? clip.score : 0));
+  const [open, setOpen] = useState(false);
+  const originalStart = useRef(clip.start);
+  const originalEnd = useRef(clip.end);
+  const [analysisStale, setAnalysisStale] = useState(false);
 
   useEffect(() => {
     if (prefersReducedMotion()) return;
 
-    // Trigger the enter transition on the next frame so the initial (hidden) state paints.
     const raf = requestAnimationFrame(() => setMounted(true));
 
-    // Count the score up over ~600ms with rAF; clean up on unmount.
     const target = clip.score;
     const duration = 600;
     let start: number | null = null;
@@ -72,7 +128,6 @@ export function ClipCard({
     const tick = (ts: number) => {
       if (start === null) start = ts;
       const t = Math.min(1, (ts - start) / duration);
-      // easeOutCubic for a snappy settle.
       const eased = 1 - (1 - t) ** 3;
       setDisplayScore(target * eased);
       if (t < 1) countRaf = requestAnimationFrame(tick);
@@ -86,29 +141,47 @@ export function ClipCard({
     };
   }, [clip.score]);
 
-  // Score reads as a confidence reading out of 100. Confidence uses the OK/green semantic
-  // (DESIGN.md) — the same treatment on the landing, editor and account — so coral stays the
-  // scarce CTA/live accent. The single top clip gets a green VALUE too (the standout), every
-  // other ready card a green meter + ink value; pending clips keep a calm neutral meter.
+  useEffect(() => {
+    const movedStart = Math.abs(clip.start - originalStart.current) > 5;
+    const movedEnd = Math.abs(clip.end - originalEnd.current) > 5;
+    setAnalysisStale(movedStart || movedEnd);
+  }, [clip.start, clip.end]);
+
   const score100 = Math.round(displayScore * 100);
-  const meterTone = pending ? "neutral" : "ok";
+  const tier = analysisStale ? null : getScoreTier(score100);
+  const glow = (!analysisStale && clip.tone && TONE_GLOW[clip.tone]) || null;
+  const emoji = clip.tone && TONE_EMOJI[clip.tone];
+
+  const handleRefresh = async () => {
+    try {
+      const res = await fetch(
+        `${WORKER_BASE}/jobs/${jobId}/clips/${clip.id}/refresh-analysis`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ start: clip.start, end: clip.end }),
+        }
+      );
+      if (!res.ok) return;
+      originalStart.current = clip.start;
+      originalEnd.current = clip.end;
+      setAnalysisStale(false);
+    } catch {
+      // silently ignore — stale banner stays
+    }
+  };
 
   return (
     <Card
       selected={!pending && selected}
+      style={{ borderColor: glow?.border, boxShadow: glow?.shadow }}
       className={`flex flex-col overflow-hidden transition duration-200 ease-snappy ${
-        // Reserve opacity ONLY for genuinely-pending clips; ready clips are full opacity
-        // (the grid must read as finished, not disabled — selection is the ring, not dimming).
         pending ? "opacity-90" : "opacity-100"
       } ${mounted ? "translate-y-0 scale-100 opacity-100" : "translate-y-1 scale-95 opacity-0"}`}
     >
-      {/* ── video preview: SAME caption engine as the editor (libass + the real ASS),
-          so the grid shows the hook + captions exactly like the editor / export ── */}
+      {/* ── video preview ── */}
       <div className="relative">
         {pending ? (
-          // Clip still rendering: frame-grab a poster from the preview proxy (falls back to a
-          // skeleton until ready). Keeps the 9:16 frame so the grid doesn't reflow when this
-          // card flips to its real player.
           <PendingThumb jobId={jobId} clipStart={clip.start} />
         ) : (
           <ClipPreview
@@ -119,11 +192,14 @@ export function ClipCard({
             clipStart={clip.start}
           />
         )}
-        <span className="pointer-events-none absolute left-2 top-2 z-40">
-          <ReasonChip type={clip.type} />
-        </span>
-        {/* select button (custom-styled checkbox affordance over the video) — hidden while
-            pending: a not-yet-rendered clip can't be selected/downloaded. */}
+        {emoji && !analysisStale && (
+          <span
+            className="pointer-events-none absolute left-2 top-2 z-40 select-none rounded-md text-[22px] leading-none"
+            style={{ padding: '3px 4px', background: 'rgba(0,0,0,0.62)' }}
+          >
+            {emoji}
+          </span>
+        )}
         {!pending && (
           <button
             type="button"
@@ -141,63 +217,107 @@ export function ClipCard({
         )}
       </div>
 
-      {/* ── meta: a spec sheet for the clip — 3 tiers separated by hairlines ──
-          flex-1 so every card body fills the equal-height grid cell; the action row below is
-          pinned with mt-auto and the variable text is line-clamped → the button never "jumps"
-          between cards and doesn't jitter as a clip flips rendering→ready. */}
       <div className="flex flex-1 flex-col p-3.5">
-        {/* tier 1 — the signature score Stat + the timecode (the instrument header).
-            The score uses the SAME <Stat> motif (value + /100 + thin meter) as everywhere
-            a clip's strength is shown, so it's instantly recognizable. Coral value+meter
-            ONLY on the single top clip; every other card is calm neutral. */}
+        {/* ── score + timecode ── */}
         <div className="flex items-start justify-between gap-3">
-          <Stat
-            className="min-w-0"
-            size="sm"
-            label="Confidence"
-            value={score100}
-            suffix="/100"
-            tone={topClip && !pending ? "ok" : "ink"}
-            meter={displayScore}
-            meterTone={meterTone}
-          />
+          <div className="mb-2.5 min-w-0">
+            <div className="flex items-baseline gap-0.5 mb-1.5">
+              <span className={`text-[28px] font-extrabold leading-none tabular-nums ${tier?.textClass ?? 'text-surface-3'}`}>
+                {score100}
+              </span>
+              <span className="text-xs text-muted">/100</span>
+            </div>
+            <div className="h-1 bg-surface-2 rounded-full overflow-hidden">
+              <div
+                className={`h-full rounded-full ${analysisStale ? 'bg-surface-3' : ''}`}
+                style={tier ? {
+                  width: `${displayScore * 100}%`,
+                  background: tier.gradient,
+                  boxShadow: tier.glow,
+                } : undefined}
+              />
+            </div>
+          </div>
           <Numeral className="shrink-0 pt-0.5 text-xs text-muted">
             {clipRange(clip.start, clip.end)}
           </Numeral>
         </div>
 
-        {/* tier 2 — the hook: the one large line that sells the clip. */}
+        {/* ── hook ── */}
         {clip.hook && (
-          <p className="mt-3.5 line-clamp-2 text-[15px] font-bold leading-tight text-ink">
-            “{clip.hook}”
+          <p className={`mt-3.5 line-clamp-2 text-[15px] font-bold leading-tight ${analysisStale ? 'text-muted/40' : 'text-ink'}`}>
+            &ldquo;{clip.hook}&rdquo;
           </p>
         )}
 
-        {/* tier 3 — reasoning, a quieter block under a hairline. */}
-        <div className="mt-3.5 border-t border-line pt-3">
-          <Eyebrow tone="faint">Why it works</Eyebrow>
-          <p className="mt-1.5 line-clamp-3 text-sm leading-snug text-muted">
-            {clip.why_works ?? clip.reason}
-          </p>
-          {clip.transcript && (
-            <p className="mt-2 line-clamp-2 text-xs leading-snug text-faint">“{clip.transcript}”</p>
-          )}
-        </div>
+        {/* ── key moment or stale banner ── */}
+        {clip.key_quote && !analysisStale && (
+          <div className="mt-3 rounded-sm border-l-2 border-emerald-500 bg-emerald-950/40 px-2.5 py-1.5">
+            <p className="mb-1 text-[7px] font-bold uppercase tracking-widest text-emerald-500">
+              ★ Key moment
+            </p>
+            <p className="text-[10px] italic leading-relaxed text-emerald-200">
+              &ldquo;{clip.key_quote}&rdquo;
+            </p>
+          </div>
+        )}
+        {analysisStale && (
+          <div className="mt-3 flex items-center justify-between gap-2 rounded-sm border border-line bg-surface-2 px-2 py-1.5">
+            <span className="text-[9px] text-muted">Clip moved · AI analysis may be outdated</span>
+            <button
+              onClick={handleRefresh}
+              className="shrink-0 rounded border border-amber-400/20 bg-amber-400/10 px-1.5 py-0.5 text-[9px] font-bold text-amber-400"
+            >
+              ↻ Refresh
+            </button>
+          </div>
+        )}
 
-        {/* actions — mt-auto pins this row to the card bottom regardless of body length, so the
-            button aligns across all cards and stays put through rendering→ready. */}
+        {/* ── accordion ── */}
+        <button
+          type="button"
+          onClick={() => setOpen(o => !o)}
+          className="mt-2 text-[10px] text-muted hover:text-ink transition-colors"
+        >
+          {open ? 'Why this clip ↑' : 'Why this clip ↓'}
+        </button>
+
+        {open && (
+          <div className="mt-2 space-y-2 border-t border-line pt-2">
+            <p className="text-[7.5px] font-bold uppercase tracking-wider text-muted">Quality signals</p>
+            <div className="flex gap-2">
+              {computeSignalBars(clip).map(({ label, bars }) => (
+                <div key={label} className="flex flex-1 flex-col items-center gap-1">
+                  <div className="flex h-3.5 items-end gap-0.5">
+                    {[4, 7, 11, 14].map((h, i) => (
+                      <div
+                        key={i}
+                        className="w-1 rounded-[1px]"
+                        style={{
+                          height: h,
+                          background: (!analysisStale && i < bars) ? '#4ade80' : '#262626',
+                        }}
+                      />
+                    ))}
+                  </div>
+                  <span className="text-center text-[7px] text-muted">{label}</span>
+                </div>
+              ))}
+            </div>
+            <p className={`border-t border-line pt-2 text-[10.5px] leading-relaxed ${analysisStale ? 'text-muted/30' : 'text-muted'}`}>
+              {clip.why_works ?? clip.reason}
+            </p>
+          </div>
+        )}
+
+        {/* ── actions ── */}
         {pending ? (
-          // No export / edit until the clip is rendered (no video file yet). A muted
-          // "Rendering…" affordance keeps the card's footer height stable.
           <div className="mt-4 flex items-center justify-center gap-1.5 rounded-sm border border-line bg-surface-2 px-3 py-2 text-sm font-semibold text-muted">
             <Loader2 className="size-4 animate-spin" />
             Rendering…
           </div>
         ) : (
           <div className="mt-4 flex gap-2">
-            {/* Export menu (subtitles / none / .srt) — opens UPWARD so it isn't clipped by
-                neighbouring grid cards. No "Render" on the grid → "With subtitles" renders on
-                the fly from the current edit-state (no bakedUrl — D1). */}
             <ExportMenu
               jobId={jobId}
               clipId={clip.id}
@@ -205,8 +325,6 @@ export function ClipCard({
               placement="up"
               className="flex-1"
             />
-            {/* Editor page: return via "← All clips" (/?job=) or Back — the grid is
-                restored by deep-link, nothing is lost. */}
             <Link
               href={`/edit/${jobId}/${clip.id}`}
               className="inline-flex items-center justify-center gap-1.5 rounded-sm border border-line bg-surface-2 px-3 py-2 text-sm font-semibold text-ink transition duration-200 ease-snappy hover:-translate-y-px hover:border-line-strong hover:bg-surface-3"

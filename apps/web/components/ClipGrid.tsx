@@ -44,21 +44,26 @@ function StripStat({ label, value }: { label: string; value: React.ReactNode }) 
 // and re-renders smoothly as polling flips pending→ready (stable keys by clip.id, no remount).
 export function ClipGrid({ job }: { job: Job }) {
   const jobId = job.id;
-  // Сорт по score ↓ с ДЕТЕРМИНИРОВАННЫМ тай-брейком по id: при равных score (часто у
-  // подкаст-клипов) без него порядок зависел от исходной последовательности фетча и мог
-  // разойтись с порядком в редакторе → «открываю первый, попадаю в третий», скачет ‹ ›.
-  // score is final from the first poll, so order is stable as clips flip pending→ready.
-  // READY clips bubble to the TOP (in score order), still-rendering ones sink to the bottom —
-  // so finished clips always accumulate at the front and the user never hunts for "what appeared
-  // where". When everything is done all clips are ready → pure score order (the final, good order).
-  const clips = useMemo(() => {
-    const byScore = (a: ClipOut, b: ClipOut) => b.score - a.score || a.id.localeCompare(b.id);
-    return [...(job.clips ?? [])].sort((a, b) => {
-      const ar = a.video_url ? 0 : 1; // ready first (0), pending after (1)
-      const br = b.video_url ? 0 : 1;
-      return ar - br || byScore(a, b);
-    });
-  }, [job.clips]);
+  // Score order is locked the moment clip IDs arrive (score is final from first poll).
+  // Re-sort only when the SET of IDs changes (new clips added), NOT when video_url populates —
+  // so clips never jump position as renders complete.
+  const clipIdKey = (job.clips ?? []).map((c) => c.id).join(",");
+  const sortedIds = useMemo(
+    () =>
+      [...(job.clips ?? [])]
+        .sort((a, b) => b.score - a.score || a.id.localeCompare(b.id))
+        .map((c) => c.id),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [clipIdKey]
+  );
+  // Map IDs → current clip objects so video_url / thumbnail updates land in-place.
+  const clips = useMemo(
+    () =>
+      sortedIds
+        .map((id) => (job.clips ?? []).find((c) => c.id === id))
+        .filter((c): c is ClipOut => !!c),
+    [sortedIds, job.clips]
+  );
   // A clip is READY (playable, editable, downloadable) once it has a non-empty video_url.
   const readyClips = useMemo(() => clips.filter((c) => c.video_url), [clips]);
   const rendering = job.status !== "done";

@@ -236,9 +236,11 @@ export interface Segment {
   end: number;
   hook?: string | null;
   hook_style?: string | null;
+  key_quote?: string | null;
   reason: string;
   score: number;
   start: number;
+  tone?: string | null;
   type: ClipType;
   why_works?: string | null;
 }
@@ -281,10 +283,12 @@ export interface ClipOut {
   hook?: string | null;
   hook_style?: string | null;
   id: string;
+  key_quote?: string | null;
   reason: string;
   score: number;
   start: number;
   thumbnail_url?: string | null;
+  tone?: string | null;
   transcript: string;
   type: ClipType;
   video_url: string;

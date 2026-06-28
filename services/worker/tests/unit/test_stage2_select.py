@@ -461,6 +461,68 @@ class TestResolveOverlaps:
         assert [s.start for s in out] == [0, 25]  # отсортировано по start
 
 
+# words[0..24] plain, words[25] ends sentence → snap_end stays at 25; duration 25.8s passes gate
+_WORDS_30 = uniform(30, sentence_ends={25})
+
+
+# minimal valid raw item (indices + required LLM fields)
+def _raw(extra: dict) -> list[dict]:  # type: ignore[type-arg]
+    base: dict = {  # type: ignore[type-arg]
+        "start_word_index": 0,
+        "end_word_index": 25,
+        "type": "emotional_peak",
+        "reason": "test reason",
+        "score": 0.8,
+        "hook": "test hook",
+        "why_works": "it works",
+        "hook_style": "story",
+        "tone": "shocking",
+    }
+    base.update(extra)
+    return [base]
+
+
+class TestPostprocessToneAndKeyQuote:
+    """Clip-card redesign: postprocess() must thread tone + key_quote through to Segment."""
+
+    def test_passes_tone_and_key_quote(self) -> None:
+        raw = _raw({"tone": "shocking", "key_quote": "This changed everything."})
+        result = postprocess(raw, _WORDS_30)
+        assert len(result) == 1
+        assert result[0].tone == "shocking"
+        assert result[0].key_quote == "This changed everything."
+
+    def test_tone_normalized_to_lowercase(self) -> None:
+        raw = _raw({"tone": "  FUNNY  ", "key_quote": None})
+        result = postprocess(raw, _WORDS_30)
+        assert result[0].tone == "funny"
+
+    def test_tone_none_when_absent(self) -> None:
+        item = _raw({})[0]
+        del item["tone"]
+        result = postprocess([item], _WORDS_30)
+        assert len(result) == 1
+        assert result[0].tone is None
+
+    def test_key_quote_none_when_absent(self) -> None:
+        raw = _raw({})
+        if "key_quote" in raw[0]:
+            del raw[0]["key_quote"]
+        result = postprocess(raw, _WORDS_30)
+        assert len(result) == 1
+        assert result[0].key_quote is None
+
+    def test_key_quote_stripped(self) -> None:
+        raw = _raw({"key_quote": "  Leading whitespace.  "})
+        result = postprocess(raw, _WORDS_30)
+        assert result[0].key_quote == "Leading whitespace."
+
+    def test_empty_key_quote_becomes_none(self) -> None:
+        raw = _raw({"key_quote": "   "})
+        result = postprocess(raw, _WORDS_30)
+        assert result[0].key_quote is None
+
+
 class TestPostprocess:
     def test_happy_path_snaps_gates_and_validates(self) -> None:
         words = uniform(40, sentence_ends={2, 25})

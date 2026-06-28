@@ -222,6 +222,26 @@ def set_progress_detail(
         c.execute(f"UPDATE jobs SET {', '.join(sets)}, updated_at=? WHERE id=?", vals)  # noqa: S608
 
 
+def patch_clip_analysis(job_id: str, clip_id: str, fields: dict[str, Any]) -> None:
+    """Update analysis fields for one clip (read-modify-write; safe post-pipeline)."""
+    if cs.cloud_enabled():
+        cs.patch_clip_analysis(job_id, clip_id, fields)
+        return
+    with _conn() as c:
+        row = c.execute("SELECT clips_json FROM jobs WHERE id=?", (job_id,)).fetchone()
+        if row is None:
+            return
+        clips = json.loads(row["clips_json"]) if row["clips_json"] else []
+        for clip in clips:
+            if clip.get("id") == clip_id:
+                clip.update(fields)
+                break
+        c.execute(
+            "UPDATE jobs SET clips_json=?, updated_at=? WHERE id=?",
+            (json.dumps(clips, ensure_ascii=False), time.time(), job_id),
+        )
+
+
 def set_clip_ready(job_id: str, clip_index: int, video_url: str) -> None:
     """Атомарно проставить ``video_url`` ОДНОГО клипа (per-clip рендер закончил, залит в R2).
 

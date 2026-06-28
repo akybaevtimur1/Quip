@@ -250,6 +250,10 @@ def postprocess(
         # W2: нормализуем стиль (trim+lower); словарь стилей — в промпте, тут не валидируем
         # жёстко (свободная строка), но пустое → None (обратная совместимость со старым raw).
         hook_style = str(style_raw).strip().lower() or None if style_raw else None
+        tone_raw = item.get("tone")
+        key_quote_raw = item.get("key_quote")
+        tone = str(tone_raw).strip().lower() or None if tone_raw else None
+        key_quote = str(key_quote_raw).strip() or None if key_quote_raw else None
         try:
             si = snap_start_index(words, si)
             ei = snap_end_index(words, ei, start_idx=si)
@@ -271,6 +275,8 @@ def postprocess(
                 hook=hook,
                 why_works=why_works,
                 hook_style=hook_style,
+                tone=tone,
+                key_quote=key_quote,
             )  # fmt: skip
         )
     chosen = resolve_overlaps(candidates)
@@ -361,10 +367,11 @@ class _LlmSegment(BaseModel):
     type: ClipType
     # W2: двухступенчатая генерация хука — модель СНАЧАЛА читает тон момента, ПОТОМ под него
     # выбирает стиль, и только затем пишет хук в этом стиле (structured CoT повышает качество).
-    tone: str  # эмоциональный «прочит» момента (смешно/шок/трогательно/инсайт/релейт…)
+    tone: str | None = None  # эмоциональный «прочит» момента (shocking/funny/touching/…)
     hook_style: str  # выбранный стиль: pov | relatable | informative | shock | …
     hook: str  # T1: цепляющий топ-заголовок (≤~6 слов) В ВЫБРАННОМ СТИЛЕ, язык транскрипта
     why_works: str  # T2: 1 фраза — почему момент работает как шортс
+    key_quote: str | None = None  # самая сильная дословная цитата из клипа (≤180 chars)
 
 
 class _LlmSelection(BaseModel):
