@@ -37,9 +37,11 @@ _PROXYSCRAPE_API = (
 # Testing against YT CDN (not a generic host) measures the actual proxy→YouTube throughput,
 # which is what matters for yt-dlp downloads. Rick Astley maxres = ~150 KB, always available.
 _SPEED_TEST_URL = "https://i.ytimg.com/vi/dQw4w9WgXcQ/maxresdefault.jpg"
-# Drop proxies delivering below this — at 2 Mbps a 700 MB video takes ~47 min (borderline ok).
-# Raise to 5.0 for a stricter (smaller) but faster pool; lower for a bigger but slower pool.
-_MIN_SPEED_MBPS: float = 2.0
+# Minimum speed to keep a proxy. 0.5 Mbps = 500 KB/s — at this rate a 300 MB (30-min 720p)
+# video takes ~80 min. Empirical: free proxies from Modal DC-IP top out at ~1.0-1.5 Mbps
+# against YouTube CDN, so 0.5 is a realistic floor that keeps the pool populated.
+# Pool is sorted fastest-first so the best proxy is always tried first.
+_MIN_SPEED_MBPS: float = 0.5
 
 
 # ─────────────────────────── pure / contained helpers ───────────────────────────
@@ -126,10 +128,16 @@ def refresh_proxy_pool(target: int = 20, max_workers: int = 50) -> list[str]:
     if results:
         speeds = [s for s, _ in results]
         avg = sum(speeds) / len(speeds)
+        median = sorted(speeds)[len(speeds) // 2]
         print(
             f"[proxy-pool] refresh done: {len(working)} proxies ≥{_MIN_SPEED_MBPS} Mbps "
-            f"| fastest {results[0][0]:.1f} Mbps | avg {avg:.1f} Mbps"
+            f"| fastest {results[0][0]:.1f} Mbps | avg {avg:.1f} Mbps | median {median:.1f} Mbps"
         )
+        # ETA estimates: fastest proxy, 700 MB video (30-min 1080p)
+        video_mb = 700
+        for label, mbps in [("fastest", results[0][0]), ("median", median)]:
+            eta_min = (video_mb * 8) / (mbps * 60) if mbps > 0 else 999
+            print(f"[proxy-pool] ETA 700MB via {label} proxy ({mbps:.1f} Mbps): {eta_min:.0f} min")
     else:
         print(
             f"[proxy-pool] refresh done: 0 proxies passed {_MIN_SPEED_MBPS} Mbps threshold "
