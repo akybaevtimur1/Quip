@@ -285,6 +285,7 @@ def run_pipeline_job(
     source_ref: str,
     max_clips: int | None = None,
     user_id: str | None = None,
+    language: str | None = None,
 ) -> None:
     def on_status(status: JobStatus, progress: int) -> None:
         db.update_status(job_id, status.value, progress)
@@ -304,6 +305,7 @@ def run_pipeline_job(
             on_meta=_quota_gate(user_id, quota),
             on_cancellable=on_cancellable,
             user_id=user_id,
+            language=language,
         )
         db.set_done(job_id, job)
         _meter(user_id, job_id, job, quota)
@@ -319,6 +321,7 @@ def run_upload_job(
     title: str,
     max_clips: int | None = None,
     user_id: str | None = None,
+    language: str | None = None,
 ) -> None:
     """Фон-таск для загруженного файла: импорт файла → тот же run_pipeline (без скачивания).
 
@@ -348,6 +351,7 @@ def run_upload_job(
             on_meta=_quota_gate(user_id, quota),
             on_cancellable=on_cancellable,
             user_id=user_id,
+            language=language,
         )
         db.set_done(job_id, job)
         _meter(user_id, job_id, job, quota)

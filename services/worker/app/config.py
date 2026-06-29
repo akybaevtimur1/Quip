@@ -54,10 +54,12 @@ class Settings(BaseSettings):
     )
 
     # transcription
-    transcription_provider: Literal["deepgram", "assemblyai"] = "deepgram"
+    transcription_provider: Literal["deepgram", "assemblyai", "groq"] = "deepgram"
     deepgram_api_key: str | None = None
     deepgram_model: str = "nova-3"
     assemblyai_api_key: str | None = None
+    groq_api_key: str | None = None
+    groq_model: str = "whisper-large-v3-turbo"  # $0.04/hr; upgrade to whisper-large-v3 for +quality
 
     # llm (этап D, выбор моментов). Провайдер swappable; сейчас Gemini (нет Anthropic-ключа).
     llm_provider: str = "gemini"
@@ -199,6 +201,8 @@ class Settings(BaseSettings):
             raise ValueError(
                 "ASSEMBLYAI_API_KEY is required when TRANSCRIPTION_PROVIDER=assemblyai"
             )
+        if self.transcription_provider == "groq" and not self.groq_api_key:
+            raise ValueError("GROQ_API_KEY is required when TRANSCRIPTION_PROVIDER=groq")
         return self
 
 

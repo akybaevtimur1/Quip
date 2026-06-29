@@ -32,7 +32,12 @@ from app.pipeline.preview_moments import (
     merge_moments,
 )
 from app.pipeline.stage0_import import SourceMeta, build_preview_proxy, import_youtube
-from app.pipeline.stage1_transcribe import DEEPGRAM_NOVA_USD_PER_MIN, transcribe_to_file
+from app.pipeline.stage1_transcribe import (
+    DEEPGRAM_NOVA_USD_PER_MIN,
+    DEEPGRAM_UNSUPPORTED,
+    GROQ_TURBO_USD_PER_MIN,
+    transcribe_to_file,
+)
 from app.pipeline.stage2_select import select_segments
 from app.pipeline.stage3_reframe import reframe_segment
 from app.pipeline.stage4_captions import words_in_segment
@@ -289,6 +294,7 @@ def run_pipeline(
     on_meta: Callable[[SourceMeta], None] | None = None,
     on_cancellable: Callable[[bool], None] | None = None,
     user_id: str | None = None,
+    language: str | None = None,
 ) -> Job:
     """Прогнать весь конвейер для job_id. Возвращает Job (также пишет job.json/runs.jsonl).
 
@@ -476,8 +482,14 @@ def run_pipeline(
             tr_path.write_text(transcript.model_dump_json(indent=2), encoding="utf-8")
             print(f"[1] transcribe: cached/hash ({len(transcript.words)} words, $0)")
         else:
-            transcript = transcribe_to_file(wav_path, tr_path)
-            transcribe_cost = round(transcript.duration / 60 * DEEPGRAM_NOVA_USD_PER_MIN, 4)
+            transcript = transcribe_to_file(wav_path, tr_path, language=language)
+            # Cost depends on effective provider (Groq for kk, Deepgram otherwise).
+            rate = (
+                GROQ_TURBO_USD_PER_MIN
+                if language in DEEPGRAM_UNSUPPORTED and s.groq_api_key
+                else DEEPGRAM_NOVA_USD_PER_MIN
+            )
+            transcribe_cost = round(transcript.duration / 60 * rate, 4)
             print(f"[1] transcribe: {len(transcript.words)} words (${transcribe_cost})")
             if s.transcript_cache_enabled and ck is not None:
                 put_cached(cache_dir, ck, transcript)

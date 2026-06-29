@@ -103,6 +103,7 @@ class CreateJobBody(BaseModel):
     source_type: str
     source_ref: str
     max_clips: int | None = Field(default=None, ge=1, le=30)  # UI-степпер; None → дефолт воркера
+    language: str | None = None  # ISO-код языка (kk=казахский→Groq; None=авто-детект Deepgram)
 
 
 @app.get("/healthz")
@@ -259,7 +260,13 @@ def create_job(
         # failed и поднимаем 500 (правило №8): юзер видит причину, а не вечную очередь.
         try:
             fc_id = dispatch.spawn(
-                "run_job", job_id, body.source_type, body.source_ref, body.max_clips, user_id
+                "run_job",
+                job_id,
+                body.source_type,
+                body.source_ref,
+                body.max_clips,
+                user_id,
+                body.language,
             )
             db.set_function_call_id(job_id, fc_id)  # для Stop-кнопки (отмена джоба)
         except Exception as e:  # noqa: BLE001 — любой сбой диспатча = видимый failed
@@ -267,7 +274,13 @@ def create_job(
             raise HTTPException(status_code=500, detail=f"job dispatch failed: {e}") from e
     else:
         bg.add_task(
-            run_pipeline_job, job_id, body.source_type, body.source_ref, body.max_clips, user_id
+            run_pipeline_job,
+            job_id,
+            body.source_type,
+            body.source_ref,
+            body.max_clips,
+            user_id,
+            body.language,
         )
     return {"id": job_id, "status": "queued", "stage": "queued", "progress": 0}
 
@@ -277,6 +290,7 @@ async def create_upload_job(
     bg: BackgroundTasks,
     file: UploadFile = File(...),
     max_clips: int | None = Form(default=None, ge=1, le=30),
+    language: str | None = Form(default=None),
     authorization: str | None = Header(default=None),
     x_user_id: str | None = Header(default=None),
 ) -> dict[str, Any]:
@@ -305,12 +319,14 @@ async def create_upload_job(
     if dispatch.modal_spawn_enabled():
         try:
             storage.upload_source(upload_path, job_id)  # r2-режим; иначе no-op
-            dispatch.spawn("upload_job", job_id, filename, max_clips, user_id)
+            dispatch.spawn("upload_job", job_id, filename, max_clips, user_id, language)
         except Exception as e:  # noqa: BLE001 — любой сбой диспатча = видимый failed, не вечная очередь
             db.set_failed(job_id, f"dispatch failed: {e}")
             raise HTTPException(status_code=500, detail=f"upload dispatch failed: {e}") from e
     else:
-        bg.add_task(run_upload_job, job_id, str(upload_path), filename, max_clips, user_id)
+        bg.add_task(
+            run_upload_job, job_id, str(upload_path), filename, max_clips, user_id, language
+        )
     return {"id": job_id, "status": "queued", "stage": "queued", "progress": 0}
 
 
@@ -374,6 +390,7 @@ class CompletedPart(BaseModel):
 class UploadCompleteBody(BaseModel):
     filename: str = "upload.mp4"
     max_clips: int | None = Field(default=None, ge=1, le=30)
+    language: str | None = None
     # Multipart-сборка (если грузили частями): upload_id + ETag'и частей. None → single-PUT
     # (объект уже в R2, собирать нечего).
     upload_id: str | None = None
@@ -414,7 +431,9 @@ def complete_upload(
             db.set_failed(job_id, f"multipart complete failed: {e}")
             raise HTTPException(status_code=500, detail=f"multipart complete failed: {e}") from e
     try:
-        fc_id = dispatch.spawn("upload_job", job_id, body.filename, body.max_clips, user_id)
+        fc_id = dispatch.spawn(
+            "upload_job", job_id, body.filename, body.max_clips, user_id, body.language
+        )
         db.set_function_call_id(job_id, fc_id)  # для Stop-кнопки (отмена джоба)
     except Exception as e:  # noqa: BLE001 — сбой диспатча = видимый failed, не вечная очередь
         db.set_failed(job_id, f"dispatch failed: {e}")

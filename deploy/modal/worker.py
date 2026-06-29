@@ -231,6 +231,7 @@ def run_job(
     source_ref: str,
     max_clips: int | None = None,
     user_id: str | None = None,
+    language: str | None = None,
 ) -> None:
     """Весь пайплайн для одного источника: download→transcribe→select→reframe→render→R2+Postgres.
 
@@ -242,7 +243,7 @@ def run_job(
         sys.path.insert(0, "/root")
     from app.tasks import run_pipeline_job
 
-    run_pipeline_job(job_id, source_type, source_ref, max_clips, user_id)
+    run_pipeline_job(job_id, source_type, source_ref, max_clips, user_id, language)
 
 
 # timeout=10800 (3h): качает залитый источник (до ~5 ГБ) на свой контейнер + гоняет тот же
@@ -261,6 +262,7 @@ def upload_job(
     filename: str,
     max_clips: int | None = None,
     user_id: str | None = None,
+    language: str | None = None,
 ) -> None:
     """Пайплайн для ЗАГРУЖЕННОГО файла (не URL). web-контейнер залил исходник в R2
     (storage.upload_source) и спавнил эту долгоживущую функцию — она качает исходник на СВОЙ
@@ -279,7 +281,7 @@ def upload_job(
     suffix = Path(filename).suffix.lower() or ".mp4"
     upload_path = out / f"upload{suffix}"
     storage.download_source(job_id, upload_path)  # raw upload, залитый web-контейнером в R2
-    run_upload_job(job_id, str(upload_path), filename, max_clips, user_id)
+    run_upload_job(job_id, str(upload_path), filename, max_clips, user_id, language)
 
 
 # cpu=4/memory=4096: пере-рендер клипа = ffmpeg (reframe+прожиг) → больше ядер = быстрее.

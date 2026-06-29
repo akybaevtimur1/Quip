@@ -30,6 +30,7 @@ def test_upload_streams_file_and_enqueues_job(monkeypatch, tmp_path: Path) -> No
         title: str,
         max_clips: int | None,
         user_id: str | None = None,
+        language: str | None = None,
     ) -> None:
         captured.update(job_id=job_id, upload_path=upload_path, title=title, max_clips=max_clips)
 
