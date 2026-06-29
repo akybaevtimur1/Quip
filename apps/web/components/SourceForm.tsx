@@ -40,7 +40,7 @@ export function SourceForm({
   // onSubmit = YouTube-link path (best-effort import). Optional for back-compat: callers that
   // don't pass it simply don't offer the link field. Upload is the primary affordance.
   onSubmit?: (url: string, maxClips: number) => void;
-  onSubmitFile: (file: File, maxClips: number) => void;
+  onSubmitFile: (file: File, maxClips: number, language: string | null) => void;
   busy: boolean;
 }) {
   const [file, setFile] = useState<File | null>(null);
@@ -51,6 +51,7 @@ export function SourceForm({
   const [auto, setAuto] = useState(true);
   const [count, setCount] = useState(DEFAULT_CLIPS);
   const [dragging, setDragging] = useState(false);
+  const [kazakh, setKazakh] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const urlValid = isLikelyYoutubeUrl(url);
@@ -84,7 +85,7 @@ export function SourceForm({
     if (!canSubmit) return;
     // A picked file is the primary path; a YouTube link is the best-effort secondary path.
     if (file) {
-      onSubmitFile(file, clipsRequested);
+      onSubmitFile(file, clipsRequested, kazakh ? "kk" : null);
     } else if (onSubmit && urlValid) {
       onSubmit(url.trim(), clipsRequested);
     }
@@ -281,6 +282,36 @@ export function SourceForm({
           )}
           <span className="font-mono text-eyebrow uppercase tabular-nums text-faint">
             {auto ? "up to 30 found" : `exactly ${count}`}
+          </span>
+        </div>
+      </div>
+
+      <div className="mt-5">
+        <Eyebrow tone="faint">Language</Eyebrow>
+        <div className="mt-2 flex items-center gap-3">
+          <button
+            type="button"
+            role="switch"
+            aria-checked={kazakh}
+            onClick={() => setKazakh((k) => !k)}
+            disabled={busy}
+            aria-label="Kazakh language"
+            className={cn(
+              "relative inline-flex h-5 w-9 shrink-0 rounded-full transition-colors duration-200 ease-snappy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+              kazakh ? "bg-accent" : "bg-surface-3",
+              busy && "opacity-50",
+            )}
+          >
+            <span
+              className={cn(
+                "inline-block size-5 rounded-full bg-white shadow-sm transition-transform duration-200 ease-snappy",
+                kazakh ? "translate-x-4" : "translate-x-0",
+              )}
+            />
+          </button>
+          <span className="text-sm text-ink">Kazakh</span>
+          <span className="font-mono text-eyebrow uppercase tabular-nums text-faint">
+            {kazakh ? "kk · Groq Whisper" : "auto-detect"}
           </span>
         </div>
       </div>

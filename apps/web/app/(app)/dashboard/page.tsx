@@ -140,7 +140,7 @@ function DashboardInner() {
     }
   }
 
-  async function handleSubmitFile(file: File, maxClips: number) {
+  async function handleSubmitFile(file: File, maxClips: number, language: string | null = null) {
     if (submitting) return; // guard двойного сабмита (форма и так дизейблится — belt+braces)
     uploadCtrl.current?.abort(); // отменить прежнюю незавершённую загрузку перед новой
     const ctrl = new AbortController();
@@ -150,7 +150,7 @@ function DashboardInner() {
     setRequestedClips(maxClips);
     setUploadPct(0); // show the uploading screen immediately, before bytes move
     try {
-      const { id } = await createUploadJob(file, maxClips, setUploadPct, ctrl.signal);
+      const { id } = await createUploadJob(file, maxClips, setUploadPct, ctrl.signal, language);
       if (ctrl.signal.aborted) return; // отменена/вытеснена — не трогаем стейт
       setUploadPct(null);
       addRecentProject({ id, label: file.name, at: Date.now() });

@@ -4,6 +4,9 @@
 > «как и почему так сделано». Актуальное состояние проекта = docs/README.md. Правила = CLAUDE.md.
 > Новые заметные решения дописывай СЮДА (не в CLAUDE.md).
 
+### 2026-06-29 (фича) — Groq Whisper для казахского языка (kk)
+Deepgram не поддерживает kk (HTTP 400) и на авто-детекте путает с турецким (оба Тюркские). Добавлен Groq `whisper-large-v3-turbo` ($0.04/hr) как фолбэк-провайдер для `DEEPGRAM_UNSUPPORTED = {"kk"}`. Роутинг по хинту языка через всю цепочку: `CreateJobBody.language` → Modal `run_job` → `run_pipeline` → `transcribe_to_file` → `transcribe` (авто-переключается на Groq если language in unsupported + GROQ_API_KEY задан). Сжатие аудио: WAV > 90MB → MP3 32k через ffmpeg (лимит Groq 100MB). Live-тест на реальной казахской дораме: Groq правильно определил Kazakh, вернул реальные казахские слова с таймстемпами. Цена за видео ~$0.182 vs $0.40 Deepgram (6.5× дешевле для kk). Задеплоено. GROQ_API_KEY нужен в Modal secrets.
+
 ### 2026-06-28 (фича) — clip card redesign: tone/key_quote/glow/accordion + stable sort + tiered score color
 Полная реализация спека `2026-06-28-clip-card-redesign.md`. Бэкенд: `tone`+`key_quote` добавлены в `Segment`/`ClipOut`/`_LlmSegment`, `postprocess()` читает оба поля, промпт получил STEP 5 `key_quote`, `build_clip_out()` маппит оба поля, новый эндпоинт `POST /jobs/{id}/clips/{id}/refresh-analysis` (+ `RefreshClipBody` в models.py, `patch_clip_analysis` в cloud_state+db). Фронт: `ClipCard` — amber→tiered score (≥90 green/70 amber/50 orange/<50 rose, цвет анимируется при count-up), tone glow на Card, emoji badge, key moment blockquote, accordion «Why this clip ↓» с 4 signal bars, stale banner + Refresh. `ClipGrid` — stable sort по score (useMemo на ID-ключе, позиция не меняется при render complete). Баг пофикшен: `"standalone"` не ClipType → заменён на `"hook"` (4 бара). `just types` прогнан, `just check` зелёный (1023 pytest).
 

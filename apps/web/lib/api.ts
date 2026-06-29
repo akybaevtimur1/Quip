@@ -199,6 +199,7 @@ export async function createUploadJob(
   maxClips?: number,
   onProgress?: (pct: number) => void,
   signal?: AbortSignal,
+  language?: string | null,
 ): Promise<{ id: string }> {
   const headers = await authHeaders();
   // 1. Спросить у воркера URL для ПРЯМОЙ загрузки браузер→R2 (cloud) или сигнал local-fallback.
@@ -238,6 +239,7 @@ export async function createUploadJob(
         body: JSON.stringify({
           filename: file.name,
           max_clips: maxClips ?? null,
+          language: language ?? null,
           upload_id,
           parts: completed,
         }),
@@ -272,7 +274,7 @@ export async function createUploadJob(
     const done = await fetch(`${BASE}/jobs/${init.id}/upload-complete`, {
       method: "POST",
       headers: { ...headers, "Content-Type": "application/json" },
-      body: JSON.stringify({ filename: file.name, max_clips: maxClips ?? null }),
+      body: JSON.stringify({ filename: file.name, max_clips: maxClips ?? null, language: language ?? null }),
       signal,
     });
     if (!done.ok) throw new Error(`Couldn’t start processing: ${done.status}`);
@@ -283,6 +285,7 @@ export async function createUploadJob(
   const form = new FormData();
   form.append("file", file);
   if (maxClips != null) form.append("max_clips", String(maxClips));
+  if (language != null) form.append("language", language);
   const res = await xhrRequest("POST", `${BASE}/jobs/upload`, form, { headers, onProgress, signal });
   if (res.status === 401) throw new Error("Sign in to create clips.");
   if (res.status === 402) {
