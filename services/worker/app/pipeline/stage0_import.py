@@ -191,7 +191,7 @@ def build_youtube_cmd(
         "-f",
         # Предпочитаем H.264 (avc1) — софт-декод AV1 в reframe-анализе в ~2-5× медленнее и
         # засыпает лог hw-accel-ошибками. Фолбэки: mp4(av1) → любой 1080 → best.
-        "bestvideo[height<=1080][vcodec^=avc1]+bestaudio[ext=m4a]/bestvideo[height<=1080][ext=mp4]+bestaudio/bestvideo[height<=1080]+bestaudio/best[height<=1080]/best",
+        _YT_FORMAT,
         "--merge-output-format",
         "mp4",
         "--no-playlist",
@@ -233,6 +233,122 @@ def build_youtube_cmd(
         cmd += ["--extractor-args", f"youtube:player_client={player_client}"]
     cmd.append(url)
     return cmd
+
+
+# Format string used for both yt-dlp download and --get-url extraction (must match so we get the
+# same streams in both phases). Extracted here to avoid duplication.
+_YT_FORMAT = (
+    "bestvideo[height<=1080][vcodec^=avc1]+bestaudio[ext=m4a]"
+    "/bestvideo[height<=1080][ext=mp4]+bestaudio"
+    "/bestvideo[height<=1080]+bestaudio"
+    "/best[height<=1080]"
+    "/best"
+)
+
+
+def _get_cdn_urls(
+    url: str,
+    *,
+    cookies_file: str = "",
+    proxy: str = "",
+    pot_server_home: str = "",
+    player_client: str = "",
+) -> list[str]:
+    """yt-dlp --get-url through proxy: YouTube URL → signed CDN URL(s) for video+audio.
+
+    The extractor (info handshake) is what triggers YouTube's bot-gate; --get-url resolves it
+    (including the n-challenge) and returns the direct googlevideo.com URL(s). The proxy is used
+    only for this kilobyte-scale handshake, not for the actual video bytes.
+
+    Returns 1-2 URLs (single stream or [video, audio]).
+    Raises YoutubeBotGateError if bot-gated; JobError for other failures.
+    """
+    max_seconds = MAX_SOURCE_MINUTES * 60
+    cmd = [
+        "yt-dlp",
+        "-f",
+        _YT_FORMAT,
+        "--get-url",
+        "--no-download",
+        "--no-playlist",
+        "--match-filter",
+        f"!is_live & duration < {max_seconds}",
+        "--remote-components",
+        "ejs:github",
+        "--socket-timeout",
+        "20",
+    ]
+    if proxy:
+        cmd += ["--proxy", proxy]
+    if cookies_file:
+        cmd += ["--cookies", cookies_file]
+    if pot_server_home:
+        cmd += ["--extractor-args", f"youtubepot-bgutilscript:server_home={pot_server_home}"]
+    if player_client:
+        cmd += ["--extractor-args", f"youtube:player_client={player_client}"]
+    cmd.append(url)
+
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+    except FileNotFoundError as e:
+        raise JobError(_STAGE, f"yt-dlp not found: {e}") from e
+    except subprocess.TimeoutExpired as e:
+        raise JobError(_STAGE, "yt-dlp --get-url timed out (2 min)") from e
+
+    if proc.returncode != 0:
+        tail = (proc.stderr or "").strip()[-500:]
+        msg = classify_youtube_error(tail)
+        if is_bot_gate(tail):
+            raise YoutubeBotGateError(_STAGE, msg)
+        raise JobError(_STAGE, msg)
+
+    urls = [ln.strip() for ln in proc.stdout.splitlines() if ln.strip()]
+    if not urls:
+        raise JobError(_STAGE, classify_youtube_error("yt-dlp --get-url returned no URLs"))
+    return urls
+
+
+def _download_cdn_urls(cdn_urls: list[str], out_path: Path) -> None:
+    """ffmpeg: download video+audio from CDN directly (no proxy), merge to MP4 with faststart.
+
+    CDN URLs come from _get_cdn_urls (signed googlevideo.com URLs with solved n-challenge).
+    These are publicly accessible from any IP — no proxy needed.
+    """
+    if len(cdn_urls) == 1:
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-i",
+            cdn_urls[0],
+            "-c",
+            "copy",
+            "-movflags",
+            "+faststart",
+            str(out_path),
+        ]
+    else:
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-i",
+            cdn_urls[0],  # video stream
+            "-i",
+            cdn_urls[1],  # audio stream
+            "-c",
+            "copy",
+            "-movflags",
+            "+faststart",
+            str(out_path),
+        ]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=7200)
+    except FileNotFoundError as e:
+        raise JobError(_STAGE, f"ffmpeg not found: {e}") from e
+    except subprocess.TimeoutExpired as e:
+        raise JobError(_STAGE, "ffmpeg CDN download timed out (2h)") from e
+    if proc.returncode != 0:
+        tail = (proc.stderr or "").strip()[-500:]
+        raise JobError(_STAGE, f"ffmpeg CDN download failed: {tail}")
 
 
 def _video_stream(probe: dict[str, Any]) -> dict[str, Any]:
@@ -315,13 +431,30 @@ def download_youtube(
     pot_server_home: str = "",
     player_client: str = "",
 ) -> Path:
-    """yt-dlp → ``out_dir/source.mp4`` (+ source.info.json). Возвращает путь к mp4.
+    """yt-dlp → ``out_dir/source.mp4``. Возвращает путь к mp4.
 
-    Best-effort: на DC-IP (Modal) YouTube периодически режет бот-гейтом. При провале yt-dlp
-    НЕ молчим — классифицируем stderr в понятное ENG-сообщение (``classify_youtube_error``),
-    которое всегда зовёт юзера залить файл вручную (graceful fallback на upload-путь, правило №8).
+    Two-phase when proxy is set: proxy only for the extractor handshake (kilobytes, ~5-10s),
+    then download video bytes directly from CDN at full bandwidth (no proxy).
+    Single-phase (original yt-dlp + info.json) when no proxy is given.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    if proxy:
+        # Two-phase: bot-gate bypass through proxy (fast info), direct CDN download (full speed).
+        cdn_urls = _get_cdn_urls(
+            url,
+            cookies_file=cookies_file,
+            proxy=proxy,
+            pot_server_home=pot_server_home,
+            player_client=player_client,
+        )
+        out_mp4 = out_dir / "source.mp4"
+        _download_cdn_urls(cdn_urls, out_mp4)
+        if not out_mp4.exists():
+            raise JobError(_STAGE, classify_youtube_error("ffmpeg CDN download produced no output"))
+        return out_mp4
+
+    # No proxy: single yt-dlp call (also writes source.info.json with the video title).
     cmd = build_youtube_cmd(
         url,
         out_dir,

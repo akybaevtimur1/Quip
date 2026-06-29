@@ -579,3 +579,24 @@ def probe_youtube_pot(url: str = "https://www.youtube.com/watch?v=Ks-_Mh1QhMc") 
                     break
         print(f"[probe] jar {i}/{len(candidates)} ({label}): {'OK' if ok else 'FAILED'} {tail}")
     print(f"[probe] {oks}/{len(candidates)} jar(s) passed — the real download succeeds if >= 1")
+
+
+# PROXY-POOL KEEP-WARM: fetch + test free HTTP proxies from proxyscrape.com every 30 min, persist
+# in R2. Free proxies die in minutes; pre-warming means run.py finds a ready pool in R2 on every
+# download and skips the blocking (now background) refresh entirely. The background-thread path in
+# run.py is the last-resort fallback for the rare case this cron hasn't run yet.
+@app.function(
+    secrets=[_SECRET], timeout=180, schedule=modal.Cron("*/30 * * * *"), serialized=True
+)
+def refresh_proxy_pool_cron() -> None:
+    """Every 30 min: refresh free proxy pool in R2 (fetch proxyscrape.com → test → save)."""
+    import sys
+
+    if "/root" not in sys.path:
+        sys.path.insert(0, "/root")
+    from app import ytdlp_proxy_pool
+
+    pool = ytdlp_proxy_pool.refresh_proxy_pool(target=25)
+    if pool:
+        ytdlp_proxy_pool.save_proxy_pool(pool)
+    print(f"[proxy-cron] refreshed: {len(pool)} proxies saved to R2")

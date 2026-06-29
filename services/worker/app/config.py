@@ -88,6 +88,11 @@ class Settings(BaseSettings):
     # без прокси = $0 (дефолт, OFF). Формат yt-dlp --proxy: "http://host:port" / "socks5://...".
     # Когда заполнен — stage0.download_youtube добавляет "--proxy <url>". Ставим ВЫКЛ.
     ytdlp_proxy: str = ""
+    # Free proxy pool for YouTube download reliability (IP rotation). Pool is fetched from
+    # proxyscrape.com, tested against YouTube, and persisted in R2. Only active in cloud mode
+    # (STORAGE_BACKEND=r2). Empty pool → single-proxy or no-proxy fallback (same as before).
+    ytdlp_proxy_pool_r2_key: str = "internal/ytdlp_proxy_pool.json"
+    ytdlp_proxy_pool_min_size: int = 3  # refresh pool when fewer than this remain in R2
     # YouTube player client(s) for yt-dlp (comma-separated, tried in order). "tv,android_vr" pass
     # the DC-IP bot-gate WITHOUT a GVS PO token (and still honor cookies) → removes the flaky cold
     # bgutil-POT dependency for most videos. Empty = yt-dlp default (env YTDLP_PLAYER_CLIENT).

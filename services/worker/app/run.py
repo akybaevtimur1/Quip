@@ -14,12 +14,13 @@ from __future__ import annotations
 import json
 import shutil
 import sys
+import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from app import billing, db, dispatch, storage, ytdlp_cookies
+from app import billing, db, dispatch, storage, ytdlp_cookies, ytdlp_proxy_pool
 from app.config import get_settings
 from app.editor.reframe_cache import build_persist_payload
 from app.errors import JobError, YoutubeBotGateError
@@ -319,14 +320,14 @@ def run_pipeline(
         meta = SourceMeta.model_validate_json(meta_path.read_text(encoding="utf-8"))
         print(f"[0] import: cached ({meta.duration:.0f}s {meta.width}x{meta.height})")
     elif source_url:
-        # ── Multi-cookie YouTube fallback (free bot-gate bypass, BEST-EFFORT). YouTube bot-gates
-        #    DC-IPs; one cookie jar passing is a coin-flip, so we try a POOL of jars and only give
-        #    up if ALL are bot-gated. Candidate order: the R2 self-rotating jar (last-known-good
-        #    winner) FIRST, then each baked jar from the founder's dropped pool. Each candidate is a
-        #    WRITABLE temp (yt-dlp rewrites it with a fresh session). On the FIRST success we push
-        #    that rotated jar back to R2 as the new current-best. A bot-gated jar → try the next; a
-        #    NON-bot failure (private/too-long/removed) → give up now (another jar won't help).
-        #    Local dev (no R2): a single config cookies_file. Every step LOGGED (rule #8). ──
+        # ── Multi-cookie + proxy-pool YouTube fallback (free bot-gate bypass, BEST-EFFORT).
+        #    YouTube bot-gates DC-IPs; we fight on TWO fronts:
+        #    1. Cookie pool: N jars → one passing is enough (P ≈ 1-(1-p)^N).
+        #    2. Proxy pool: free HTTP proxies from proxyscrape.com → different IPs per attempt.
+        #    Outer loop: proxies (when ALL cookies fail on this IP → try next proxy IP).
+        #    Inner loop: cookies (when one jar is stale → try next jar on same IP).
+        #    for...else: inner else fires only when the loop exhausted WITHOUT break (all gated).
+        #    Local dev (no R2): no proxy pool, single config jar (behavior unchanged). ──
         candidates: list[tuple[str, str]] = []  # (label, cookies_file path; "" = no cookies)
         if ytdlp_cookies.cookies_enabled():
             r2_tmp = ytdlp_cookies.cookies_temp_path(out)
@@ -339,29 +340,85 @@ def run_pipeline(
         if not candidates:  # local dev / no pool → single config jar (may be "")
             candidates.append(("config", s.ytdlp_cookies_file))
 
+        # Load proxy pool from R2 (fast, ~0.5s). If pool is low, kick off a background refresh
+        # that runs CONCURRENTLY with the first download attempt — yt-dlp takes ~10-15s to
+        # surface a bot-gate; by then the ~5s refresh (3s proxy timeout) is already done.
+        proxy_pool: list[str] = []
+        _bg_thread: threading.Thread | None = None
+        _bg_result: list[list[str]] = [[]]  # mutable container for the background thread result
+
+        if ytdlp_proxy_pool.pool_enabled():
+            proxy_pool = ytdlp_proxy_pool.load_proxy_pool()
+            if len(proxy_pool) < s.ytdlp_proxy_pool_min_size:
+
+                def _run_refresh() -> None:
+                    _bg_result[0] = ytdlp_proxy_pool.refresh_proxy_pool()
+
+                _bg_thread = threading.Thread(
+                    target=_run_refresh, daemon=True, name="proxy-refresh"
+                )
+                _bg_thread.start()
+                print("[0] import: proxy pool low — refresh running in background")
+
+        # No-proxy first: ~40-70% of downloads succeed on Modal's IP with no proxy overhead.
+        # Proxy pool (from R2 or background refresh) is the fallback when the IP is bot-gated.
+        proxies_to_try: list[str] = [s.ytdlp_proxy] + proxy_pool
+        _bg_appended = False
+
         meta_or_none: SourceMeta | None = None
         last_gate: YoutubeBotGateError | None = None
-        for i, (label, cfile) in enumerate(candidates, 1):
-            print(f"[0] import: cookie attempt {i}/{len(candidates)} ({label})")
-            try:
-                meta_or_none = import_youtube(
-                    source_url, out, job_id=job_id,
-                    cookies_browser=s.ytdlp_cookies_browser,
-                    cookies_file=cfile,
-                    proxy=s.ytdlp_proxy,  # reliability lever, "" = off (no proxy/no cost)
-                    pot_server_home=s.ytdlp_pot_server_home,  # bgutil PO-token (script mode)
-                    player_client=s.ytdlp_player_client,  # tv,android_vr pass the gate w/o a POT
-                )  # fmt: skip
-            except YoutubeBotGateError as e:
-                last_gate = e  # remember the friendly gate message in case ALL jars fail
-                print(f"[0] import: attempt {i} ({label}) bot-gated — trying next cookie jar")
-                continue
-            # Success → persist the WINNING rotated jar to R2 as the new current-best (cloud only).
-            if ytdlp_cookies.cookies_enabled() and cfile:
-                ytdlp_cookies.push_cookies(Path(cfile))
-            break
-        if meta_or_none is None:  # every jar bot-gated → friendly gate message (upload hint)
-            raise last_gate or JobError("import", "all YouTube cookie jars failed (bot-gated)")
+        winning_proxy: str = ""
+
+        for proxy_idx, proxy in enumerate(proxies_to_try):
+            proxy_label = proxy or "no-proxy"
+            if len(proxies_to_try) > 1:
+                print(f"[0] import: proxy {proxy_idx + 1}/{len(proxies_to_try)} ({proxy_label})")
+            for i, (label, cfile) in enumerate(candidates, 1):
+                print(f"[0] import: cookie attempt {i}/{len(candidates)} ({label})")
+                try:
+                    meta_or_none = import_youtube(
+                        source_url, out, job_id=job_id,
+                        cookies_browser=s.ytdlp_cookies_browser,
+                        cookies_file=cfile,
+                        proxy=proxy,
+                        pot_server_home=s.ytdlp_pot_server_home,  # bgutil PO-token (script mode)
+                        player_client=s.ytdlp_player_client,  # tv,android_vr pass DC-IP w/o POT
+                    )  # fmt: skip
+                except YoutubeBotGateError as e:
+                    last_gate = e
+                    print(f"[0] import: cookie {i} ({label}) bot-gated on proxy {proxy_label}")
+                    continue
+                # Success → persist winning rotated jar to R2 as new current-best (cloud only).
+                winning_proxy = proxy
+                if ytdlp_cookies.cookies_enabled() and cfile:
+                    ytdlp_cookies.push_cookies(Path(cfile))
+                break  # inner: stop trying cookies
+            else:
+                # Inner loop exhausted without break → ALL cookies bot-gated on this proxy IP.
+                # Join background refresh thread (likely already done in ~5s); add fresh proxies.
+                if _bg_thread is not None:
+                    _bg_thread.join(timeout=35)
+                    _bg_thread = None
+                if _bg_result[0] and not _bg_appended:
+                    ytdlp_proxy_pool.save_proxy_pool(_bg_result[0])
+                    proxies_to_try.extend(_bg_result[0])
+                    _bg_appended = True
+                    print(
+                        f"[0] import: +{len(_bg_result[0])} fresh proxies from background refresh"
+                    )
+                print(f"[0] import: all cookies bot-gated on {proxy_label} — trying next proxy")
+                continue  # outer: try next proxy
+            break  # inner had a break (success) → stop trying proxies
+
+        # Rotate winning proxy to front so next job starts from the last known-good IP.
+        if proxy_pool and winning_proxy and ytdlp_proxy_pool.pool_enabled():
+            updated = [winning_proxy] + [p for p in proxy_pool if p != winning_proxy]
+            ytdlp_proxy_pool.save_proxy_pool(updated)
+
+        if meta_or_none is None:  # every proxy+jar combo bot-gated
+            raise last_gate or JobError(
+                "import", "all YouTube cookie jars and proxies failed (bot-gated)"
+            )
         meta = meta_or_none  # narrowed → SourceMeta (matches the cached branch's type below)
         print(f"[0] import: {meta.duration:.0f}s {meta.width}x{meta.height}")
     else:
