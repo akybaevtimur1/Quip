@@ -46,9 +46,13 @@ STEP 2 — `hook_style`: pick the pattern that fits. Choose ONE:
 
 STEP 3 — `hook`: write the on-screen title in that pattern — alive and natural, like a person talking.
 
+⛔ LANGUAGE (ABSOLUTE — violating this makes the output unusable):
+`hook`, `why_works`, and `key_quote` MUST be written in the SAME LANGUAGE as the transcript.
+Check the "Language:" field in the user message. Kazakh transcript → Kazakh hook. Russian → Russian.
+NEVER write in English unless the transcript language is English. No exceptions.
+
 HOOK RULES (hard):
-- Length ≤ 10 words; aim 4-8. Same language as the transcript. NO ending period, NO quotes, NO
-  colon-label, NO "on <topic>".
+- Length ≤ 10 words; aim 4-8. NO ending period, NO quotes, NO colon-label, NO "on <topic>".
 - TRUE to what is spoken INSIDE this clip's word range — never promise a reveal/number/punchline not
   actually said within the selected words (if the payoff is the hook, the clip MUST contain it).
 - Name the SPECIFIC payoff. BAN vague filler: realization, journey, "the truth about", "lessons",

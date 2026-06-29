@@ -398,10 +398,18 @@ def build_user_prompt(
 ) -> str:
     """W1: реальные min/max длины уходят в промпт как ЖЁСТКИЙ лимит (раньше хардкод «15-60s» в
     системном промпте — модель не знала фактического потолка и брала длиннее)."""
+    lang = transcript.language or ""
+    lang_reminder = (
+        f"\n⚠️  LANGUAGE REMINDER: transcript is {lang!r}. "
+        f"Write hook / why_works / key_quote in {lang!r} — NEVER in English.\n"
+        if lang.lower() not in ("en", "english", "")
+        else ""
+    )
     return (
         f"Video title: {title}\n"
-        f"Language: {transcript.language}  Duration: {transcript.duration:.0f}s  "
-        f"Words: {len(transcript.words)}\n\n"
+        f"Language: {lang}  Duration: {transcript.duration:.0f}s  "
+        f"Words: {len(transcript.words)}\n"
+        f"{lang_reminder}\n"
         f"Word-indexed transcript (each line starts with the index of its first word):\n"
         f"{indexed}\n\n"
         f"HARD length limit: every clip MUST be between {min_sec:.0f} and {max_sec:.0f} seconds. "
