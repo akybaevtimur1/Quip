@@ -24,7 +24,7 @@ const MAX_UPLOAD_LABEL = "10 GB";
 // solved properly (residential proxy / founder-IP tunnel). The WHOLE path behind this — the form
 // handler, createJob(youtube), the worker download + multi-cookie fallback — is intact; flip this
 // to true to restore the "or paste a link" field. See docs/JOURNAL.md 2026-06-25.
-const YOUTUBE_LINK_ENABLED: boolean = true;
+const YOUTUBE_LINK_ENABLED: boolean = false;
 
 /** Client-side YouTube-URL sanity check (server still validates + downloads best-effort).
  *  Loose by design: matches youtube.com / youtu.be and asks for a plausible length. */
