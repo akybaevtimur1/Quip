@@ -217,6 +217,20 @@ def build_youtube_cmd(
     ]
     if proxy:
         cmd += ["--proxy", proxy]
+    else:
+        # Direct DC-IP path: split the download into 4 parallel HTTP range-requests.
+        # YouTube CDN throttles per-connection (~2-5 Mbps) but allows concurrent connections,
+        # so 4 fragments gives 2-4x effective throughput on the no-proxy path.
+        # NOT used with a proxy: free proxies struggle with 4 simultaneous connections and
+        # the bottleneck shifts to proxy bandwidth, not per-connection YouTube throttle.
+        cmd += [
+            "--concurrent-fragments",
+            "4",
+            # If YouTube adaptive-throttles a fragment below 100 KB/s, yt-dlp auto-retries
+            # with a fresh URL (bypasses the throttle). Only meaningful on direct DC-IP.
+            "--throttled-rate",
+            "100K",
+        ]
     if cookies_file:
         cmd += ["--cookies", cookies_file]
     elif cookies_browser:

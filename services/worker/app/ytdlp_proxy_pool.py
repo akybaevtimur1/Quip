@@ -19,6 +19,7 @@ from __future__ import annotations
 import concurrent.futures
 import json
 import tempfile
+import time
 import urllib.request
 from pathlib import Path
 
@@ -32,7 +33,13 @@ _PROXYSCRAPE_API = (
     "?request=display_proxies&proxy_format=protocolipport"
     "&format=text&timeout=5000&country=all&ssl=all&anonymity=all"
 )
-_YOUTUBE_TEST_URL = "https://www.youtube.com/robots.txt"
+# Speed-test target: a well-known YouTube thumbnail (~150 KB).
+# Testing against YT CDN (not a generic host) measures the actual proxy→YouTube throughput,
+# which is what matters for yt-dlp downloads. Rick Astley maxres = ~150 KB, always available.
+_SPEED_TEST_URL = "https://i.ytimg.com/vi/dQw4w9WgXcQ/maxresdefault.jpg"
+# Drop proxies delivering below this — at 2 Mbps a 700 MB video takes ~47 min (borderline ok).
+# Raise to 5.0 for a stricter (smaller) but faster pool; lower for a bigger but slower pool.
+_MIN_SPEED_MBPS: float = 2.0
 
 
 # ─────────────────────────── pure / contained helpers ───────────────────────────
@@ -48,18 +55,26 @@ def _proxy_pool_r2_key() -> str:
     return (s.ytdlp_proxy_pool_r2_key or "").strip() or PROXY_POOL_R2_KEY
 
 
-def _test_http_proxy(proxy: str, timeout: float = 3.0) -> bool:
-    """Return True if an HTTP proxy can reach YouTube robots.txt. SOCKS → False (filtered out)."""
+def _test_proxy_speed(proxy: str, timeout: float = 8.0) -> tuple[bool, float]:
+    """Download a YouTube thumbnail through the proxy; return (passes_threshold, speed_mbps).
+
+    Speed-tests against YouTube CDN rather than a generic host so we measure the path
+    that actually matters for yt-dlp (proxy → YouTube servers). SOCKS → (False, 0.0).
+    """
     if not proxy.lower().startswith("http"):
-        return False  # SOCKS proxies need the 'socks' package; skip for now
+        return False, 0.0  # SOCKS needs the 'socks' package; skip
     try:
         handler = urllib.request.ProxyHandler({"http": proxy, "https": proxy})
         opener = urllib.request.build_opener(handler)
         opener.addheaders = [("User-Agent", "Mozilla/5.0")]
-        with opener.open(_YOUTUBE_TEST_URL, timeout=timeout) as resp:
-            return bool(resp.status < 500)
+        t0 = time.monotonic()
+        with opener.open(_SPEED_TEST_URL, timeout=timeout) as resp:
+            data = resp.read()
+        elapsed = max(time.monotonic() - t0, 0.001)
+        mbps = round((len(data) * 8) / (elapsed * 1_000_000), 2)
+        return mbps >= _MIN_SPEED_MBPS, mbps
     except Exception:
-        return False
+        return False, 0.0
 
 
 # ─────────────────────────── public API ───────────────────────────
@@ -80,28 +95,46 @@ def fetch_free_proxies() -> list[str]:
 
 
 def refresh_proxy_pool(target: int = 20, max_workers: int = 50) -> list[str]:
-    """Fetch proxies, test in parallel, return up to `target` working HTTP proxies."""
+    """Fetch proxies, speed-test against YouTube CDN, return fastest HTTP proxies sorted desc."""
     proxies = fetch_free_proxies()
     if not proxies:
         return []
 
-    working: list[str] = []
+    # (speed_mbps, proxy) pairs that passed the threshold — collected until we hit target.
+    results: list[tuple[float, str]] = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as ex:
-        future_to_proxy = {ex.submit(_test_http_proxy, p): p for p in proxies}
+        future_to_proxy = {ex.submit(_test_proxy_speed, p): p for p in proxies}
         for fut in concurrent.futures.as_completed(future_to_proxy):
             p = future_to_proxy[fut]
             try:
-                if fut.result():
-                    working.append(p)
-                    print(f"[proxy-pool] OK: {p}")
-                    if len(working) >= target:
+                ok, mbps = fut.result()
+                if ok:
+                    results.append((mbps, p))
+                    print(f"[proxy-pool] PASS {mbps:.1f} Mbps: {p}")
+                    if len(results) >= target:
                         for pending in future_to_proxy:
                             pending.cancel()
                         break
+                # (slow/dead proxies are silently skipped — noise in logs otherwise)
             except Exception:
                 pass
 
-    print(f"[proxy-pool] refresh: {len(working)} working HTTP proxies (of {len(proxies)} fetched)")
+    # Sort fastest-first so run.py tries the best proxy on the first attempt.
+    results.sort(key=lambda x: x[0], reverse=True)
+    working = [p for _, p in results]
+
+    if results:
+        speeds = [s for s, _ in results]
+        avg = sum(speeds) / len(speeds)
+        print(
+            f"[proxy-pool] refresh done: {len(working)} proxies ≥{_MIN_SPEED_MBPS} Mbps "
+            f"| fastest {results[0][0]:.1f} Mbps | avg {avg:.1f} Mbps"
+        )
+    else:
+        print(
+            f"[proxy-pool] refresh done: 0 proxies passed {_MIN_SPEED_MBPS} Mbps threshold "
+            f"(tested {len(proxies)} raw)"
+        )
     return working
 
 
