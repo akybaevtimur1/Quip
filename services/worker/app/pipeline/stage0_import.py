@@ -13,7 +13,9 @@ unit-тестами. I/O (yt-dlp/ffmpeg/ffprobe) — тонкие обёртки
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
+import urllib.request
 from pathlib import Path
 from typing import Any
 
@@ -309,61 +311,69 @@ def _get_cdn_urls(
 
 
 def _download_cdn_urls(cdn_urls: list[str], out_path: Path) -> None:
-    """ffmpeg: download video+audio from CDN directly (no proxy), merge to MP4 with faststart.
+    """Download video+audio CDN streams via urllib, merge to MP4 with ffmpeg (local files only).
 
-    CDN URLs come from _get_cdn_urls (signed googlevideo.com URLs with solved n-challenge).
-    These are publicly accessible from any IP — no proxy needed, but require browser-like
-    headers (User-Agent + Referer) or the CDN returns 403.
+    CDN URLs from _get_cdn_urls are signed googlevideo.com URLs accessible from any IP.
+    Uses urllib instead of ffmpeg for HTTP (ffmpeg static builds have inconsistent -headers
+    behaviour — they exit silently after the version banner when headers are mishandled).
+    ffmpeg is used only for the local remux step, where it is reliable.
     """
-    # googlevideo.com CDN requires browser-like headers — bare ffmpeg gets 403 without them.
-    # -headers must be repeated before each -i; it is an input-scoped AVFMT option.
-    _h = (
-        "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36\r\n"
-        "Referer: https://www.youtube.com/\r\n"
-    )
-    if len(cdn_urls) == 1:
-        cmd = [
-            "ffmpeg",
-            "-y",
-            "-headers",
-            _h,
-            "-i",
-            cdn_urls[0],
-            "-c",
-            "copy",
-            "-movflags",
-            "+faststart",
-            str(out_path),
-        ]
-    else:
-        cmd = [
-            "ffmpeg",
-            "-y",
-            "-headers",
-            _h,
-            "-i",
-            cdn_urls[0],  # video
-            "-headers",
-            _h,
-            "-i",
-            cdn_urls[1],  # audio
-            "-c",
-            "copy",
-            "-movflags",
-            "+faststart",
-            str(out_path),
-        ]
+    _req_headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        ),
+        "Referer": "https://www.youtube.com/",
+        "Accept": "*/*",
+    }
+
+    def _fetch(url: str, dst: Path) -> None:
+        req = urllib.request.Request(url, headers=_req_headers)
+        try:
+            with urllib.request.urlopen(req, timeout=7200) as resp, open(dst, "wb") as f:
+                shutil.copyfileobj(resp, f)
+        except OSError as e:
+            raise JobError(_STAGE, f"CDN fetch failed: {e}") from e
+
+    video_tmp = out_path.with_suffix(".vid.tmp")
+    audio_tmp = out_path.with_suffix(".aud.tmp")
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=7200)
-    except FileNotFoundError as e:
-        raise JobError(_STAGE, f"ffmpeg not found: {e}") from e
-    except subprocess.TimeoutExpired as e:
-        raise JobError(_STAGE, "ffmpeg CDN download timed out (2h)") from e
-    if proc.returncode != 0:
-        # ffmpeg banner alone is ~1000 chars — take last 3000 to get the actual error after it.
-        tail = (proc.stderr or "").strip()[-3000:]
-        raise JobError(_STAGE, f"ffmpeg CDN download failed: {tail}")
+        if len(cdn_urls) == 1:
+            _fetch(cdn_urls[0], video_tmp)
+            _run(
+                [
+                    "ffmpeg",
+                    "-y",
+                    "-i",
+                    str(video_tmp),
+                    "-c",
+                    "copy",
+                    "-movflags",
+                    "+faststart",
+                    str(out_path),
+                ]
+            )
+        else:
+            _fetch(cdn_urls[0], video_tmp)
+            _fetch(cdn_urls[1], audio_tmp)
+            _run(
+                [
+                    "ffmpeg",
+                    "-y",
+                    "-i",
+                    str(video_tmp),
+                    "-i",
+                    str(audio_tmp),
+                    "-c",
+                    "copy",
+                    "-movflags",
+                    "+faststart",
+                    str(out_path),
+                ]
+            )
+    finally:
+        video_tmp.unlink(missing_ok=True)
+        audio_tmp.unlink(missing_ok=True)
 
 
 def _video_stream(probe: dict[str, Any]) -> dict[str, Any]:
