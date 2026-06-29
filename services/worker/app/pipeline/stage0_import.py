@@ -13,9 +13,7 @@ unit-тестами. I/O (yt-dlp/ffmpeg/ffprobe) — тонкие обёртки
 from __future__ import annotations
 
 import json
-import shutil
 import subprocess
-import urllib.request
 from pathlib import Path
 from typing import Any
 
@@ -248,134 +246,6 @@ _YT_FORMAT = (
 )
 
 
-def _get_cdn_urls(
-    url: str,
-    *,
-    cookies_file: str = "",
-    proxy: str = "",
-    pot_server_home: str = "",
-    player_client: str = "",
-) -> list[str]:
-    """yt-dlp --get-url through proxy: YouTube URL → signed CDN URL(s) for video+audio.
-
-    The extractor (info handshake) is what triggers YouTube's bot-gate; --get-url resolves it
-    (including the n-challenge) and returns the direct googlevideo.com URL(s). The proxy is used
-    only for this kilobyte-scale handshake, not for the actual video bytes.
-
-    Returns 1-2 URLs (single stream or [video, audio]).
-    Raises YoutubeBotGateError if bot-gated; JobError for other failures.
-    """
-    max_seconds = MAX_SOURCE_MINUTES * 60
-    cmd = [
-        "yt-dlp",
-        "-f",
-        _YT_FORMAT,
-        "--get-url",
-        "--no-download",
-        "--no-playlist",
-        "--match-filter",
-        f"!is_live & duration < {max_seconds}",
-        "--remote-components",
-        "ejs:github",
-        "--socket-timeout",
-        "20",
-    ]
-    if proxy:
-        cmd += ["--proxy", proxy]
-    if cookies_file:
-        cmd += ["--cookies", cookies_file]
-    if pot_server_home:
-        cmd += ["--extractor-args", f"youtubepot-bgutilscript:server_home={pot_server_home}"]
-    if player_client:
-        cmd += ["--extractor-args", f"youtube:player_client={player_client}"]
-    cmd.append(url)
-
-    try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-    except FileNotFoundError as e:
-        raise JobError(_STAGE, f"yt-dlp not found: {e}") from e
-    except subprocess.TimeoutExpired as e:
-        raise JobError(_STAGE, "yt-dlp --get-url timed out (2 min)") from e
-
-    if proc.returncode != 0:
-        tail = (proc.stderr or "").strip()[-500:]
-        msg = classify_youtube_error(tail)
-        if is_bot_gate(tail):
-            raise YoutubeBotGateError(_STAGE, msg)
-        raise JobError(_STAGE, msg)
-
-    urls = [ln.strip() for ln in proc.stdout.splitlines() if ln.strip()]
-    if not urls:
-        raise JobError(_STAGE, classify_youtube_error("yt-dlp --get-url returned no URLs"))
-    return urls
-
-
-def _download_cdn_urls(cdn_urls: list[str], out_path: Path) -> None:
-    """Download video+audio CDN streams via urllib, merge to MP4 with ffmpeg (local files only).
-
-    CDN URLs from _get_cdn_urls are signed googlevideo.com URLs accessible from any IP.
-    Uses urllib instead of ffmpeg for HTTP (ffmpeg static builds have inconsistent -headers
-    behaviour — they exit silently after the version banner when headers are mishandled).
-    ffmpeg is used only for the local remux step, where it is reliable.
-    """
-    _req_headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        ),
-        "Referer": "https://www.youtube.com/",
-        "Accept": "*/*",
-    }
-
-    def _fetch(url: str, dst: Path) -> None:
-        req = urllib.request.Request(url, headers=_req_headers)
-        try:
-            with urllib.request.urlopen(req, timeout=7200) as resp, open(dst, "wb") as f:
-                shutil.copyfileobj(resp, f)
-        except OSError as e:
-            raise JobError(_STAGE, f"CDN fetch failed: {e}") from e
-
-    video_tmp = out_path.with_suffix(".vid.tmp")
-    audio_tmp = out_path.with_suffix(".aud.tmp")
-    try:
-        if len(cdn_urls) == 1:
-            _fetch(cdn_urls[0], video_tmp)
-            _run(
-                [
-                    "ffmpeg",
-                    "-y",
-                    "-i",
-                    str(video_tmp),
-                    "-c",
-                    "copy",
-                    "-movflags",
-                    "+faststart",
-                    str(out_path),
-                ]
-            )
-        else:
-            _fetch(cdn_urls[0], video_tmp)
-            _fetch(cdn_urls[1], audio_tmp)
-            _run(
-                [
-                    "ffmpeg",
-                    "-y",
-                    "-i",
-                    str(video_tmp),
-                    "-i",
-                    str(audio_tmp),
-                    "-c",
-                    "copy",
-                    "-movflags",
-                    "+faststart",
-                    str(out_path),
-                ]
-            )
-    finally:
-        video_tmp.unlink(missing_ok=True)
-        audio_tmp.unlink(missing_ok=True)
-
-
 def _video_stream(probe: dict[str, Any]) -> dict[str, Any]:
     streams = probe.get("streams") or []
     if not streams:
@@ -456,30 +326,17 @@ def download_youtube(
     pot_server_home: str = "",
     player_client: str = "",
 ) -> Path:
-    """yt-dlp → ``out_dir/source.mp4``. Возвращает путь к mp4.
+    """yt-dlp → ``out_dir/source.mp4`` (+ source.info.json). Возвращает путь к mp4.
 
-    Two-phase when proxy is set: proxy only for the extractor handshake (kilobytes, ~5-10s),
-    then download video bytes directly from CDN at full bandwidth (no proxy).
-    Single-phase (original yt-dlp + info.json) when no proxy is given.
+    Best-effort: на DC-IP (Modal) YouTube периодически режет бот-гейтом. При провале yt-dlp
+    НЕ молчим — классифицируем stderr в понятное ENG-сообщение (``classify_youtube_error``),
+    которое всегда зовёт юзера залить файл вручную (graceful fallback на upload-путь, правило №8).
+
+    Note: two-phase (proxy for info only, direct CDN for bytes) was tried but YouTube's signed
+    CDN URLs are bound to the requesting IP, so bypassing the proxy for the download gives 403.
+    yt-dlp must handle both info extraction AND the actual download on the same IP/proxy.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
-
-    if proxy:
-        # Two-phase: bot-gate bypass through proxy (fast info), direct CDN download (full speed).
-        cdn_urls = _get_cdn_urls(
-            url,
-            cookies_file=cookies_file,
-            proxy=proxy,
-            pot_server_home=pot_server_home,
-            player_client=player_client,
-        )
-        out_mp4 = out_dir / "source.mp4"
-        _download_cdn_urls(cdn_urls, out_mp4)
-        if not out_mp4.exists():
-            raise JobError(_STAGE, classify_youtube_error("ffmpeg CDN download produced no output"))
-        return out_mp4
-
-    # No proxy: single yt-dlp call (also writes source.info.json with the video title).
     cmd = build_youtube_cmd(
         url,
         out_dir,
