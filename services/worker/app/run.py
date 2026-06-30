@@ -295,6 +295,7 @@ def run_pipeline(
     on_cancellable: Callable[[bool], None] | None = None,
     user_id: str | None = None,
     language: str | None = None,
+    normalize_source: Callable[[], None] | None = None,
 ) -> Job:
     """Прогнать весь конвейер для job_id. Возвращает Job (также пишет job.json/runs.jsonl).
 
@@ -307,6 +308,11 @@ def run_pipeline(
     шаг). Джоб стартует cancellable=True (insert_job), True эмитить не нужно.
     user_id (опц.) — владелец джоба: несётся в per-clip рендер → план (вотермарка/разрешение)
     резолвится СЕРВЕРНО из profiles.plan (free прожигает вотермарку, обойти с клиента нельзя).
+    normalize_source(опц.) — ОТЛОЖЕННАЯ видео-нормализация аплоада в seekable source.mp4 (см.
+    stage0_import.normalize_upload_source). Аплоад-путь даёт аудио+meta из СЫРОГО файла сразу
+    (транскрипция стартует без ожидания ре-энкода), а source.mp4 материализуется ЗДЕСЬ — ПОСЛЕ
+    select, ПЕРЕД заливкой в R2/фан-аутом (где впервые нужен seekable mp4). YouTube/кэш: source.mp4
+    уже есть → None (no-op). Параметры _ensure_mp4 не меняются — двигается только момент запуска.
     """
     s = get_settings()  # fail-fast на отсутствии ключей; также берём reframe_mode
     out = DATA_ROOT / job_id
@@ -322,9 +328,20 @@ def run_pipeline(
     emit(JobStatus.downloading, 10)
     t0 = time.perf_counter()
     meta_path = out / "meta.json"
-    if (out / "source.mp4").exists() and meta_path.exists():
+    have_mp4 = (out / "source.mp4").exists()
+    if meta_path.exists() and (have_mp4 or (out / "source.wav").exists()):
+        # Stage 0 уже выполнен: либо ПОЛНЫЙ кэш (source.mp4 + meta — повторный прогон / после yt),
+        # либо БЫСТРАЯ подготовка аплоада (meta + source.wav готовы, source.mp4 ОТЛОЖЕН до
+        # normalize_source). meta из СЫРОГО исходника совпадает с будущим source.mp4 (ре-энкод не
+        # масштабирует) → fps/размеры/длина консистентны для гейта квоты и reframe.
         meta = SourceMeta.model_validate_json(meta_path.read_text(encoding="utf-8"))
-        print(f"[0] import: cached ({meta.duration:.0f}s {meta.width}x{meta.height})")
+        if have_mp4:
+            print(f"[0] import: cached ({meta.duration:.0f}s {meta.width}x{meta.height})")
+        else:
+            print(
+                f"[0] import: prepared, source.mp4 deferred "
+                f"({meta.duration:.0f}s {meta.width}x{meta.height})"
+            )
     elif source_url:
         # ── Multi-cookie + proxy-pool YouTube fallback (free bot-gate bypass, BEST-EFFORT).
         #    YouTube bot-gates DC-IPs; we fight on TWO fronts:
@@ -433,8 +450,11 @@ def run_pipeline(
     db.set_progress_detail(job_id, source_minutes=round(meta.duration / 60, 1))  # live narration
     # Энергетические co-watch-маркеры (Part 4) — БЕСТ-ЭФФОРТ, доступны РАНО (до transcribe), потому
     # покрывают самый длинный кусок ожидания. ⚠️ ИНВАРИАНТ: НЕ идут в select_segments — отбор
-    # от них не зависит (качество не меняется). [] при любом сбое extract_loudness.
-    energy_moments = detect_energy_moments(extract_loudness(str(out / "source.mp4")))
+    # от них не зависит (качество не меняется). [] при любом сбое extract_loudness. Источник звука:
+    # source.mp4 (yt/кэш), а для аплоада до отложенной нормализации mp4 ещё нет → берём source.wav
+    # (тот же звук, что в mp4; loudness re-decode'ит в 8kHz mono в любом случае).
+    _loud_src = out / "source.mp4" if (out / "source.mp4").exists() else out / "source.wav"
+    energy_moments = detect_energy_moments(extract_loudness(str(_loud_src)))
     if energy_moments:
         db.put_job_artifact(job_id, "preview_moments", [m.model_dump() for m in energy_moments])
 
@@ -551,6 +571,19 @@ def run_pipeline(
         for i, seg in enumerate(segments, start=1)
     ]
     db.set_clips_pending(job_id, pending_clips, progress=60, status=JobStatus.selecting)
+
+    # ── ОТЛОЖЕННАЯ видео-нормализация аплоада: транскрипция/селект уже прошли по аудио из СЫРОГО
+    #    файла; ТЕПЕРЬ, ПЕРЕД заливкой в R2 и фан-аутом (которым нужен seekable mp4), выполняем
+    #    _ensure_mp4 (remux h264 / полный ре-энкод AV1/HEVC — параметры ИДЕНТИЧНЫ, двигается лишь
+    #    момент). YouTube/кэш: source.mp4 уже есть → normalize_source=None. Идемпотентно. ──
+    if normalize_source is not None:
+        t_norm = time.perf_counter()
+        normalize_source()
+        stages["normalize"] = round(time.perf_counter() - t_norm, 2)
+    # Контракт (правило №8 — без тихого брака): к этому моменту source.mp4 ОБЯЗАН существовать
+    # (seekable mp4 для R2/reframe/render). Нет → явный JobError, а не битый фан-аут ниже.
+    if not (out / "source.mp4").exists():
+        raise JobError("import", f"source.mp4 missing after normalization for {job_id}")
 
     # ── Источник в R2 ДО фан-аута: каждый клип-контейнер скачивает source из R2
     #    (artifacts.ensure_source — тот же проверенный путь, что у editor-render). Локально

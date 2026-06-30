@@ -1,10 +1,13 @@
-import { HERO, HERO_CLIP, ROUTES } from "@/lib/landingContent";
+import { getLocale } from "next-intl/server";
+import { resolveLocale } from "@/i18n/locale";
+import { getLandingContent, ROUTES } from "@/lib/landingContent";
 import { Container, WordChip, TypeBadge } from "../components/primitives";
 import { PrimaryCTA, GhostCTA } from "../components/CTA";
 import { ConfidenceGauge } from "../components/Confidence";
 import { InlineClip } from "../components/InlineClip";
 
-export function Hero({ authed = false }: { authed?: boolean }) {
+export async function Hero({ authed = false }: { authed?: boolean }) {
+  const { hero, heroClip, openApp } = getLandingContent(resolveLocale(await getLocale()));
   return (
     <section id="top" className="relative overflow-hidden pt-28 pb-20 md:pt-32 md:pb-28">
       {/* instrument graticule, faded, never coral */}
@@ -18,36 +21,35 @@ export function Hero({ authed = false }: { authed?: boolean }) {
           {/* LEFT - value prop */}
           <div className="max-w-[37rem]">
             <h1 className="text-[clamp(36px,4.6vw,56px)] font-extrabold leading-[1.04] tracking-[-0.03em] text-ink">
-              {HERO.headlinePre}
+              {hero.headlinePre}
               <br />
-              {HERO.headlineMid}
-              <WordChip>{HERO.headlineAccent}</WordChip>
-              {HERO.headlinePost}
+              {hero.headlineMid}
+              <WordChip>{hero.headlineAccent}</WordChip>
+              {hero.headlinePost}
             </h1>
-            <p className="mt-6 max-w-[44ch] text-[1.0625rem] leading-relaxed text-muted">{HERO.sub}</p>
+            <p className="mt-6 max-w-[44ch] text-[1.0625rem] leading-relaxed text-muted">{hero.sub}</p>
 
             <div className="mt-9 flex flex-wrap items-center gap-3">
               <PrimaryCTA href={authed ? ROUTES.app : ROUTES.signup} size="lg">
-                {authed ? "Open the app" : HERO.primary}
+                {authed ? openApp : hero.primary}
               </PrimaryCTA>
               <GhostCTA href="#how-it-works" size="lg">
-                {HERO.secondary}
+                {hero.secondary}
               </GhostCTA>
             </div>
 
-            <p className="mt-6 font-mono text-[12px] uppercase tracking-[0.08em] text-faint">{HERO.trust}</p>
+            <p className="mt-6 font-mono text-[12px] uppercase tracking-[0.08em] text-faint">{hero.trust}</p>
           </div>
 
           {/* RIGHT - live product readout */}
-          <HeroReadout />
+          <HeroReadout clip={heroClip} />
         </div>
       </Container>
     </section>
   );
 }
 
-function HeroReadout() {
-  const clip = HERO_CLIP;
+function HeroReadout({ clip }: { clip: ReturnType<typeof getLandingContent>["heroClip"] }) {
   return (
     <div className="rounded-[16px] border border-line-strong bg-surface/70 p-5 shadow-[inset_0_1px_0_rgba(242,239,233,0.05)] backdrop-blur-sm sm:p-7">
       {/* one quiet header line: real, informative, no live-theater */}
@@ -66,7 +68,7 @@ function HeroReadout() {
             className="size-full object-cover"
           />
           <span className="absolute left-2 top-2">
-            <TypeBadge type={clip.type} />
+            <TypeBadge type={clip.type} label={clip.typeLabel} />
           </span>
         </div>
 

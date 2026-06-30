@@ -1,17 +1,12 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Input, Label } from "@/components/ui/Input";
 import { isDisposableEmail } from "@/lib/disposableEmail";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
-
-// Friendly UX message for throwaway domains. The SERVER is the authority (it rejects
-// disposable domains at the free-job gate); this is a pre-submit nicety so users don't get
-// a confusing failure later. Returns the message to show, or null when the email is fine.
-const DISPOSABLE_EMAIL_MESSAGE =
-  "Please use a real email address — disposable/temporary inboxes aren't allowed.";
 
 type Step = "email" | "code" | "password";
 
@@ -22,6 +17,9 @@ type Step = "email" | "code" | "password";
  *  - Classic email + password (secondary, behind a toggle) for people who prefer it.
  */
 export function AuthForm({ mode, next }: { mode: "login" | "signup"; next: string }) {
+  // The SERVER is the authority for disposable-domain rejection (free-job gate); these
+  // messages are pre-submit niceties so users don't hit a confusing failure later.
+  const t = useTranslations("auth");
   const router = useRouter();
   const [step, setStep] = useState<Step>("email");
   const [email, setEmail] = useState("");
@@ -53,7 +51,7 @@ export function AuthForm({ mode, next }: { mode: "login" | "signup"; next: strin
       if (err) throw err;
       // On success the browser redirects to Google; nothing else runs here.
     } catch (e) {
-      fail(e, "Couldn't start Google sign-in. Try again.");
+      fail(e, t("errors.googleStart"));
       setLoading(false);
     }
   }
@@ -63,7 +61,7 @@ export function AuthForm({ mode, next }: { mode: "login" | "signup"; next: strin
     setError(null);
     // Block obvious throwaway domains before we even call Supabase (server enforces too).
     if (isDisposableEmail(cleanEmail)) {
-      setError(DISPOSABLE_EMAIL_MESSAGE);
+      setError(t("errors.disposable"));
       return;
     }
     setLoading(true);
@@ -74,10 +72,10 @@ export function AuthForm({ mode, next }: { mode: "login" | "signup"; next: strin
       });
       if (err) throw err;
       setCode("");
-      setNotice("Check your inbox to verify your email, then enter the code below.");
+      setNotice(t("notice"));
       setStep("code");
     } catch (e) {
-      fail(e, "Couldn't send the code. Check the email and try again.");
+      fail(e, t("errors.sendCode"));
     } finally {
       setLoading(false);
     }
@@ -100,11 +98,11 @@ export function AuthForm({ mode, next }: { mode: "login" | "signup"; next: strin
         type: "email",
       });
       if (err) throw err;
-      if (!data.session) throw new Error("Invalid or expired code.");
+      if (!data.session) throw new Error(t("errors.invalidCode"));
       router.replace(next);
       router.refresh();
     } catch (e) {
-      fail(e, "Invalid or expired code. Request a new one.");
+      fail(e, t("errors.invalidCodeRetry"));
     } finally {
       setLoading(false);
     }
@@ -116,7 +114,7 @@ export function AuthForm({ mode, next }: { mode: "login" | "signup"; next: strin
     setError(null);
     // Anti-abuse: reject disposable domains on signup before hitting Supabase (server enforces too).
     if (mode === "signup" && isDisposableEmail(cleanEmail)) {
-      setError(DISPOSABLE_EMAIL_MESSAGE);
+      setError(t("errors.disposable"));
       return;
     }
     setLoading(true);
@@ -135,7 +133,7 @@ export function AuthForm({ mode, next }: { mode: "login" | "signup"; next: strin
         } else {
           // Project requires email confirmation → verify via the code we just emailed.
           // (The free plan requires a verified email, so this step is what unlocks it.)
-          setNotice("Check your inbox to verify your email, then enter the code below.");
+          setNotice(t("notice"));
           setStep("code");
         }
       } else {
@@ -156,11 +154,9 @@ export function AuthForm({ mode, next }: { mode: "login" | "signup"; next: strin
         e instanceof Error &&
         /invalid login credentials/i.test(e.message)
       ) {
-        setError(
-          "No password on this account yet? Sign in with Google or an email code, then add a password in Account settings.",
-        );
+        setError(t("errors.noPassword"));
       } else {
-        fail(e, "Something went wrong. Try again.");
+        fail(e, t("errors.generic"));
       }
     } finally {
       setLoading(false);
@@ -172,9 +168,12 @@ export function AuthForm({ mode, next }: { mode: "login" | "signup"; next: strin
     return (
       <form onSubmit={onVerifyCode} className="space-y-4" noValidate>
         <div>
-          <Label htmlFor="code">Enter your code</Label>
+          <Label htmlFor="code">{t("codeLabel")}</Label>
           <p className="mb-2.5 mt-1 text-sm text-muted">
-            We sent a 6-digit code to <span className="text-ink">{cleanEmail}</span>.
+            {t.rich("codeSentTo", {
+              email: cleanEmail,
+              em: (chunks) => <span className="text-ink">{chunks}</span>,
+            })}
           </p>
           {notice && <p className="mb-2.5 text-sm text-muted">{notice}</p>}
           {/* Supabase OTP length is configurable (6–8). Accept up to 8, enable at 6+,
@@ -199,7 +198,7 @@ export function AuthForm({ mode, next }: { mode: "login" | "signup"; next: strin
           </p>
         )}
         <Button type="submit" loading={loading} disabled={code.length < 6} className="w-full">
-          Verify & continue
+          {t("verifyContinue")}
         </Button>
         <div className="flex items-center justify-between text-sm">
           <button
@@ -208,7 +207,7 @@ export function AuthForm({ mode, next }: { mode: "login" | "signup"; next: strin
             disabled={loading}
             className="text-muted transition-colors hover:text-ink disabled:opacity-50"
           >
-            Resend code
+            {t("resend")}
           </button>
           <button
             type="button"
@@ -219,7 +218,7 @@ export function AuthForm({ mode, next }: { mode: "login" | "signup"; next: strin
             }}
             className="text-muted transition-colors hover:text-ink"
           >
-            Use a different email
+            {t("differentEmail")}
           </button>
         </div>
       </form>
@@ -231,7 +230,7 @@ export function AuthForm({ mode, next }: { mode: "login" | "signup"; next: strin
     return (
       <form onSubmit={onPassword} className="space-y-4" noValidate>
         <div>
-          <Label htmlFor="email">Email</Label>
+          <Label htmlFor="email">{t("emailLabel")}</Label>
           <Input
             id="email"
             type="email"
@@ -239,11 +238,11 @@ export function AuthForm({ mode, next }: { mode: "login" | "signup"; next: strin
             required
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            placeholder="you@example.com"
+            placeholder={t("emailPlaceholder")}
           />
         </div>
         <div>
-          <Label htmlFor="password">Password</Label>
+          <Label htmlFor="password">{t("passwordLabel")}</Label>
           <Input
             id="password"
             type="password"
@@ -252,7 +251,7 @@ export function AuthForm({ mode, next }: { mode: "login" | "signup"; next: strin
             minLength={8}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            placeholder="At least 8 characters"
+            placeholder={t("passwordPlaceholder")}
           />
         </div>
         {error && (
@@ -261,7 +260,7 @@ export function AuthForm({ mode, next }: { mode: "login" | "signup"; next: strin
           </p>
         )}
         <Button type="submit" loading={loading} className="w-full">
-          {mode === "signup" ? "Create account" : "Sign in"}
+          {mode === "signup" ? t("createAccountButton") : t("signInButton")}
         </Button>
         <button
           type="button"
@@ -271,7 +270,7 @@ export function AuthForm({ mode, next }: { mode: "login" | "signup"; next: strin
           }}
           className="block w-full text-center text-sm text-muted transition-colors hover:text-ink"
         >
-          ← Use an email code instead
+          {t("codeInstead")}
         </button>
       </form>
     );
@@ -288,18 +287,18 @@ export function AuthForm({ mode, next }: { mode: "login" | "signup"; next: strin
         className="w-full"
       >
         <GoogleIcon />
-        Continue with Google
+        {t("google")}
       </Button>
 
       <div className="flex items-center gap-3 text-xs text-faint">
         <span className="h-px flex-1 bg-line" />
-        or
+        {t("or")}
         <span className="h-px flex-1 bg-line" />
       </div>
 
       <form onSubmit={onSendCode} className="space-y-4" noValidate>
         <div>
-          <Label htmlFor="email">Email</Label>
+          <Label htmlFor="email">{t("emailLabel")}</Label>
           <Input
             id="email"
             type="email"
@@ -307,7 +306,7 @@ export function AuthForm({ mode, next }: { mode: "login" | "signup"; next: strin
             required
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            placeholder="you@example.com"
+            placeholder={t("emailPlaceholder")}
           />
         </div>
         {error && (
@@ -316,7 +315,7 @@ export function AuthForm({ mode, next }: { mode: "login" | "signup"; next: strin
           </p>
         )}
         <Button type="submit" loading={loading} disabled={!email.trim()} className="w-full">
-          Continue with email
+          {t("continueEmail")}
         </Button>
       </form>
 
@@ -328,7 +327,7 @@ export function AuthForm({ mode, next }: { mode: "login" | "signup"; next: strin
         }}
         className="block w-full text-center text-sm text-muted transition-colors hover:text-ink"
       >
-        Sign in with a password instead
+        {t("passwordInstead")}
       </button>
     </div>
   );

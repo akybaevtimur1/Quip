@@ -1,4 +1,6 @@
-import { CRAFT } from "@/lib/landingContent";
+import { getLocale } from "next-intl/server";
+import { resolveLocale } from "@/i18n/locale";
+import { getLandingContent } from "@/lib/landingContent";
 import { Container, Section } from "../components/primitives";
 import { Reveal } from "../components/Reveal";
 
@@ -9,8 +11,8 @@ const RATIOS = [
   { label: "16:9", cls: "h-[50px] w-[88px]" },
 ];
 
-export function Craft() {
-  const { heading, features } = CRAFT;
+export async function Craft() {
+  const { heading, features } = getLandingContent(resolveLocale(await getLocale())).craft;
   return (
     <Section id="craft">
       <Container>
@@ -24,7 +26,7 @@ export function Craft() {
           <div className="grid overflow-hidden rounded-[18px] border border-line sm:grid-cols-2">
             {features.map((f, i) => (
               <div
-                key={f.title}
+                key={f.id}
                 className={`flex flex-col p-7 sm:p-8 ${i > 0 ? "border-t border-line" : ""} sm:border-t-0 ${
                   i >= 2 ? "sm:border-t" : ""
                 } ${i % 2 === 1 ? "sm:border-l" : ""} border-line`}
@@ -33,7 +35,7 @@ export function Craft() {
                 <p className="mt-2.5 max-w-[40ch] text-[15px] leading-relaxed text-muted">{f.body}</p>
 
                 {/* visual variation: real captioned clip for captions, ratio diagram for ratios */}
-                {f.title === "Captions that pop" && (
+                {f.id === "captions" && (
                   <div className="mt-auto flex items-end gap-3 pt-6">
                     <div className="relative aspect-[9/16] w-[78px] overflow-hidden rounded-[8px] border border-line bg-bg">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -53,7 +55,7 @@ export function Craft() {
                     </div>
                   </div>
                 )}
-                {f.title === "Your hook, four ratios" && (
+                {f.id === "ratios" && (
                   <div className="mt-auto flex flex-wrap items-end gap-5 pt-8">
                     {RATIOS.map((r) => (
                       <div key={r.label} className="flex flex-col items-center gap-2.5">

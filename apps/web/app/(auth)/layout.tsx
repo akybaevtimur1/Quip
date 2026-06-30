@@ -1,6 +1,8 @@
+import { getTranslations } from "next-intl/server";
 import { Logo } from "@/components/ui/Logo";
 
-export default function AuthLayout({ children }: { children: React.ReactNode }) {
+export default async function AuthLayout({ children }: { children: React.ReactNode }) {
+  const t = await getTranslations("auth");
   return (
     <div className="relative flex min-h-dvh flex-col items-center justify-center overflow-hidden px-5 py-12">
       <div
@@ -13,15 +15,18 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
         </div>
         {children}
         <p className="mt-6 text-center text-xs leading-relaxed text-faint">
-          By continuing you agree to our{" "}
-          <a href="/terms" className="underline hover:text-muted">
-            Terms
-          </a>{" "}
-          and{" "}
-          <a href="/privacy" className="underline hover:text-muted">
-            Privacy Policy
-          </a>
-          .
+          {t.rich("agree", {
+            terms: (chunks) => (
+              <a href="/terms" className="underline hover:text-muted">
+                {chunks}
+              </a>
+            ),
+            privacy: (chunks) => (
+              <a href="/privacy" className="underline hover:text-muted">
+                {chunks}
+              </a>
+            ),
+          })}
         </p>
       </div>
     </div>

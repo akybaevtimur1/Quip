@@ -1,12 +1,15 @@
 import { Check, X } from "@phosphor-icons/react/dist/ssr";
-import { COMPARISON, CUT_PROOF } from "@/lib/landingContent";
+import { getLocale } from "next-intl/server";
+import { resolveLocale } from "@/i18n/locale";
+import { getLandingContent } from "@/lib/landingContent";
 import { Container, Section } from "../components/primitives";
 import { ConfidenceGauge } from "../components/Confidence";
 import { InlineClip } from "../components/InlineClip";
 import { Reveal } from "../components/Reveal";
 
-export function Comparison() {
-  const { heading, sub, rows } = COMPARISON;
+export async function Comparison() {
+  const { comparison } = getLandingContent(resolveLocale(await getLocale()));
+  const { heading, sub, rows, cols, kept, oneVideoNote, scoredTooLow, rejected } = comparison;
   return (
     <Section id="compare">
       <Container>
@@ -32,19 +35,17 @@ export function Comparison() {
               <div>
                 <span className="inline-flex items-center gap-1.5 rounded-pill border border-accent-line bg-accent-tint px-2.5 py-1 font-mono text-[10.5px] uppercase tracking-[0.1em] text-accent">
                   <Check weight="bold" className="size-3" />
-                  {CUT_PROOF.kept.label}
+                  {kept.label}
                 </span>
-                <ConfidenceGauge value={CUT_PROOF.kept.score} variant="card" className="mt-3" />
-                <p className="mt-3 max-w-[24ch] text-[13px] leading-snug text-muted">
-                  One video gave 23 candidates. This is the one worth posting first.
-                </p>
+                <ConfidenceGauge value={kept.score} variant="card" className="mt-3" />
+                <p className="mt-3 max-w-[24ch] text-[13px] leading-snug text-muted">{oneVideoNote}</p>
               </div>
             </div>
 
             <div>
-              <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-faint">Scored too low to ship</span>
+              <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-faint">{scoredTooLow}</span>
               <ul className="mt-4 flex flex-col gap-3.5">
-                {CUT_PROOF.rejected.map((r) => (
+                {rejected.map((r) => (
                   <li key={r.label} className="flex items-center gap-4">
                     <span className="num w-7 shrink-0 text-right font-mono text-[15px] text-bad/90">{r.score}</span>
                     <div className="relative h-1.5 w-20 shrink-0 overflow-hidden rounded-full bg-surface-3">
@@ -71,11 +72,11 @@ export function Comparison() {
                 <span className="absolute inset-x-0 top-0 h-[2px] bg-accent" aria-hidden />
                 <span className="flex items-center gap-2 font-mono text-[12px] uppercase tracking-[0.12em] text-ink">
                   <Check weight="bold" className="size-3.5 text-accent" />
-                  {COMPARISON.cols.quip}
+                  {cols.quip}
                 </span>
               </div>
               <div className="px-5 py-4 font-mono text-[12px] uppercase tracking-[0.12em] text-faint sm:px-6">
-                {COMPARISON.cols.them}
+                {cols.them}
               </div>
             </div>
             {/* rows */}

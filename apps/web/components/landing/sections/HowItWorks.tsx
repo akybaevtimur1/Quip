@@ -1,9 +1,11 @@
-import { HOW_IT_WORKS } from "@/lib/landingContent";
+import { getLocale } from "next-intl/server";
+import { resolveLocale } from "@/i18n/locale";
+import { getLandingContent } from "@/lib/landingContent";
 import { Container, Section } from "../components/primitives";
 import { Reveal } from "../components/Reveal";
 
-export function HowItWorks() {
-  const { heading, sub, steps } = HOW_IT_WORKS;
+export async function HowItWorks() {
+  const { heading, sub, steps } = getLandingContent(resolveLocale(await getLocale())).howItWorks;
   return (
     <Section id="how-it-works">
       <Container>

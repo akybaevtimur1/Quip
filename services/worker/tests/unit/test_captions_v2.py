@@ -1,8 +1,11 @@
 from app.editor.captions_v2 import (
+    KAZAKH_INCOMPLETE_FONTS,
     LATIN_ONLY_FONTS,
+    LOOK_MATCH_FOR_CYRILLIC,
     SINGLE_WEIGHT_FONTS,
     _ass_bold_flag,
     _ass_color,
+    _has_kazakh,
     compile_ass,
     resolve_font_for_text,
     word_animation_tags,
@@ -318,6 +321,7 @@ def test_compile_ass_box_sets_border_style_3():
 
 def test_ass_bold_flag_single_weight_fonts():
     expected = {
+        # UI-шрифты без bold-ката
         "Unbounded",
         "Anton",
         "Archivo Black",
@@ -325,6 +329,13 @@ def test_ass_bold_flag_single_weight_fonts():
         "Luckiest Guy",
         "Poppins",
         "Russo One",
+        # кириллице-способные look-match'ы (тяжёлые статик-инстансы, subfamily "Regular")
+        "Rubik Black",
+        "Play",
+        "Oswald Heavy",
+        "Oswald",
+        "Inter",
+        "Nunito Black",
     }
     for f in expected:
         assert _ass_bold_flag(f) == 0, f
@@ -333,6 +344,8 @@ def test_ass_bold_flag_single_weight_fonts():
 
 def test_ass_bold_flag_multi_weight_fonts():
     assert _ass_bold_flag("Montserrat") == -1
+    # "Rubik" остаётся multi-weight (его TTF — Bold-кат, матчится через Bold=-1), даже будучи
+    # look-match'ем Poppins — без регрессии относительно выбранного юзером Rubik.
     assert _ass_bold_flag("Rubik") == -1
 
 
@@ -351,30 +364,150 @@ def test_compile_ass_default_style_bold0_for_anton():
     assert fields[7] == "0"  # Bold
 
 
-# ───────────────── Cyrillic font fallback ─────────────────
+# ───────────────── Cyrillic look-match (preserve bold display look) ─────────────────
+# Каждый display-слот свапается на кириллице-способный аналог, СОХРАНЯЯ жирный лук (а не
+# откатываясь в Montserrat). Свап — ко ВСЕЙ кириллице (русский тоже). Зеркало assStyle.ts.
 
 
-def test_resolve_font_latin_font_cyrillic_text_falls_back():
-    assert resolve_font_for_text("Anton", "Привет") == "Montserrat"
-    assert resolve_font_for_text("Bebas Neue", "Тест") == "Montserrat"
+def test_look_match_map_covers_all_seven_display_slots():
+    # ровно 7 слотов; ни один таргет не равен Montserrat (лук сохранён, не fallback)
+    assert LOOK_MATCH_FOR_CYRILLIC == {
+        "Unbounded": "Rubik Black",
+        "Russo One": "Play",
+        "Anton": "Oswald Heavy",
+        "Bebas Neue": "Oswald",
+        "Archivo Black": "Inter",
+        "Luckiest Guy": "Nunito Black",
+        "Poppins": "Rubik",
+    }
+    assert "Montserrat" not in set(LOOK_MATCH_FOR_CYRILLIC.values())
+    # каждый Latin-only и каждый Kazakh-incomplete шрифт ИМЕЕТ look-match (Montserrat не нужен)
+    assert LATIN_ONLY_FONTS <= set(LOOK_MATCH_FOR_CYRILLIC)
+    assert KAZAKH_INCOMPLETE_FONTS <= set(LOOK_MATCH_FOR_CYRILLIC)
 
 
 def test_resolve_font_latin_font_latin_text_unchanged():
+    # латиница не содержит кириллицы → шрифт не трогаем (look-match не срабатывает)
     assert resolve_font_for_text("Anton", "Hello world") == "Anton"
+    assert resolve_font_for_text("Poppins", "Hello") == "Poppins"
 
 
-def test_resolve_font_russo_one_cyrillic_unchanged():
-    # Russo One покрывает кириллицу → НЕ в Latin-only set → не подменяем
-    assert "Russo One" not in LATIN_ONLY_FONTS
-    assert resolve_font_for_text("Russo One", "Привет") == "Russo One"
+def test_resolve_font_look_match_applies_to_russian_for_every_slot():
+    # РУССКИЙ (не только казахский) получает лук — свап на look-match для всех 7 слотов
+    for orig, look in LOOK_MATCH_FOR_CYRILLIC.items():
+        assert resolve_font_for_text(orig, "Привет мир") == look, orig
+
+
+def test_resolve_font_look_match_applies_to_kazakh_for_every_slot():
+    # казахский с уникальными глифами → тот же look-match (он покрывает все 18 — см. test_fonts)
+    for orig, look in LOOK_MATCH_FOR_CYRILLIC.items():
+        assert resolve_font_for_text(orig, "Қазақша мәтін") == look, orig
+
+
+def test_resolve_font_hook_default_unbounded_to_rubik_black():
+    # самый важный слот: дефолтный хук (Unbounded) → Rubik Black (геометрический ультра-болд)
+    assert resolve_font_for_text("Unbounded", "Сәлем") == "Rubik Black"
+    assert resolve_font_for_text("Unbounded", "Привет") == "Rubik Black"
+
+
+def test_resolve_font_russo_one_to_play():
+    assert resolve_font_for_text("Russo One", "Қазақ мәтіні") == "Play"
+    assert resolve_font_for_text("Russo One", "Привет") == "Play"
+
+
+def test_resolve_font_anton_to_oswald_heavy():
+    assert resolve_font_for_text("Anton", "Привет") == "Oswald Heavy"
+    assert resolve_font_for_text("Anton", "Қазақ") == "Oswald Heavy"
 
 
 def test_resolve_font_montserrat_always_unchanged():
+    # Montserrat нет в look-match, не Latin-only, не Kazakh-incomplete → не трогаем
     assert resolve_font_for_text("Montserrat", "Привет") == "Montserrat"
     assert resolve_font_for_text("Montserrat", "Hello") == "Montserrat"
 
 
-def test_compile_ass_cyrillic_text_swaps_latin_only_font():
+def test_resolve_font_unmapped_latin_only_falls_back_to_montserrat():
+    # защитный фолбэк: Latin-only шрифт БЕЗ записи в look-match (гипотетический) → Montserrat.
+    # (в текущем продукте все слоты замаплены; проверяем сам резерв-механизм.)
+    import app.editor.captions_v2 as c
+
+    orig = dict(c.LOOK_MATCH_FOR_CYRILLIC)
+    try:
+        c.LOOK_MATCH_FOR_CYRILLIC.pop("Anton")
+        assert c.resolve_font_for_text("Anton", "Привет") == "Montserrat"
+    finally:
+        c.LOOK_MATCH_FOR_CYRILLIC.clear()
+        c.LOOK_MATCH_FOR_CYRILLIC.update(orig)
+
+
+# ─────────── казахо-уникальные глифы ───────────
+# Тест-строка с КАЖДЫМ казахо-уникальным глифом (ә ғ қ ң ө ұ ү һ і + верхний регистр).
+_KAZAKH_TEXT = "Сәлем! Қазақша мәтін — әріптер: ғ қ ң ө ұ ү һ і Ғ Қ Ң Ө Ұ Ү Һ І"
+
+
+def test_has_kazakh_detects_unique_codepoints():
+    assert _has_kazakh("Қазақ")  # қ/Қ — казахо-уникальные
+    assert _has_kazakh("мәтін")  # ә/і
+    assert _has_kazakh(_KAZAKH_TEXT)
+
+
+def test_has_kazakh_false_for_russian_and_latin():
+    # Чисто русский (нет казахо-уникальных кодпойнтов) и латиница → False
+    assert not _has_kazakh("Привет мир")
+    assert not _has_kazakh("Hello world")
+    assert not _has_kazakh("")
+
+
+def test_kazakh_incomplete_set_membership():
+    # Unbounded (дефолт хука) и Russo One (пресет u) русскую кириллицу рендерят, но без
+    # казахских глифов → tofu. НЕ Latin-only (русский корректен).
+    assert KAZAKH_INCOMPLETE_FONTS == frozenset({"Unbounded", "Russo One"})
+    assert KAZAKH_INCOMPLETE_FONTS.isdisjoint(LATIN_ONLY_FONTS)
+
+
+def test_resolve_font_montserrat_kazakh_unchanged():
+    # Montserrat покрывает все 18 → не трогаем
+    assert resolve_font_for_text("Montserrat", _KAZAKH_TEXT) == "Montserrat"
+
+
+def test_compile_ass_kazakh_hook_swaps_unbounded_to_look_match():
+    # Хук с дефолтным Unbounded + казахский текст → Hook-style эмитит look-match (Rubik Black)
+    from app.models import HookOverlay
+
+    words = [_w("Привет", 0.0, 0.4)]
+    track = CaptionTrack(
+        style=CaptionStyle(),
+        highlight=None,
+        replies=[CaptionReply(word_refs=[0])],
+        hook=HookOverlay(text="Сәлем достар!", font="Unbounded"),
+    )
+    hook_line = next(
+        ln
+        for ln in compile_ass(track, words, _cmap()).splitlines()
+        if ln.startswith("Style: Hook,")
+    )
+    fields = hook_line.split(",")
+    assert fields[1] == "Rubik Black"  # Fontname
+    assert fields[7] == "0"  # Bold=0 (single-weight look-match)
+
+
+def test_compile_ass_kazakh_caption_swaps_russo_one_to_look_match():
+    # Субтитры на Russo One + казахский → Default-style эмитит look-match (Play)
+    words = [_w("Қазақша", 0.0, 0.4)]
+    track = CaptionTrack(
+        style=CaptionStyle(font="Russo One"),
+        highlight=None,
+        replies=[CaptionReply(word_refs=[0])],
+    )
+    style_line = next(
+        ln
+        for ln in compile_ass(track, words, _cmap()).splitlines()
+        if ln.startswith("Style: Default,")
+    )
+    assert style_line.split(",")[1] == "Play"
+
+
+def test_compile_ass_cyrillic_text_swaps_latin_only_font_to_look_match():
     words = [_w("Привет", 0.0, 0.4)]
     track = CaptionTrack(
         style=CaptionStyle(font="Anton"), highlight=None, replies=[CaptionReply(word_refs=[0])]
@@ -384,7 +517,7 @@ def test_compile_ass_cyrillic_text_swaps_latin_only_font():
         for ln in compile_ass(track, words, _cmap()).splitlines()
         if ln.startswith("Style: Default,")
     )
-    assert style_line.split(",")[1] == "Montserrat"
+    assert style_line.split(",")[1] == "Oswald Heavy"
 
 
 # ───────────────── new word animations ─────────────────

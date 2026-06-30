@@ -1,10 +1,12 @@
 "use client";
 
 import { User } from "lucide-react";
+import { useTranslations } from "next-intl";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { SignOutButton } from "@/components/auth/SignOutButton";
 import { UsagePill } from "@/components/app/UsagePill";
+import { LocaleSwitcher } from "@/components/i18n/LocaleSwitcher";
 import { Logo } from "@/components/ui/Logo";
 import { siteConfig } from "@/lib/site";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
@@ -13,6 +15,7 @@ import { isSupabaseConfigured } from "@/lib/supabase/config";
 /** App shell header for the logged-in area. Shows plan + account. Email is read
  *  client-side from Supabase when configured; dev mode shows no account. */
 export function AppHeader() {
+  const t = useTranslations("appHeader");
   const [email, setEmail] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -52,13 +55,14 @@ export function AppHeader() {
         <div className="flex items-center gap-2.5">
           {/* always-visible balance: videos + minutes left this month */}
           <UsagePill className="hidden sm:inline-flex" />
+          <LocaleSwitcher className="hidden sm:inline-flex" />
           <div className="relative" ref={menuRef}>
             <button
               type="button"
               onClick={() => setMenuOpen((v) => !v)}
               aria-haspopup="menu"
               aria-expanded={menuOpen}
-              aria-label="Account menu"
+              aria-label={t("accountMenu")}
               className="flex size-10 cursor-pointer items-center justify-center rounded-full border border-line bg-surface-2 text-sm font-semibold text-ink transition-colors hover:border-line-strong sm:size-9"
             >
               {email ? email[0]?.toUpperCase() : <User className="size-4 text-muted" aria-hidden />}
@@ -79,7 +83,7 @@ export function AppHeader() {
                   onClick={() => setMenuOpen(false)}
                   className="mt-1 block rounded-md px-3 py-2.5 text-sm text-muted transition-colors hover:bg-surface-2 hover:text-ink sm:py-2"
                 >
-                  Account &amp; subscription
+                  {t("account")}
                 </Link>
                 <Link
                   href="/#pricing"
@@ -87,7 +91,7 @@ export function AppHeader() {
                   onClick={() => setMenuOpen(false)}
                   className="block rounded-md px-3 py-2.5 text-sm text-muted transition-colors hover:bg-surface-2 hover:text-ink sm:py-2"
                 >
-                  Pricing
+                  {t("pricing")}
                 </Link>
                 <a
                   href={`mailto:${siteConfig.supportEmail}`}
@@ -95,13 +99,19 @@ export function AppHeader() {
                   onClick={() => setMenuOpen(false)}
                   className="block rounded-md px-3 py-2.5 text-sm text-muted transition-colors hover:bg-surface-2 hover:text-ink sm:py-2"
                 >
-                  Contact support
+                  {t("support")}
                 </a>
+                {/* Locale toggle in the menu too, so it's reachable on mobile (where the
+                    header switcher is hidden). */}
+                <div className="mt-1 flex items-center justify-between gap-2 border-t border-line px-3 py-2.5 sm:hidden">
+                  <span className="text-sm text-muted">Язык / Language</span>
+                  <LocaleSwitcher />
+                </div>
                 <div className="px-3 py-2">
                   {isSupabaseConfigured ? (
                     <SignOutButton />
                   ) : (
-                    <span className="text-xs text-faint">Dev mode (no account)</span>
+                    <span className="text-xs text-faint">{t("devMode")}</span>
                   )}
                 </div>
               </div>

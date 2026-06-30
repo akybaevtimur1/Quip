@@ -143,7 +143,12 @@ function putPart(
   });
 }
 
-const UPLOAD_PART_CONCURRENCY = 3;
+// Parallel R2 part uploads in flight at once. Raised 3→6 in tandem with the worker shrinking
+// `part_size` (smaller parts + more of them) so a fat pipe stays saturated and big uploads finish
+// sooner. The client never assumes a part size: each chunk's byte range is derived from the
+// server's `part_size` and the server's `parts` plan (see uploadParts), so this stays correct
+// whatever size the worker picks.
+const UPLOAD_PART_CONCURRENCY = 6;
 
 /** Залить файл частями (параллельно, с ограничением concurrency) и вернуть [{part_number, etag}]
  *  для сборки объекта. Прогресс — сумма загруженного по всем частям / общий размер. */
@@ -588,6 +593,27 @@ export async function extendClip(
   return res.json();
 }
 
+// ── Per-clip export endpoints (single source of truth for download URLs). All PURE. ──
+// Shared by the single-clip ExportMenu and the grid's "Download all" so the URL contract lives
+// in ONE place. `base` is the worker origin (NEXT_PUBLIC_WORKER_URL).
+
+/** On-demand "clean" (no-caption) vertical MP4 — renders the CURRENT edit-state on the fly. PURE.
+ *  NB: when a stable clean CDN render already exists (clip.video_url), prefer THAT (instant) over
+ *  this re-render — this endpoint is the fallback when no baked clean URL is available. */
+export function clipCleanExportUrl(base: string, jobId: string, clipId: string): string {
+  return `${base}/jobs/${jobId}/clips/${clipId}/export/clean.mp4`;
+}
+
+/** Per-clip SRT subtitles (cheap text; timings match the clip). PURE. */
+export function clipSrtUrl(base: string, jobId: string, clipId: string): string {
+  return `${base}/jobs/${jobId}/clips/${clipId}/export.srt`;
+}
+
+/** On-demand captioned (burned-in subtitles) MP4 — renders the current edit-state on the fly. PURE. */
+export function clipCaptionedExportUrl(base: string, jobId: string, clipId: string): string {
+  return `${base}/jobs/${jobId}/clips/${clipId}/export/captioned.mp4`;
+}
+
 // Which URL the "With captions (MP4)" download should hit. PURE.
 //
 // `bakedUrl` is the stable CDN render produced by the last "Render" — fast, but it is a
@@ -603,8 +629,7 @@ export function captionedDownloadUrl(
   bakedUrl: string | null,
   dirty: boolean,
 ): string {
-  const onDemand = `${base}/jobs/${jobId}/clips/${clipId}/export/captioned.mp4`;
-  if (dirty || !bakedUrl) return onDemand;
+  if (dirty || !bakedUrl) return clipCaptionedExportUrl(base, jobId, clipId);
   return bakedUrl;
 }
 

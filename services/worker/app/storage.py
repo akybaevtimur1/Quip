@@ -209,15 +209,42 @@ def presigned_put_url(job_id: str) -> str:
 
 # ─────────────────────────── multipart upload (файлы > single-PUT) ───────────────────────────
 # R2 single PUT макс 5 ГБ. Файлы крупнее (и ради скорости/resume — крупные вообще) браузер режет
-# на части по MULTIPART_PART_SIZE и грузит ПАРАЛЛЕЛЬНО прямо в R2; R2 собирает их в один объект.
-# 100 МБ/часть: R2 min part 5 МБ, max 10000 частей → до ~1 ТБ при 100 МБ (с запасом под 3h-видео).
-MULTIPART_PART_SIZE = 100 * 1024 * 1024
+# на части и грузит ПАРАЛЛЕЛЬНО прямо в R2; R2 собирает их в один объект.
+#
+# ДВЕ независимые ручки (раньше была ОДНА константа 100 МБ — и порог, и размер части):
+#   • MULTIPART_THRESHOLD — выше него файл идёт multipart; ниже — один presigned PUT (мелкие).
+#   • MULTIPART_MIN_PART_SIZE — НИЖНЯЯ граница размера части (R2 min part = 5 МБ; берём 16 МБ:
+#     меньше round-trip'ов на типовых 30–300 МБ телефонных загрузках, но всё ещё параллелим).
+# Прежние 100 МБ значили, что 30–100 МБ файлы НЕ резались (один медленный PUT, без resume/
+# параллелизма). Порог 32 МБ + часть от 16 МБ → их теперь тоже параллелит.
+MULTIPART_THRESHOLD = 32 * 1024 * 1024
+MULTIPART_MIN_PART_SIZE = 16 * 1024 * 1024
+# Кап числа частей с ЗАПАСОМ под жёсткий лимит R2/S3 (10000). При 16 МБ/часть 10 ГБ = 640 частей
+# (далеко под капом); кап включается лишь на огромных файлах (>~144 ГБ) — тогда РАСТЁТ размер
+# части, а число держится ≤ MAX_PARTS (см. plan_part_size).
+MULTIPART_MAX_PARTS = 9000
+
+# Back-compat алиас: «размер части по умолчанию» = нижняя граница (внешние ссылки на старое имя).
+MULTIPART_PART_SIZE = MULTIPART_MIN_PART_SIZE
+
+
+def plan_part_size(size: int) -> int:
+    """Размер ОДНОЙ части для multipart-загрузки файла ``size`` байт. PURE.
+
+    ``max(MIN_PART, ceil(size / MAX_PARTS))``: обычно = MIN_PART (16 МБ), но на гигантских файлах
+    РАСТЁТ так, чтобы число частей не пробило лимит R2 (10000). Инвариант: при таком part_size
+    ``ceil(size / part_size) ≤ MAX_PARTS`` (число частей под капом). size≤0 → MIN_PART (одна часть).
+    """
+    if size <= 0:
+        return MULTIPART_MIN_PART_SIZE
+    return max(MULTIPART_MIN_PART_SIZE, math.ceil(size / MULTIPART_MAX_PARTS))
 
 
 def plan_part_count(size: int, part_size: int) -> int:
     """Сколько частей для файла ``size`` байт при ``part_size``. PURE.
 
-    Минимум 1 (нулевой/битый size → одна часть, не ноль); кап 10000 (лимит S3/R2 на число частей).
+    Минимум 1 (нулевой/битый size → одна часть, не ноль); кап 10000 (жёсткий лимит S3/R2).
+    При ``part_size`` из ``plan_part_size`` кап не достигается (число держится ≤ MAX_PARTS).
     """
     if size <= 0:
         return 1
@@ -328,6 +355,24 @@ def download_source(job_id: str, dest: Path) -> None:
         )
     except Exception as e:  # noqa: BLE001
         raise JobError("storage", f"R2 download source {job_id} failed: {e}") from e
+
+
+def download_clip(job_id: str, clip_id: str, dest: Path, *, variant: str = "") -> None:
+    """Скачать готовый baked-клип из R2 в dest (для composite-ASS fast-path рендера субтитров).
+
+    На web/render-контейнере baked ``clips/<id>.mp4`` лежит в R2, не на диске. Скачать его
+    (~10–20 МБ) на порядок дешевле, чем тянуть весь source (50+ МБ) и гонять CV для полного
+    ре-рендера. JobError при сбое (№8) — вызыватель ловит и падает в полный путь (не тихо)."""
+    s = get_settings()
+    try:
+        _r2_client().download_file(
+            s.r2_bucket,
+            storage_object_key(job_id, clip_id, variant=variant),
+            str(dest),
+            Config=_transfer_config(),
+        )
+    except Exception as e:  # noqa: BLE001
+        raise JobError("storage", f"R2 download clip {job_id}/{clip_id} failed: {e}") from e
 
 
 def preview_object_key(job_id: str) -> str:

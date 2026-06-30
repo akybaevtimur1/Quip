@@ -366,9 +366,14 @@ def create_upload_url(
         return {"local": True}
     job_id = f"job_{uuid.uuid4().hex[:12]}"
     size = body.size or 0
-    if size > storage.MULTIPART_PART_SIZE:
+    # Решение multipart-vs-single по ПОРОГУ (не по размеру части): 30–100 МБ файлы тоже режутся
+    # на части → параллельная заливка + resume. part_size вычисляется (обычно 16 МБ, растёт лишь
+    # на гигантских файлах, чтобы не пробить лимит R2 в 10000 частей) и ЯВНО отдаётся клиенту —
+    # браузер нарезает файл ровно по нему ([i*part_size, (i+1)*part_size)).
+    if size > storage.MULTIPART_THRESHOLD:
         upload_id = storage.create_multipart_upload(job_id)
-        n_parts = storage.plan_part_count(size, storage.MULTIPART_PART_SIZE)
+        part_size = storage.plan_part_size(size)
+        n_parts = storage.plan_part_count(size, part_size)
         parts = [
             {"part_number": i, "url": storage.presigned_upload_part_url(job_id, upload_id, i)}
             for i in range(1, n_parts + 1)
@@ -376,7 +381,7 @@ def create_upload_url(
         return {
             "id": job_id,
             "upload_id": upload_id,
-            "part_size": storage.MULTIPART_PART_SIZE,
+            "part_size": part_size,
             "parts": parts,
         }
     return {"id": job_id, "put_url": storage.presigned_put_url(job_id)}

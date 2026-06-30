@@ -1,23 +1,26 @@
-import { WHY, CLIPS, HERO_CLIP } from "@/lib/landingContent";
+import { getLocale } from "next-intl/server";
+import { resolveLocale } from "@/i18n/locale";
+import { getLandingContent } from "@/lib/landingContent";
 import { Container, Eyebrow, Section, TypeBadge } from "../components/primitives";
 import { InlineClip } from "../components/InlineClip";
 import { ConfidenceGauge } from "../components/Confidence";
 import { ClipCard } from "../components/ClipCard";
 import { Reveal } from "../components/Reveal";
 
-export function WhyQuip() {
-  const featured = CLIPS[1]; // the "strong quote", score 88
-  const evidence = [HERO_CLIP, CLIPS[2], CLIPS[3]];
+export async function WhyQuip() {
+  const { why, clips, heroClip } = getLandingContent(resolveLocale(await getLocale()));
+  const featured = clips[1]; // the "strong quote", score 88
+  const evidence = [heroClip, clips[2], clips[3]];
 
   return (
     <Section id="why">
       <Container>
         <Reveal className="max-w-[46rem]">
-          <Eyebrow>{WHY.eyebrow}</Eyebrow>
+          <Eyebrow>{why.eyebrow}</Eyebrow>
           <h2 className="mt-5 text-[clamp(30px,4vw,48px)] font-bold leading-[1.06] tracking-[-0.025em] text-ink">
-            {WHY.heading}
+            {why.heading}
           </h2>
-          <p className="mt-5 text-[1.0625rem] leading-relaxed text-muted">{WHY.sub}</p>
+          <p className="mt-5 text-[1.0625rem] leading-relaxed text-muted">{why.sub}</p>
         </Reveal>
 
         {/* anatomy of one verdict: the clip on the left, its four carried reasons on the right */}
@@ -32,7 +35,7 @@ export function WhyQuip() {
                   className="size-full object-cover"
                 />
                 <span className="absolute left-2 top-2">
-                  <TypeBadge type={featured.type} />
+                  <TypeBadge type={featured.type} label={featured.typeLabel} />
                 </span>
                 <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-bg/90 to-transparent px-2.5 pb-2 pt-7 font-mono text-[10px] tracking-[0.06em] text-muted">
                   {featured.timecode}
@@ -41,24 +44,26 @@ export function WhyQuip() {
             </div>
 
             <ul className="divide-y divide-line">
-              {WHY.payload.map((item, i) => (
-                <li key={item.key} className="grid grid-cols-[2rem_minmax(0,1fr)] gap-x-4 py-4 first:pt-0 last:pb-0">
+              {why.payload.map((item, i) => (
+                <li key={item.id} className="grid grid-cols-[2rem_minmax(0,1fr)] gap-x-4 py-4 first:pt-0 last:pb-0">
                   <span className="num font-mono text-[12px] text-faint">{String(i + 1).padStart(2, "0")}</span>
                   <div>
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-                      <span className="text-[15px] font-semibold tracking-[-0.01em] text-ink">{item.key}</span>
-                      {item.key === "Moment type" && <TypeBadge type={featured.type} />}
+                      <span className="text-[15px] font-semibold tracking-[-0.01em] text-ink">{item.label}</span>
+                      {item.id === "momentType" && (
+                        <TypeBadge type={featured.type} label={featured.typeLabel} />
+                      )}
                     </div>
                     <p className="mt-1 text-[14px] leading-relaxed text-muted">{item.body}</p>
-                    {item.key === "Hook" && (
+                    {item.id === "hook" && (
                       <p className="mt-2 text-[14px] font-medium italic leading-snug text-ink/90">
                         “{featured.hook}”
                       </p>
                     )}
-                    {item.key === "Why it works" && (
+                    {item.id === "whyItWorks" && (
                       <p className="mt-2 text-[14px] leading-snug text-ink/80">{featured.reason}</p>
                     )}
-                    {item.key === "Confidence" && (
+                    {item.id === "confidence" && (
                       <ConfidenceGauge value={featured.confidence} variant="card" className="mt-2" />
                     )}
                   </div>

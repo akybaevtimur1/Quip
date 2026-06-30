@@ -321,6 +321,7 @@ export function ClipCard({
             <ExportMenu
               jobId={jobId}
               clipId={clip.id}
+              cleanBakedUrl={videoSrc || null}
               align="left"
               placement="up"
               className="flex-1"

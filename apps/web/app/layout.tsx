@@ -2,6 +2,8 @@ import { Analytics } from "@vercel/analytics/next";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import type { Metadata } from "next";
 import { IBM_Plex_Mono, Onest } from "next/font/google";
+import { NextIntlClientProvider } from "next-intl";
+import { getLocale, getMessages } from "next-intl/server";
 import { YandexMetrika } from "@/components/analytics/YandexMetrika";
 import { FeedbackWidget } from "@/components/app/FeedbackWidget";
 import { NavProgress } from "@/components/ui/NavProgress";
@@ -67,12 +69,17 @@ export const metadata: Metadata = {
   // Favicon / app icon come from app/icon.png + app/apple-icon.png (Next file convention).
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
+  // Locale comes from the NEXT_LOCALE cookie (next-intl cookie mode). Crawlers send no
+  // cookie → DEFAULT_LOCALE ("en"), so the SEO marketing pages stay English by default.
+  const locale = await getLocale();
+  const messages = await getMessages();
+
   return (
     <html
-      lang="en"
+      lang={locale}
       className={`${onest.variable} ${plexMono.variable} h-full`}
       suppressHydrationWarning
     >
@@ -82,9 +89,12 @@ export default function RootLayout({
         <script
           dangerouslySetInnerHTML={{ __html: "document.documentElement.classList.add('js')" }}
         />
-        <NavProgress />
-        {children}
-        <FeedbackWidget />
+        {/* Single i18n provider for the whole client subtree (auth + app shell use t()). */}
+        <NextIntlClientProvider locale={locale} messages={messages}>
+          <NavProgress />
+          {children}
+          <FeedbackWidget />
+        </NextIntlClientProvider>
         {/* Vercel Web Analytics — НИЧЕГО не рисует, только шлёт pageview/событие в Vercel
             (смотреть на дашборде проекта, вкладка Analytics). На Vercel надо один раз включить
             Analytics в настройках проекта; в локальном dev — no-op. */}

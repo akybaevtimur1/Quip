@@ -5,11 +5,14 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from app.editor.timemap import ClipTimeMap
 from app.models import CaptionReply, CaptionTrack, HighlightStyle, HookOverlay, Word
 from app.pipeline.stage4_captions import escape_ass_text, format_ass_time
+
+log = logging.getLogger(__name__)
 
 
 def _ass_color(hex_color: str, alpha_byte: int = 0) -> str:
@@ -33,6 +36,7 @@ def _ass_color_tag(hex_color: str) -> str:
 # во фронте (assStyle.ts). См. build_hook_event / compile_ass.
 SINGLE_WEIGHT_FONTS = frozenset(
     {
+        # UI-шрифты (StyleControls.CAPTION_FONTS) без bold-ката.
         "Unbounded",
         "Anton",
         "Archivo Black",
@@ -40,15 +44,79 @@ SINGLE_WEIGHT_FONTS = frozenset(
         "Luckiest Guy",
         "Poppins",
         "Russo One",
+        # Кириллице-способные look-match'ы (LOOK_MATCH_FOR_CYRILLIC ниже): одиночные ТЯЖЁЛЫЕ
+        # статик-инстансы с subfamily "Regular". Bold=0 → libass матчит Regular-фейс ТОЧНО (сам
+        # глиф уже жирный → без fake-bold, без подмены семейства). «Rubik» здесь НЕТ: его TTF —
+        # это Bold-кат, матчится через Bold=-1 как и выбранный юзером Rubik (без регрессии).
+        "Rubik Black",
+        "Play",
+        "Oswald Heavy",
+        "Oswald",
+        "Inter",
+        "Nunito Black",
     }
 )
 
-# Шрифты БЕЗ кириллических глифов (Latin-only): на кириллице → tofu. Russo One кириллицу
-# покрывает, поэтому в наборе его НЕТ. См. resolve_font_for_text.
+# Шрифты БЕЗ кириллических глифов (Latin-only): на кириллице → tofu. Russo One РУССКУЮ
+# кириллицу покрывает, поэтому в этом наборе его НЕТ (но казахский — см. ниже). См.
+# resolve_font_for_text.
 LATIN_ONLY_FONTS = frozenset({"Anton", "Archivo Black", "Bebas Neue", "Luckiest Guy", "Poppins"})
 
-# Шрифт-фолбэк для кириллицы (покрывает U+0400–U+04FF, есть в обоих fonts-каталогах).
+# Казахо-уникальные кодпойнты: 9 букв × 2 регистра = 18. Есть в казахском, но НЕ в стандартном
+# русском. Это ровно те глифы, которых нет в Unbounded/Russo One (→ tofu на казахском).
+# ЕДИНЫЙ источник правды: test_fonts.py импортирует это и проверяет, что каждый шрифт-фолбэк их
+# покрывает; зеркалится во фронте (assStyle.ts KAZAKH_CODEPOINTS) → preview == render.
+KAZAKH_CODEPOINTS = frozenset(
+    {
+        0x04D9, 0x04D8,  # ә Ә
+        0x0493, 0x0492,  # ғ Ғ
+        0x049B, 0x049A,  # қ Қ
+        0x04A3, 0x04A2,  # ң Ң
+        0x04E9, 0x04E8,  # ө Ө
+        0x04B1, 0x04B0,  # ұ Ұ
+        0x04AF, 0x04AE,  # ү Ү
+        0x0456, 0x0406,  # і І
+        0x04BB, 0x04BA,  # һ Һ
+    }
+)  # fmt: skip
+
+# Шрифты С русской кириллицей, но БЕЗ казахо-уникальных глифов (ә ғ қ ң ө ұ ү һ — Unbounded
+# покрывает лишь і/І): на казахском → tofu. НЕ Latin-only (русский рендерят верно).
+# Unbounded — ДЕФОЛТ хука (models.py HookOverlay.font), Russo One — пресет «u» (Gamer Tech).
+# Проверено fonttools 2026-06-30: ни одна upstream-сборка (google/fonts release И source-repo
+# HEAD) этих глифов не содержит → замена САМОГО TTF невозможна. Раньше гард свапал их на Montserrat
+# (читаемо, но bold-look терялся); теперь — на кириллице-способный LOOK-match (см. ниже).
+# Зеркалится во фронте (assStyle.ts KAZAKH_INCOMPLETE_FONTS). См. resolve_font_for_text.
+KAZAKH_INCOMPLETE_FONTS = frozenset({"Unbounded", "Russo One"})
+
+# Шрифт-фолбэк для кириллицы (покрывает U+0400–U+04FF + все 18 казахских, есть в обоих
+# fonts-каталогах). Используется как ПОСЛЕДНИЙ резерв — только для шрифтов БЕЗ записи в
+# LOOK_MATCH_FOR_CYRILLIC (читаемо, но bold-look теряется).
 _CYRILLIC_FALLBACK_FONT = "Montserrat"
+
+# Кириллице-способный LOOK-match на каждый display-слот: сохраняет ЖИРНЫЙ ДИСПЛЕЙНЫЙ ЛУК на
+# кириллице/казахском вместо отката в Montserrat. Каждый таргет ПРОВЕРЕН fonttools 2026-06-30 —
+# покрывает все 18 казахских глифов (ә ғ қ ң ө ұ ү һ і + верхний регистр) И базовую русскую
+# кириллицу — и подобран ПОД ЛУК оригинала (OFL, google/fonts). Свап применяется ко ВСЕЙ
+# кириллице (русский ТОЖЕ получает лук, не только казахский). TTF лежат в обоих fonts-каталогах
+# (services/worker/fonts + apps/web/public/libass/fonts), зарегистрированы в LibassLayer.
+# Источник правды; зеркалится во фронте (assStyle.ts LOOK_MATCH_FOR_CYRILLIC) → preview == render.
+#   Unbounded     (дефолт хука: геометрический ультра-болд, скруглён) → Rubik Black
+#   Russo One     (пресет «u» Gamer Tech: квадратный техно)          → Play
+#   Anton         (пресет «n»: высокий узкий жирный)                 → Oswald Heavy
+#   Bebas Neue    (пресет «q»: высокий узкий капс)                   → Oswald
+#   Archivo Black (пресет «o»: гротеск-блэк)                         → Inter
+#   Luckiest Guy  (пресет «t» Sticker Round: комикс-круглый)         → Nunito Black
+#   Poppins       (пресет «p» Bold Pop White: геометрический болд)   → Rubik
+LOOK_MATCH_FOR_CYRILLIC = {
+    "Unbounded": "Rubik Black",
+    "Russo One": "Play",
+    "Anton": "Oswald Heavy",
+    "Bebas Neue": "Oswald",
+    "Archivo Black": "Inter",
+    "Luckiest Guy": "Nunito Black",
+    "Poppins": "Rubik",
+}
 
 
 def _ass_bold_flag(font: str) -> int:
@@ -61,15 +129,42 @@ def _has_cyrillic(text: str) -> bool:
     return any("Ѐ" <= ch <= "ӿ" for ch in text)
 
 
-def resolve_font_for_text(font: str, text: str) -> str:
-    """Подобрать шрифт под текст: Latin-only шрифт + кириллица → кириллический фолбэк. PURE.
+def _has_kazakh(text: str) -> bool:
+    """True если в тексте есть казахо-уникальный кодпойнт (KAZAKH_CODEPOINTS). PURE."""
+    return any(ord(ch) in KAZAKH_CODEPOINTS for ch in text)
 
-    Это НЕ молчаливый фолбэк-проглот ошибки, а ОСОЗНАННОЕ render-решение: Latin-only TTF
-    (Anton/Bebas/…) на кириллице даёт tofu (□□□). Если выбранный шрифт без кириллицы И в
-    тексте есть кириллица — рендерим кириллице-способным Montserrat; во всех остальных
-    случаях шрифт не трогаем (Latin-текст, кириллице-способный шрифт, Russo One и т.д.).
+
+def resolve_font_for_text(font: str, text: str) -> str:
+    """Подобрать шрифт под текст: шрифт без нужных глифов → кириллице-способный аналог.
+
+    ОСОЗНАННОЕ render-решение (НЕ молчаливый проглот ошибки): display-шрифты без кириллицы
+    (Anton/…) или без казахских глифов (Unbounded/Russo One) дают tofu (□□□) на казахском.
+    Латиница в тексте нет кириллицы → шрифт не трогаем.
+    Текст СОДЕРЖИТ кириллицу — порядок разрешения:
+      1. LOOK-match (LOOK_MATCH_FOR_CYRILLIC): шрифт-слот → кириллице-способный аналог,
+         подобранный ПОД ЛУК оригинала и покрывающий все 18 казахских глифов + русский. Это
+         СОХРАНЯЕТ жирный дисплейный лук (фаундер закрывает B2B-сделку в Алматы) вместо отката
+         в Montserrat. Применяется ко ВСЕЙ кириллице → русский тоже получает лук, не только казах.
+      2. Фолбэк (у шрифта НЕТ записи в LOOK-match): Latin-only → Montserrat (кириллицы нет вовсе);
+         Kazakh-incomplete → Montserrat ТОЛЬКО если в тексте реально есть казахо-уникальный глиф
+         (чисто русский на таком шрифте остаётся как есть — лук сохранён).
+    Подмена логируется (явная, НЕ тихая — см. CLAUDE.md). Детерминирована по (font, text) —
+    return чистый; info-лог = наблюдаемость. Зеркалится во фронте (assStyle.ts
+    resolveFontForText) → preview == render (WYSIWYG).
     """
-    if font in LATIN_ONLY_FONTS and _has_cyrillic(text):
+    if not _has_cyrillic(text):
+        return font
+    look = LOOK_MATCH_FOR_CYRILLIC.get(font)
+    if look is not None:
+        log.info("font swap: %r → %r (Cyrillic look-match, preserves bold look)", font, look)
+        return look
+    if font in LATIN_ONLY_FONTS:
+        log.info("font swap: %r is Latin-only, Cyrillic text → %s", font, _CYRILLIC_FALLBACK_FONT)
+        return _CYRILLIC_FALLBACK_FONT
+    if font in KAZAKH_INCOMPLETE_FONTS and _has_kazakh(text):
+        log.info(
+            "font swap: %r lacks Kazakh glyphs, Kazakh text → %s", font, _CYRILLIC_FALLBACK_FONT
+        )
         return _CYRILLIC_FALLBACK_FONT
     return font
 
@@ -198,7 +293,8 @@ def build_hook_event(hook: HookOverlay, clip_duration: float) -> tuple[str, str]
     text = hook.text.replace("\n", " ").strip()
     if hook.uppercase:
         text = text.upper()
-    # Latin-only шрифт + кириллица в хук-тексте → кириллице-способный фолбэк (без tofu).
+    # Кириллица/казах в хук-тексте → кириллице-способный look-match (сохраняет жирный лук,
+    # без tofu); шрифт без look-match откатывается в Montserrat. См. resolve_font_for_text.
     font = resolve_font_for_text(hook.font, text)
     # Bold=0 для single-weight шрифтов (без реального bold-начертания): иначе на воркере libass
     # подменяет СЕМЕЙСТВО (берёт чужой реальный Bold, напр. Montserrat) → хук рендерится не тем
@@ -424,8 +520,9 @@ def compile_ass(
     аспект ≠ кадр-аспект). Превью (libass.wasm) и экспорт (ffmpeg) берут ОДИН ASS → WYSIWYG.
     """
     st = track.style
-    # Latin-only шрифт + кириллица в субтитрах → кириллице-способный фолбэк (без tofu). Style
-    # один на все реплики → проверяем кириллицу по СОВОКУПНОМУ тексту видимых реплик (+ override).
+    # Кириллица/казах в субтитрах → кириллице-способный look-match (сохраняет жирный лук, без
+    # tofu); шрифт без look-match откатывается в Montserrat. Style один на все реплики →
+    # проверяем кириллицу по СОВОКУПНОМУ тексту видимых реплик (+ override).
     caption_text = " ".join(
         (
             r.text_override

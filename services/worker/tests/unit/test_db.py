@@ -145,6 +145,64 @@ def test_cloud_row_keeps_r2_key_ref_marker_untouched() -> None:
     assert wire["clips"][0]["video_url"] == "r2://job_z/clip_01.mp4"  # без media/-префикса
 
 
+# ───────── H2: CDN cache-bust клипов грида (чёрный кадр после same-key rewrite) ─────────
+
+
+def test_cache_token_from_updated_at() -> None:
+    # Стабильный токен из updated_at (epoch→int) — меняется при ре-процессе, стабилен на готовом.
+    assert db._cache_token({"updated_at": 1_700_000_000.7}) == 1_700_000_000
+    assert db._cache_token({"updated_at": "1700000001"}) == 1_700_000_001
+
+
+def test_cache_token_none_for_missing_or_zero() -> None:
+    # Старая/незаполненная строка (None или 0/мусор) → None → без буста (как раньше, без регресса).
+    assert db._cache_token({}) is None
+    assert db._cache_token({"updated_at": None}) is None
+    assert db._cache_token({"updated_at": 0.0}) is None
+    assert db._cache_token({"updated_at": "nope"}) is None
+
+
+def test_resolve_clip_urls_busts_http_grid_url_leaves_relative() -> None:
+    # H2: http-URL клипа грида получает ?v=<token> (same-key rewrite → новый URL → CDN-miss свежих
+    # байт); относительный (локалка /media) и пустой (pending) — без изменений.
+    wire = {
+        "clips": [
+            {"id": "c1", "video_url": "https://cdn.quip.ink/job_x/clip_01.mp4"},
+            {"id": "c2", "video_url": "media/job_x/clips/clip_02.mp4"},
+            {"id": "c3", "video_url": ""},
+        ]
+    }
+    out = db._resolve_clip_urls(wire, cache_token=42)
+    assert out["clips"][0]["video_url"] == "https://cdn.quip.ink/job_x/clip_01.mp4?v=42"
+    assert out["clips"][1]["video_url"] == "media/job_x/clips/clip_02.mp4"  # rel — без буста
+    assert out["clips"][2]["video_url"] == ""  # pending не трогаем
+
+
+def test_resolve_clip_urls_no_token_is_noop_on_http() -> None:
+    wire = {"clips": [{"id": "c1", "video_url": "https://cdn/clip.mp4"}]}
+    out = db._resolve_clip_urls(wire, cache_token=None)
+    assert out["clips"][0]["video_url"] == "https://cdn/clip.mp4"
+
+
+def test_get_job_appends_cache_bust_to_grid_clip(monkeypatch, tmp_path) -> None:
+    # End-to-end (SQLite): готовый клип с http-URL получает ?v=<int(updated_at)> на чтении →
+    # после ре-процесса (новый updated_at) URL меняется → CDN отдаёт свежие байты, не чёрный кадр.
+    monkeypatch.setattr(db, "_DB_PATH", tmp_path / "j.db")
+    db.init_db()
+    clip = {"id": "clip_01", "video_url": "https://cdn.quip.ink/job_h/clip_01.mp4"}
+    import json as _json
+
+    with db._conn() as c:
+        c.execute(
+            "INSERT INTO jobs (id,status,stage,progress,clips_json,cost_usd,duration_sec,"
+            "elapsed_sec,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            ("job_h", "done", "done", 100, _json.dumps([clip]), 0.0, 0.0, 0.0, 0.0, 1700000500.0),
+        )
+    wire = db.get_job("job_h")
+    assert wire is not None
+    assert wire["clips"][0]["video_url"] == ("https://cdn.quip.ink/job_h/clip_01.mp4?v=1700000500")
+
+
 def test_get_job_re_presigns_r2_key_ref_on_read(monkeypatch, tmp_path) -> None:
     # D6: get_job ре-подписывает долговечный маркер r2://<key> СВЕЖИМ URL на КАЖДОМ чтении —
     # клип не отдаёт 403 спустя час/неделю (старый код пёк presigned URL намертво в строку).
@@ -229,7 +287,9 @@ def test_set_clip_ready_fills_only_target_index(monkeypatch, tmp_path) -> None:
     wire = db.get_job("job_inc")
     assert wire is not None
     assert wire["clips"][0]["video_url"] == ""  # первый ещё pending
-    assert wire["clips"][1]["video_url"] == "https://cdn/clip_02.mp4"  # только цель заполнена
+    # H2: http-URL клипа грида несёт CDN cache-bust ?v=<updated_at> → сверяем базу (split на "?v=").
+    assert wire["clips"][1]["video_url"].split("?v=")[0] == "https://cdn/clip_02.mp4"
+    assert "?v=" in wire["clips"][1]["video_url"]  # буст применён (анти-протухание ре-процесса)
     assert wire["status"] == "rendering"  # set_clip_ready НЕ флипает в done
 
 
@@ -246,10 +306,12 @@ def test_set_clip_ready_all_clips_then_consistent_with_set_done(monkeypatch, tmp
 
     wire = db.get_job("job_inc")
     assert wire is not None
-    assert [c["video_url"] for c in wire["clips"]] == [
+    # H2: каждый http-URL грида несёт CDN cache-bust ?v=<updated_at> → сверяем базы (split "?v=").
+    assert [c["video_url"].split("?v=")[0] for c in wire["clips"]] == [
         "https://cdn/clip_01.mp4",
         "https://cdn/clip_02.mp4",
     ]
+    assert all("?v=" in c["video_url"] for c in wire["clips"])
 
 
 def test_set_clip_ready_out_of_range_raises(monkeypatch, tmp_path) -> None:

@@ -1,6 +1,7 @@
 "use client";
 
 import { Loader2, X } from "lucide-react";
+import { useTranslations } from "next-intl";
 import Link from "next/link";
 import { useEffect, useMemo, useSyncExternalStore } from "react";
 import { Badge } from "@/components/ui/Badge";
@@ -17,18 +18,14 @@ import {
   updateRecentProject,
 } from "@/lib/recent";
 
-const PROCESSING_LABEL: Partial<Record<JobStatusLite, string>> = {
-  queued: "Queued",
-  downloading: "Preparing",
-  transcribing: "Transcribing",
-  selecting: "Finding moments",
-  rendering: "Rendering",
-};
+// Live processing stages that have a localized label under `recentProjects.stage.*`.
+const STAGE_KEYS = ["queued", "downloading", "transcribing", "selecting", "rendering"] as const;
 
-/** Compact ledger timestamp: "now" / "12m" / "3h" / "5d". Mono-rendered by the caller. */
-function relTime(at: number): string {
+/** Compact ledger timestamp: "now" / "12m" / "3h" / "5d". Mono-rendered by the caller.
+ *  Only the sub-minute "now" is a word, so it's passed in already localized. */
+function relTime(at: number, nowLabel: string): string {
   const s = Math.max(0, Math.floor((Date.now() - at) / 1000));
-  if (s < 60) return "now";
+  if (s < 60) return nowLabel;
   const m = Math.floor(s / 60);
   if (m < 60) return `${m}m`;
   const h = Math.floor(m / 60);
@@ -46,12 +43,13 @@ function StatusCell({
   nclips?: number;
   reviewed?: boolean;
 }) {
+  const t = useTranslations("recentProjects");
   if (status === "done") {
-    const clips = nclips != null ? `${nclips} clip${nclips === 1 ? "" : "s"}` : "Ready";
+    const clips = nclips != null ? t("clipCount", { count: nclips }) : t("ready");
     if (!reviewed) {
       return (
         <Badge tone="accent" dot>
-          New · {clips}
+          {t("newWithClips", { clips })}
         </Badge>
       );
     }
@@ -64,27 +62,29 @@ function StatusCell({
   if (status === "failed") {
     return (
       <Badge tone="bad" dot>
-        Failed
+        {t("failed")}
       </Badge>
     );
   }
   if (status === "cancelled") {
     return (
       <Badge tone="neutral" dot>
-        Stopped
+        {t("stopped")}
       </Badge>
     );
   }
   // processing (or unknown-yet) → animated cue
+  const stageKey = status && (STAGE_KEYS as readonly string[]).includes(status) ? status : null;
   return (
     <span className="inline-flex shrink-0 items-center gap-1.5 font-mono text-eyebrow uppercase text-muted">
       <Loader2 className="size-3 animate-spin" />
-      {status ? (PROCESSING_LABEL[status] ?? "Processing") : "Processing"}…
+      {stageKey ? t(`stage.${stageKey}`) : t("processing")}…
     </span>
   );
 }
 
 export function RecentProjects() {
+  const t = useTranslations("recentProjects");
   const items = useSyncExternalStore(subscribeRecent, getRecentSnapshot, getRecentServerSnapshot);
 
   // Only re-subscribe the poller when the SET of non-terminal jobs changes (not on every
@@ -132,12 +132,10 @@ export function RecentProjects() {
   return (
     <section className="rounded-lg border border-line bg-surface p-5">
       <Eyebrow tone="muted" as="h2">
-        Recent
+        {t("heading")}
       </Eyebrow>
       {items.length === 0 ? (
-        <p className="mt-3 text-sm leading-relaxed text-muted">
-          Projects created on this device appear here.
-        </p>
+        <p className="mt-3 text-sm leading-relaxed text-muted">{t("empty")}</p>
       ) : (
         <ul className="mt-3 -mx-2 divide-y divide-line">
           {items.map((p) => (
@@ -146,7 +144,9 @@ export function RecentProjects() {
                 href={`/dashboard?job=${p.id}`}
                 className="flex min-w-0 flex-1 items-center gap-3 rounded-md px-2 py-2.5 transition-colors hover:bg-surface-2"
               >
-                <Numeral className="w-8 shrink-0 text-eyebrow text-faint">{relTime(p.at)}</Numeral>
+                <Numeral className="w-8 shrink-0 text-eyebrow text-faint">
+                  {relTime(p.at, t("now"))}
+                </Numeral>
                 <span className="min-w-0 flex-1 truncate text-sm text-muted group-hover:text-ink">
                   {p.label}
                 </span>
@@ -155,7 +155,7 @@ export function RecentProjects() {
               <button
                 type="button"
                 onClick={() => removeRecentProject(p.id)}
-                aria-label="Remove from recent"
+                aria-label={t("remove")}
                 className="ml-0.5 shrink-0 rounded-md p-2 text-faint transition hover:text-ink [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100"
               >
                 <X className="size-3.5" />

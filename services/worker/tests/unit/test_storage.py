@@ -1,12 +1,17 @@
 """Тесты pure-билдеров хранилища (app.storage). I/O (R2 upload) — интеграционно, не здесь."""
 
 from app.storage import (
+    MULTIPART_MAX_PARTS,
+    MULTIPART_MIN_PART_SIZE,
+    MULTIPART_THRESHOLD,
     R2_KEY_SCHEME,
     clip_upload_extra_args,
     is_r2_key_ref,
     key_from_ref,
     key_ref,
     local_url,
+    plan_part_count,
+    plan_part_size,
     preview_object_key,
     public_url,
     source_object_key,
@@ -105,3 +110,56 @@ def test_is_r2_key_ref_rejects_plain_urls_and_paths() -> None:
     assert not is_r2_key_ref("clips/clip_01.mp4")
     assert not is_r2_key_ref("media/job/clips/clip_01.mp4")
     assert not is_r2_key_ref("")
+
+
+# ─────────────── L1: multipart part-size/threshold tuning (browser direct upload) ───────────────
+# Раньше ОДНА константа (100 МБ) была И порогом, И размером части → 30–100 МБ файлы НЕ резались.
+# Теперь порог (32 МБ) и размер части (от 16 МБ) — разные ручки; число частей капится под лимит R2.
+
+_MB = 1024 * 1024
+
+
+def test_threshold_below_part_size_so_mid_files_go_multipart() -> None:
+    # Порог МЕНЬШЕ старых 100 МБ → 30–100 МБ файлы теперь идут multipart (параллельно + resume).
+    assert MULTIPART_THRESHOLD < 100 * _MB
+    assert MULTIPART_THRESHOLD == 32 * _MB
+    assert MULTIPART_MIN_PART_SIZE == 16 * _MB
+
+
+def test_typical_phone_upload_uses_min_part_size() -> None:
+    # 80 МБ телефонная загрузка → part_size = MIN (16 МБ), 5 частей (ceil(80/16)).
+    size = 80 * _MB
+    ps = plan_part_size(size)
+    assert ps == MULTIPART_MIN_PART_SIZE
+    assert plan_part_count(size, ps) == 5
+
+
+def test_10gb_stays_well_under_part_limit() -> None:
+    # 10 ГБ при 16 МБ/часть = 640 частей — далеко под лимитом R2 (10000).
+    size = 10 * 1024 * _MB
+    ps = plan_part_size(size)
+    assert ps == MULTIPART_MIN_PART_SIZE
+    assert plan_part_count(size, ps) == 640
+
+
+def test_huge_file_grows_part_size_to_cap_count() -> None:
+    # На гигантском файле part_size РАСТЁТ, чтобы число частей не пробило MAX_PARTS.
+    size = 500 * 1024 * _MB  # 500 ГБ
+    ps = plan_part_size(size)
+    assert ps > MULTIPART_MIN_PART_SIZE  # вырос выше нижней границы
+    n = plan_part_count(size, ps)
+    assert n <= MULTIPART_MAX_PARTS  # число частей под капом-с-запасом
+    assert n <= 10000  # и под жёстким лимитом R2
+
+
+def test_part_count_invariant_holds_across_sizes() -> None:
+    # Инвариант: при part_size из plan_part_size число частей всегда ≤ MAX_PARTS.
+    for size in (1 * _MB, 33 * _MB, 200 * _MB, 5 * 1024 * _MB, 999 * 1024 * _MB):
+        ps = plan_part_size(size)
+        assert ps >= MULTIPART_MIN_PART_SIZE
+        assert plan_part_count(size, ps) <= MULTIPART_MAX_PARTS
+
+
+def test_plan_part_size_zero_is_min() -> None:
+    assert plan_part_size(0) == MULTIPART_MIN_PART_SIZE
+    assert plan_part_count(0, plan_part_size(0)) == 1

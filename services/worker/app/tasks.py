@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import os
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 from app import billing, db
@@ -18,6 +19,7 @@ from app.pipeline.stage0_import import SourceMeta
 from app.run import run_pipeline
 
 _log = logging.getLogger("clipflow.billing")
+_rlog = logging.getLogger("clipflow.render")
 
 
 def _billing_on() -> bool:
@@ -89,14 +91,107 @@ def _meter(user_id: str | None, job_id: str, job: Job, holder: dict[str, Any]) -
         _log.exception("usage record failed: job=%s user=%s", job_id, user_id)
 
 
+def _segment_bounds(job_id: str, clip_id: str) -> tuple[float, float] | None:
+    """(start, end) сегмента клипа из артефактов (диск/cloud). None если индекс вне диапазона/нет.
+
+    Дефолтный интервал клипа сидится из ЭТОГО сегмента (default_clip_edit). Совпадение текущего
+    edit-интервала с этими границами = клип не тримили/не сдвигали → baked ``clips/<id>.mp4`` —
+    валидная геометрия для composite-ASS fast-path (см. fast_export.edit_matches_baked).
+    """
+    from app import artifacts
+
+    try:
+        segs = artifacts.load_segments(job_id)
+        idx = int(clip_id.split("_")[1]) - 1
+    except (JobError, IndexError, ValueError):
+        return None
+    if idx < 0 or idx >= len(segs):
+        return None
+    seg = segs[idx]
+    return (seg.start, seg.end)
+
+
+def _ensure_baked_clip(job_id: str, clip_id: str, out: Path) -> Path | None:
+    """Путь к чистому baked-клипу ``clips/<id>.mp4``: с диска (batch/local) или скачать из R2 (web).
+
+    None → клипа нет нигде → composite-fast-path невозможен (НЕ тихо: причина логируется, вызыватель
+    идёт полным путём). Скачивание клипа (~10–20 МБ) на порядок дешевле полного source + CV.
+    """
+    from app.cloud_state import cloud_enabled
+
+    local = out / "clips" / f"{clip_id}.mp4"
+    if local.exists():
+        return local
+    if not cloud_enabled():
+        return None
+    from app import storage
+
+    try:
+        local.parent.mkdir(parents=True, exist_ok=True)
+        storage.download_clip(job_id, clip_id, local)
+        return local
+    except JobError as e:
+        _rlog.info("composite fast-path: baked clip unavailable (%s) → full render: %s", e, clip_id)
+        return None
+
+
+def _composite_captions_onto_baked(
+    job_id: str,
+    clip_id: str,
+    edit: Any,
+    out: Path,
+    baked: Path,
+    *,
+    out_w: int,
+    out_h: int,
+    out_rel: str,
+    crf: int,
+    preset: str,
+) -> None:
+    """FAST PATH: прожечь ASS текущего edit поверх baked-клипа ОДНИМ коротким энкодом.
+
+    Пропускает ensure_source(полный source), resolve_regions_accurate(CV) и reframe-фильтрграф —
+    baked уже 1080×1920 с вотермаркой и нужным кропом (геометрия/вотермарка сохраняются). ASS жжём
+    тем же compile_ass/fontsdir, что и полный путь → WYSIWYG (как libass-превью над тем же клипом).
+    """
+    from app import fast_export
+    from app.editor import store
+    from app.editor.captions_v2 import write_caption_ass
+    from app.editor.timemap import ClipTimeMap
+    from app.pipeline.stage5_render import _fontsdir_rel, _run_ffmpeg, _subtitles_filter
+
+    # PlayRes ASS = размеры выхода (out_w×out_h) → libass не растягивает субтитры (T5).
+    words = store.load_transcript_words(job_id)
+    cmap = ClipTimeMap(edit.source_intervals)
+    ass_rel = f"clips/{clip_id}.ass"
+    ass_path = out / ass_rel
+    ass_path.parent.mkdir(parents=True, exist_ok=True)
+    write_caption_ass(edit.captions, words, cmap, ass_path, play_w=out_w, play_h=out_h)
+
+    ass_filter = _subtitles_filter(ass_rel, _fontsdir_rel(out))
+    baked_rel = baked.relative_to(out).as_posix()
+    cmd = fast_export.build_composite_ass_cmd(
+        baked_rel, ass_filter, out_rel, crf=crf, preset=preset
+    )
+    _rlog.info("composite-ASS fast path: job=%s clip=%s baked=%s", job_id, clip_id, baked_rel)
+    _run_ffmpeg(cmd, out)  # JobError при сбое (правило №8)
+    if not (out / out_rel).exists():
+        raise JobError("render", f"composite-ASS produced no {out_rel}")
+
+
 def render_edit_to_file(job_id: str, clip_id: str, *, with_subtitles: bool, out_rel: str) -> None:
     """Собрать mp4 из текущего ClipEdit в out_rel. Общее ядро рендера (правило «без дублей»).
 
     with_subtitles=True → прожигаем ASS выбранного стиля (обычный клип). False → чистый mp4
     без субтитров (экспорт-свобода: пере-монтаж в любом редакторе). Raises JobError при сбое;
     статус ставит вызыватель (фон-таск → clip_edits; sync-эндпоинт → HTTP).
+
+    FAST PATH (with_subtitles, геометрия нетронута): если правка caption/hook-only поверх дефолтного
+    интервала (без кропа/аспекта/трима) И baked ``clips/<id>.mp4`` доступен — прожигаем субтитры
+    поверх него (composite-ASS), пропуская полный source-download + CV + reframe (минуты → секунды).
+    Гейт явный, любой мискматч логируется и уходит в полный путь (правило №8 — без тихого фолбэка).
     """
-    from app import artifacts
+    from app import artifacts, fast_export
     from app.config import get_settings
     from app.editor import store
     from app.editor.captions_v2 import write_caption_ass
@@ -109,8 +204,9 @@ def render_edit_to_file(job_id: str, clip_id: str, *, with_subtitles: bool, out_
     edit = store.load_edit(job_id, clip_id)
     if edit is None:
         raise JobError("render", f"no edit for {clip_id}")
-    # disk-first / cloud: на web-контейнере source.mp4 скачивается из R2, артефакты — из Postgres.
-    out = artifacts.ensure_source(job_id).parent
+    # disk-first / cloud: артефакты — из Postgres; source.mp4 НЕ качаем заранее (fast-path его не
+    # трогает; полный путь скачает через ensure_source ниже). out = рабочая папка джоба.
+    out = artifacts.job_dir(job_id)
     meta = artifacts.load_meta(job_id)
     # Серверная политика рендера от владельца джоба (jobs.user_id → profiles.plan): free
     # прожигает вотермарку + капится 720p. Тот же путь, что batch-рендер — обойти из редактора
@@ -121,6 +217,31 @@ def render_edit_to_file(job_id: str, clip_id: str, *, with_subtitles: bool, out_
     out_w, out_h = aspect_to_dims(edit.aspect)  # T5: размеры выхода соотношения сторон
     out_w, out_h = clamp_output_dims(out_w, out_h, policy.max_resolution)
 
+    # ── FAST PATH: composite-ASS поверх baked-клипа (caption/hook-only, геометрия нетронута) ──
+    if with_subtitles:
+        seg = _segment_bounds(job_id, clip_id)
+        if seg is not None and fast_export.edit_matches_baked(
+            edit, seg_start=seg[0], seg_end=seg[1]
+        ):
+            baked = _ensure_baked_clip(job_id, clip_id, out)
+            if baked is not None:
+                _composite_captions_onto_baked(
+                    job_id, clip_id, edit, out, baked,
+                    out_w=out_w, out_h=out_h, out_rel=out_rel,
+                    crf=policy.video_crf, preset=policy.video_preset,
+                )  # fmt: skip
+                return
+            # baked-клипа нет → причина уже залогирована в _ensure_baked_clip; падаем в полный путь.
+        else:
+            _rlog.info(
+                "composite fast-path skipped (edit changes geometry/trim or no segment) "
+                "→ full render: job=%s clip=%s",
+                job_id,
+                clip_id,
+            )
+
+    # ── FULL PATH: source + frame-accurate reframe (CV) + полный энкод ──
+    artifacts.ensure_source(job_id)  # web-контейнер: скачать source.mp4 из R2 (тяжело)
     ass_rel: str | None = None
     if with_subtitles:
         # Субтитры выбранного пресета (edit.captions.style/highlight) → ASS-прожиг.
@@ -323,15 +444,21 @@ def run_upload_job(
     user_id: str | None = None,
     language: str | None = None,
 ) -> None:
-    """Фон-таск для загруженного файла: импорт файла → тот же run_pipeline (без скачивания).
+    """Фон-таск для загруженного файла: БЫСТРЫЙ импорт аудио → тот же run_pipeline (без скачивания).
 
-    import_upload готовит source.mp4/wav/meta.json → run_pipeline(source_url=None) видит их
-    как кэш Stage 0 и сразу идёт на транскрипцию. Статус в БД (правило №8 — падение → failed).
+    prepare_upload_audio готовит source.wav + meta.json ИЗ СЫРОГО файла (БЕЗ дорогого ре-энкода)
+    → run_pipeline(source_url=None) видит их как кэш Stage 0 и СРАЗУ идёт на транскрипцию (юзер
+    видит «transcribing» почти мгновенно, а не после скрытой нормализации видео). Видео-нормализация
+    в seekable source.mp4 ОТЛОЖЕНА в normalize_source: run_pipeline выполнит её ПОСЛЕ select, ПЕРЕД
+    заливкой в R2/фан-аутом (где впервые нужен mp4). Статус в БД (правило №8 — падение → failed).
     """
     from pathlib import Path
 
-    from app.pipeline.stage0_import import import_upload
+    from app.pipeline.stage0_import import normalize_upload_source, prepare_upload_audio
     from app.run import DATA_ROOT
+
+    src = Path(upload_path)
+    out_dir = DATA_ROOT / job_id
 
     def on_status(status: JobStatus, progress: int) -> None:
         db.update_status(job_id, status.value, progress)
@@ -342,7 +469,9 @@ def run_upload_job(
     quota: dict[str, Any] = {}
     try:
         db.update_status(job_id, JobStatus.downloading.value, 8)
-        import_upload(Path(upload_path), DATA_ROOT / job_id, job_id=job_id, title=title)
+        # БЫСТРЫЙ Stage 0: аудио+meta из СЫРОГО файла (транскрипция стартует почти сразу). Видео-
+        # нормализация (_ensure_mp4: remux/ре-энкод) ОТЛОЖЕНА — run_pipeline выполнит её перед R2.
+        prepare_upload_audio(src, out_dir, job_id=job_id, title=title)
         job = run_pipeline(
             job_id,
             source_url=None,
@@ -352,6 +481,7 @@ def run_upload_job(
             on_cancellable=on_cancellable,
             user_id=user_id,
             language=language,
+            normalize_source=lambda: normalize_upload_source(src, out_dir),
         )
         db.set_done(job_id, job)
         _meter(user_id, job_id, job, quota)

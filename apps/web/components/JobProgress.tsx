@@ -1,4 +1,5 @@
 import { X } from "lucide-react";
+import { useTranslations } from "next-intl";
 import { useState } from "react";
 import { Eyebrow } from "@/components/ui/Eyebrow";
 import { Meter } from "@/components/ui/Meter";
@@ -8,22 +9,12 @@ import { mmss } from "@/lib/format";
 import type { JobStatus, SourceKind } from "@/lib/types";
 
 const ORDER: JobStatus[] = ["queued", "downloading", "transcribing", "selecting", "rendering", "done"];
-const STEPS: { key: JobStatus; label: string }[] = [
-  // "Preparing" (not "Downloading"): for an uploaded file there's nothing to download
-  // — showing "Downloading" right after the upload screen read like a second download.
-  { key: "downloading", label: "Preparing video" },
-  { key: "transcribing", label: "Transcribing" },
-  { key: "selecting", label: "Selecting moments" },
-  { key: "rendering", label: "Rendering clips" },
-];
-
-const STAGE_HINT: Partial<Record<JobStatus, string>> = {
-  queued: "Queued",
-  downloading: "Reading your video",
-  transcribing: "Transcribing every word",
-  selecting: "Finding the moments worth posting",
-  rendering: "Cutting your vertical clips",
-};
+// Pipeline steps in order. Labels come from `jobProgress.step.*`; "Preparing" (not
+// "Downloading") because an uploaded file has nothing to download — "Downloading" right
+// after the upload screen read like a second download.
+const STEP_KEYS = ["downloading", "transcribing", "selecting", "rendering"] as const;
+// Stages that carry a localized one-line hint under `jobProgress.hint.*`.
+const HINT_KEYS = ["queued", "downloading", "transcribing", "selecting", "rendering"] as const;
 
 export function JobProgress({
   status,
@@ -53,6 +44,10 @@ export function JobProgress({
   // Source of the job — drives YouTube-specific "fetching" copy (the import can still fail).
   sourceKind?: SourceKind | null;
 }) {
+  const t = useTranslations("jobProgress");
+  const stageHint = (HINT_KEYS as readonly string[]).includes(status)
+    ? t(`hint.${status}`)
+    : t("working");
   // While "queued" (cur=0) the first real step ("Downloading", index 1) reads as active,
   // so the stepper never looks dead between submit and the first status change.
   const cur = Math.max(ORDER.indexOf(status), 1);
@@ -74,12 +69,15 @@ export function JobProgress({
 
   // Live telemetry — only the readings the worker has reported so far.
   const telemetry = [
-    { label: "Source", value: sourceMinutes != null ? `${sourceMinutes} min` : "—" },
     {
-      label: "Words",
+      label: t("telemetry.source"),
+      value: sourceMinutes != null ? t("count.minutes", { value: sourceMinutes }) : "—",
+    },
+    {
+      label: t("telemetry.words"),
       value: transcriptWords != null ? transcriptWords.toLocaleString() : "—",
     },
-    { label: "Moments", value: momentsFound != null ? String(momentsFound) : "—" },
+    { label: t("telemetry.moments"), value: momentsFound != null ? String(momentsFound) : "—" },
   ];
 
   return (
@@ -87,15 +85,15 @@ export function JobProgress({
       {/* header: stage readout + elapsed + stop */}
       <div className="flex items-end justify-between gap-4 border-b border-line pb-4">
         <div>
-          <Eyebrow tone="accent">Processing</Eyebrow>
+          <Eyebrow tone="accent">{t("processing")}</Eyebrow>
           <h2 className="mt-1.5 font-display text-h3 text-ink">
-            {isYoutubeFetch ? "Fetching from YouTube" : (STAGE_HINT[status] ?? "Working")}
+            {isYoutubeFetch ? t("fetchingYoutube") : stageHint}
           </h2>
         </div>
         <div className="flex items-end gap-4">
           <div className="text-right" aria-live="polite">
             <Eyebrow tone="faint" className="block">
-              Elapsed
+              {t("elapsed")}
             </Eyebrow>
             <Numeral className="mt-1 block text-base text-muted">{mmss(elapsed)}</Numeral>
           </div>
@@ -110,7 +108,7 @@ export function JobProgress({
               className="inline-flex items-center gap-1.5 rounded-md border border-line px-3 py-1.5 text-sm text-muted transition hover:border-line-strong hover:text-ink disabled:opacity-50"
             >
               <X className="size-4" />
-              {stopping ? "Stopping…" : "Stop · no charge"}
+              {stopping ? t("stopping") : t("stop")}
             </button>
           )}
         </div>
@@ -134,8 +132,7 @@ export function JobProgress({
 
       {isYoutubeFetch && (
         <p className="mt-5 rounded-lg border border-line bg-surface px-4 py-3 text-xs leading-relaxed text-muted">
-          Pulling this video from YouTube — best-effort, and it can take a moment. If YouTube blocks
-          our server this step fails and we&rsquo;ll ask you to upload the file instead.
+          {t("youtubeNote")}
         </p>
       )}
 
@@ -143,21 +140,21 @@ export function JobProgress({
       <ol className="relative mt-7 ml-1.5">
         {/* the vertical rail */}
         <span className="absolute left-[5px] top-2 bottom-2 w-px bg-line" aria-hidden />
-        {STEPS.map((step) => {
-          const i = ORDER.indexOf(step.key);
+        {STEP_KEYS.map((key) => {
+          const i = ORDER.indexOf(key);
           const done = cur > i;
           const active = cur === i;
           // Live count for this stage (shown once the worker reports it).
           const count =
-            step.key === "downloading" && sourceMinutes != null
-              ? `${sourceMinutes} min`
-              : step.key === "transcribing" && transcriptWords != null
-                ? `${transcriptWords.toLocaleString()} words`
-                : step.key === "selecting" && momentsFound != null
-                  ? `${momentsFound} found`
+            key === "downloading" && sourceMinutes != null
+              ? t("count.minutes", { value: sourceMinutes })
+              : key === "transcribing" && transcriptWords != null
+                ? t("count.words", { value: transcriptWords.toLocaleString() })
+                : key === "selecting" && momentsFound != null
+                  ? t("count.found", { value: momentsFound })
                   : null;
           return (
-            <li key={step.key} className="relative flex items-center gap-3.5 py-2.5 pl-6">
+            <li key={key} className="relative flex items-center gap-3.5 py-2.5 pl-6">
               <span
                 className={`absolute left-0 z-10 size-[11px] rounded-pill border-2 transition ${
                   active
@@ -171,9 +168,9 @@ export function JobProgress({
               <span
                 className={`text-sm font-medium ${active || done ? "text-ink" : "text-muted"}`}
               >
-                {step.key === "downloading" && sourceKind === "youtube"
-                  ? "Fetching from YouTube"
-                  : step.label}
+                {key === "downloading" && sourceKind === "youtube"
+                  ? t("fetchingYoutube")
+                  : t(`step.${key}`)}
               </span>
               {count && <Numeral className="text-xs text-muted">· {count}</Numeral>}
             </li>
@@ -181,10 +178,7 @@ export function JobProgress({
         })}
       </ol>
 
-      <p className="mt-5 text-xs leading-relaxed text-faint">
-        Close this tab anytime — processing keeps running, and your clips wait for you in Recent
-        projects.
-      </p>
+      <p className="mt-5 text-xs leading-relaxed text-faint">{t("keepRunning")}</p>
 
       {/* skeletons of the clips to come — reserve the grid space so the handoff doesn't jump */}
       <div className="mt-7 grid grid-cols-2 gap-4 sm:grid-cols-3">

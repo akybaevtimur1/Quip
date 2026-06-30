@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { MomentType, TYPE_LABEL } from "@/lib/landingContent";
+import type { MomentType } from "@/lib/landingContent";
 
 export function Container({
   children,
@@ -42,12 +42,21 @@ const BADGE_STYLE: Record<MomentType, string> = {
   quote: "text-quote border-quote/35 bg-quote/10",
 };
 
-export function TypeBadge({ type, className = "" }: { type: MomentType; className?: string }) {
+export function TypeBadge({
+  type,
+  label,
+  className = "",
+}: {
+  type: MomentType;
+  /** Localized moment-type label (from getLandingContent / clip.typeLabel). */
+  label: string;
+  className?: string;
+}) {
   return (
     <span
       className={`inline-flex items-center rounded-pill border px-2 py-[3px] font-mono text-[10px] font-medium uppercase tracking-[0.12em] ${BADGE_STYLE[type]} ${className}`}
     >
-      {TYPE_LABEL[type]}
+      {label}
     </span>
   );
 }

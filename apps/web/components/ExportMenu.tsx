@@ -2,7 +2,7 @@
 
 import { Captions, ChevronDown, Download, FileText, Film, Loader2 } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { captionedDownloadUrl } from "@/lib/api";
+import { captionedDownloadUrl, clipCleanExportUrl, clipSrtUrl } from "@/lib/api";
 
 // Меню «Скачать» — экспорт-свобода: юзер уносит клип в любой редактор.
 //  • С субтитрами (MP4)  — прожжённый клип. Если есть СВЕЖИЙ рендер (bakedUrl) — отдаём его
@@ -17,7 +17,11 @@ import { captionedDownloadUrl } from "@/lib/api";
 
 const WORKER_BASE = process.env.NEXT_PUBLIC_WORKER_URL ?? "";
 
-async function downloadFile(url: string, fallbackName: string): Promise<void> {
+/** Fetch a (possibly on-demand-rendered) export as a blob and save it to disk. Filename comes
+ *  from Content-Disposition when present, else `fallbackName`. Exported so the grid's "Download
+ *  all" reuses the exact same blob-download path (no duplicated logic). Throws on a non-OK
+ *  response so callers can fall back to a direct link / surface the failure (no silent swallow). */
+export async function downloadFile(url: string, fallbackName: string): Promise<void> {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const blob = await res.blob();
@@ -37,6 +41,7 @@ export function ExportMenu({
   jobId,
   clipId,
   bakedUrl = null,
+  cleanBakedUrl = null,
   dirty = false,
   align = "right",
   placement = "down",
@@ -46,6 +51,10 @@ export function ExportMenu({
   clipId: string;
   /** Свежий прожжённый рендер (render_url после «Рендер»). null → рендерим на лету. */
   bakedUrl?: string | null;
+  /** Stable CLEAN (no-caption) clip already on the CDN — `clip.video_url` from the grid. When
+   *  present, "No captions" streams THIS instantly instead of re-rendering `export/clean.mp4`.
+   *  The editor leaves it null (edits may diverge from the baked clean clip) → on-demand render. */
+  cleanBakedUrl?: string | null;
   /** Есть НЕ-отрендеренные правки (изменён шрифт хука и т.п.)? → bakedUrl устарел,
    *  скачиваем свежий on-demand рендер, а не протухший CDN-снимок. */
   dirty?: boolean;
@@ -74,8 +83,11 @@ export function ExportMenu({
     };
   }, [open]);
 
-  const cleanUrl = `${WORKER_BASE}/jobs/${jobId}/clips/${clipId}/export/clean.mp4`;
-  const srtUrl = `${WORKER_BASE}/jobs/${jobId}/clips/${clipId}/export.srt`;
+  // No captions: prefer the stable clean CDN clip (instant) when the caller has it; else render
+  // a fresh clean export on demand.
+  const cleanInstant = !!cleanBakedUrl;
+  const cleanUrl = cleanBakedUrl ?? clipCleanExportUrl(WORKER_BASE, jobId, clipId);
+  const srtUrl = clipSrtUrl(WORKER_BASE, jobId, clipId);
   // С субтитрами: baked-рендер ТОЛЬКО когда нет невыданных правок (dirty=false). При dirty
   // (юзер сменил шрифт хука и т.п.) baked устарел → on-demand рендер текущего edit-state.
   const captionedUrl = captionedDownloadUrl(WORKER_BASE, jobId, clipId, bakedUrl, dirty);
@@ -142,11 +154,11 @@ export function ExportMenu({
           <ExportItem
             icon={<Film className="size-4" />}
             title="No captions (MP4)"
-            sub="Clean vertical · ~a few sec"
+            sub={cleanInstant ? "Clean vertical" : "Clean vertical · ~a few sec"}
             busy={busy === "clean"}
             busyLabel="Preparing your clip…"
             disabled={!!busy && busy !== "clean"}
-            onPick={() => pick("clean", cleanUrl, `${clipId}-clean.mp4`, false)}
+            onPick={() => pick("clean", cleanUrl, `${clipId}-clean.mp4`, cleanInstant)}
           />
           <ExportItem
             icon={<FileText className="size-4" />}

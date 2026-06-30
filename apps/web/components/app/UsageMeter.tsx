@@ -1,6 +1,7 @@
 "use client";
 
 import { Loader2, RotateCcw, TriangleAlert } from "lucide-react";
+import { useTranslations } from "next-intl";
 import Link from "next/link";
 import { useState } from "react";
 import { Button } from "@/components/ui/Button";
@@ -19,8 +20,9 @@ import { deriveUsage, fmtMinutes, fmtVideos, useUsage } from "@/lib/useUsage";
 
 /** Pulsing placeholder while /usage loads — same shape as the real panel, so no layout jump. */
 function MeterSkeleton() {
+  const t = useTranslations("usageMeter");
   return (
-    <div aria-busy="true" aria-label="Loading your plan and limits">
+    <div aria-busy="true" aria-label={t("loading")}>
       <div className="flex items-center justify-between">
         <Skeleton className="h-3 w-12" />
         <Skeleton className="h-3 w-14" />
@@ -35,32 +37,36 @@ function MeterSkeleton() {
 /** Honest failure state — the plan/limits didn't load. Says it's on us, offers retry +
  *  the support inbox, instead of silently pretending the user is on Free. */
 function MeterError({ onRetry }: { onRetry: () => void }) {
+  const t = useTranslations("usageMeter");
   return (
     <div role="alert">
       <div className="flex items-center gap-2 text-bad">
         <TriangleAlert className="size-4 shrink-0" aria-hidden />
-        <h2 className="font-display text-base font-semibold">Couldn’t load your limits</h2>
+        <h2 className="font-display text-base font-semibold">{t("errorTitle")}</h2>
       </div>
       <p className="mt-2 text-sm leading-relaxed text-muted">
-        Your plan and remaining videos didn’t load — this is on our side, not your account. Try
-        again, or email{" "}
-        <a
-          href={`mailto:${siteConfig.supportEmail}`}
-          className="font-medium text-accent hover:underline"
-        >
-          {siteConfig.supportEmail}
-        </a>
-        .
+        {t.rich("errorBody", {
+          email: siteConfig.supportEmail,
+          mail: (chunks) => (
+            <a
+              href={`mailto:${siteConfig.supportEmail}`}
+              className="font-medium text-accent hover:underline"
+            >
+              {chunks}
+            </a>
+          ),
+        })}
       </p>
       <Button variant="secondary" size="sm" onClick={onRetry} className="mt-4">
         <RotateCcw className="size-4" aria-hidden />
-        Try again
+        {t("tryAgain")}
       </Button>
     </div>
   );
 }
 
 export function UsageMeter({ className }: { className?: string }) {
+  const t = useTranslations("usageMeter");
   const { status, usage, reload } = useUsage();
   // Immediate feedback on click: /pricing nav can lag (cold route / slow network), and a
   // dead-looking link makes people click twice. Spinner + locked link until we leave.
@@ -80,7 +86,7 @@ export function UsageMeter({ className }: { className?: string }) {
       <>
         {/* Hero readout: the one number — how many videos you can make right now. */}
         <Stat
-          label="Videos left"
+          label={t("videosLeft")}
           value={fmtVideos(v.videosLeft)}
           size="lg"
           tone={v.out ? "bad" : "ink"}
@@ -91,34 +97,34 @@ export function UsageMeter({ className }: { className?: string }) {
         {/* Compact mono footer: monthly pool, PAYG, reset rule — one line each, varied weight. */}
         <dl className="mt-4 space-y-1.5 border-t border-line pt-3.5 text-xs">
           <div className="flex items-center justify-between">
-            <dt className="text-muted">Monthly plan</dt>
+            <dt className="text-muted">{t("monthlyPlan")}</dt>
             <dd>
               <Numeral className={v.near ? "text-warn" : "text-ink"}>
                 {fmtVideos(v.monthlyUsedVideos)} / {v.monthlyTotalVideos}
               </Numeral>
-              <span className="ml-1 text-faint">used</span>
+              <span className="ml-1 text-faint">{t("used")}</span>
             </dd>
           </div>
           <div className="flex items-center justify-between">
-            <dt className="text-muted">Minutes left</dt>
+            <dt className="text-muted">{t("minutesLeft")}</dt>
             <dd>
               <Numeral className="text-ink">{fmtMinutes(v.minutesLeft)}</Numeral>
-              <span className="ml-1 text-faint">min</span>
+              <span className="ml-1 text-faint">{t("min")}</span>
             </dd>
           </div>
           {v.paygVideos > 0 && (
             <div className="flex items-center justify-between">
-              <dt className="text-muted">Purchased · never expires</dt>
+              <dt className="text-muted">{t("purchased")}</dt>
               <dd>
                 <Numeral className="text-ink">
                   +{fmtVideos(v.paygVideos)} · {fmtMinutes(v.paygMinutes)}
                 </Numeral>
-                <span className="ml-1 text-faint">min</span>
+                <span className="ml-1 text-faint">{t("min")}</span>
               </dd>
             </div>
           )}
         </dl>
-        <p className="mt-2.5 text-eyebrow text-faint">Resets monthly · 1 video = 60 min</p>
+        <p className="mt-2.5 text-eyebrow text-faint">{t("resetNote")}</p>
 
         <Link
           href="/pricing"
@@ -130,7 +136,7 @@ export function UsageMeter({ className }: { className?: string }) {
           )}
         >
           {navigating && <Loader2 className="size-3.5 animate-spin" aria-hidden />}
-          {navigating ? "Opening…" : "Upgrade limits →"}
+          {navigating ? t("opening") : t("upgrade")}
         </Link>
       </>
     );
@@ -140,7 +146,7 @@ export function UsageMeter({ className }: { className?: string }) {
     <section className={cn("rounded-lg border border-line bg-surface p-5", className)}>
       <div className="mb-4 flex items-center justify-between">
         <Eyebrow tone="muted" as="h2">
-          Usage
+          {t("heading")}
         </Eyebrow>
         {plan && (
           <span className="font-mono text-eyebrow uppercase tabular-nums text-faint">{plan}</span>

@@ -3,11 +3,14 @@
 import { useState } from "react";
 import { motion, AnimatePresence, useReducedMotion } from "motion/react";
 import { Plus } from "@phosphor-icons/react/dist/ssr";
-import { FAQ } from "@/lib/landingContent";
+import { useLocale } from "next-intl";
+import { resolveLocale } from "@/i18n/locale";
+import { getLandingContent } from "@/lib/landingContent";
 import { Container, Section } from "../components/primitives";
 import { Reveal } from "../components/Reveal";
 
 export function Faq() {
+  const faq = getLandingContent(resolveLocale(useLocale())).faq;
   const [open, setOpen] = useState<number | null>(0);
   const reduce = useReducedMotion();
 
@@ -17,13 +20,13 @@ export function Faq() {
         <div className="grid gap-12 lg:grid-cols-[minmax(0,32fr)_minmax(0,68fr)]">
           <Reveal>
             <h2 className="text-[clamp(28px,3.6vw,44px)] font-bold leading-[1.08] tracking-[-0.025em] text-ink">
-              {FAQ.heading}
+              {faq.heading}
             </h2>
           </Reveal>
 
           <Reveal delay={0.05}>
             <div className="border-t border-line">
-              {FAQ.items.map((item, i) => {
+              {faq.items.map((item, i) => {
                 const isOpen = open === i;
                 return (
                   <div key={item.q} className="border-b border-line">

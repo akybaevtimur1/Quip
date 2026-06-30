@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { getTranslations } from "next-intl/server";
 import Link from "next/link";
 import { AuthDevNotice } from "@/components/auth/AuthDevNotice";
 import { AuthForm } from "@/components/auth/AuthForm";
@@ -18,10 +19,11 @@ export default async function LoginPage({
 }) {
   const sp = await searchParams;
   const next = safeNext(sp.next);
+  const t = await getTranslations("auth.login");
   return (
     <div className="rounded-xl border border-line bg-surface p-7">
-      <h1 className="font-display text-h3 text-ink">Welcome back</h1>
-      <p className="mt-1 text-sm text-muted">Sign in to your Quip account.</p>
+      <h1 className="font-display text-h3 text-ink">{t("title")}</h1>
+      <p className="mt-1 text-sm text-muted">{t("subtitle")}</p>
       {sp.error && (
         <p
           role="alert"
@@ -34,9 +36,9 @@ export default async function LoginPage({
         {isSupabaseConfigured ? <AuthForm mode="login" next={next} /> : <AuthDevNotice next={next} />}
       </div>
       <p className="mt-5 text-center text-sm text-muted">
-        New to Quip?{" "}
+        {t("newToQuip")}{" "}
         <Link href="/signup" className="font-medium text-accent hover:underline">
-          Create an account
+          {t("createAccount")}
         </Link>
       </p>
     </div>

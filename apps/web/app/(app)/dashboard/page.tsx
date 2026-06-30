@@ -1,6 +1,7 @@
 "use client";
 
 import { Plus } from "lucide-react";
+import { useTranslations } from "next-intl";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, useState } from "react";
 import { AppHeader } from "@/components/app/AppHeader";
@@ -40,42 +41,59 @@ function labelFromUrl(url: string): string {
 
 /** Shown the instant a file upload starts (before bytes even move) so a big upload
  *  never looks frozen. Real % comes from XHR upload-progress events. Leads with a big
- *  mono % readout + a determinate bar — no icon-in-circle. */
+ *  mono % readout + a determinate bar while bytes move.
+ *
+ *  At 100% the bytes are up but the worker is still finalizing the multipart upload + creating the
+ *  job (the `upload-complete` round-trip) BEFORE status polling can begin — a window with no server
+ *  progress to show. A full, static bar there reads as frozen (the L5 "silent gap"), so we flip to
+ *  an explicit, animated "Preparing your video…" state (spinner + indeterminate bar) until
+ *  `createUploadJob` resolves and the live status view (co-watch / stepper) takes over. */
 function UploadProgress({ pct }: { pct: number }) {
+  const t = useTranslations("dashboard");
+  const preparing = pct >= 100;
   return (
     <div className="mx-auto w-full max-w-2xl">
       <div className="flex items-end justify-between gap-4 border-b border-line pb-4">
         <div>
-          <Eyebrow tone="accent">Uploading</Eyebrow>
+          <Eyebrow tone="accent">{preparing ? t("preparing") : t("uploading")}</Eyebrow>
           <h2 className="mt-1.5 font-display text-h3 text-ink">
-            {pct < 100 ? "Sending your video" : "Getting it ready"}
+            {preparing ? t("preparingVideo") : t("sendingVideo")}
           </h2>
         </div>
-        <div className="text-right" aria-live="polite">
-          <Numeral className="block text-display-lg font-semibold leading-none text-ink">
-            {pct}
-          </Numeral>
-          <Eyebrow tone="faint" className="mt-1 block">
-            percent
-          </Eyebrow>
+        <div className="flex items-center justify-end text-right" aria-live="polite">
+          {preparing ? (
+            <Spinner size="lg" className="text-accent" />
+          ) : (
+            <div>
+              <Numeral className="block text-display-lg font-semibold leading-none text-ink">
+                {pct}
+              </Numeral>
+              <Eyebrow tone="faint" className="mt-1 block">
+                {t("percent")}
+              </Eyebrow>
+            </div>
+          )}
         </div>
       </div>
       <div className="mt-5 h-1 overflow-hidden rounded-pill bg-surface-3">
         <div
-          className="h-full rounded-pill bg-accent transition-[width] duration-200 ease-out"
-          style={{ width: `${Math.max(2, pct)}%` }}
+          className={
+            preparing
+              ? "h-full w-full rounded-pill bg-accent motion-safe:animate-pulse"
+              : "h-full rounded-pill bg-accent transition-[width] duration-200 ease-out"
+          }
+          style={preparing ? undefined : { width: `${Math.max(2, pct)}%` }}
         />
       </div>
       <p className="mt-3 text-xs leading-relaxed text-faint">
-        {pct < 100
-          ? "Large files take a moment — keep this tab open while the bytes move."
-          : "Upload complete — handing off to processing."}
+        {preparing ? t("uploadHintPreparing") : t("uploadHintSending")}
       </p>
     </div>
   );
 }
 
 function DashboardInner() {
+  const t = useTranslations("dashboard");
   const router = useRouter();
   const { job, jobId, error: pollError, elapsed, start, reset } = useJob();
   const [submitting, setSubmitting] = useState(false);
@@ -134,7 +152,7 @@ function DashboardInner() {
       setSourceUrl(null); // YouTube → no local file to co-watch (falls back to the stepper)
       start(id);
     } catch (e) {
-      setSubmitError(e instanceof Error ? e.message : "Couldn’t create project");
+      setSubmitError(e instanceof Error ? e.message : t("errors.create"));
     } finally {
       setSubmitting(false);
     }
@@ -160,7 +178,7 @@ function DashboardInner() {
       // намеренная отмена (reset/unmount/новый сабмит) → НЕ показываем ошибку
       if (ctrl.signal.aborted || (e instanceof DOMException && e.name === "AbortError")) return;
       setUploadPct(null);
-      setSubmitError(e instanceof Error ? e.message : "Couldn’t upload file");
+      setSubmitError(e instanceof Error ? e.message : t("errors.upload"));
     } finally {
       if (uploadCtrl.current === ctrl) {
         uploadCtrl.current = null;
@@ -175,7 +193,7 @@ function DashboardInner() {
       await cancelJob(jobId);
     } catch (e) {
       // 409 (already in a paid stage) or network error → surface, don't reset (job keeps going).
-      setSubmitError(e instanceof Error ? e.message : "Couldn’t stop this video.");
+      setSubmitError(e instanceof Error ? e.message : t("errors.stop"));
       return;
     }
     handleReset(); // back to idle; the recent-projects entry is kept (added at submit time)
@@ -230,7 +248,7 @@ function DashboardInner() {
             className="mb-6 inline-flex items-center gap-1.5 rounded-md border border-line px-3 py-1.5 text-sm text-muted transition hover:border-line-strong hover:text-ink"
           >
             <Plus className="size-4" />
-            New project
+            {t("newProject")}
           </button>
         )}
 
@@ -239,12 +257,11 @@ function DashboardInner() {
           // on the right (unequal weight). Stacks on mobile via Split.
           <Split variant="main-rail">
             <section>
-              <Eyebrow tone="faint">New project</Eyebrow>
-              <h1 className="mt-2 font-display text-h2 text-ink sm:text-display-lg">Create clips</h1>
-              <p className="mt-3 max-w-md text-lead text-muted">
-                Drop a video. Quip finds the strongest moments, cuts vertical clips, and reports a
-                confidence score and why each one works.
-              </p>
+              <Eyebrow tone="faint">{t("newProject")}</Eyebrow>
+              <h1 className="mt-2 font-display text-h2 text-ink sm:text-display-lg">
+                {t("createClips")}
+              </h1>
+              <p className="mt-3 max-w-md text-lead text-muted">{t("intro")}</p>
               <div className="mt-8">
                 <SourceForm onSubmit={handleSubmit} onSubmitFile={handleSubmitFile} busy={submitting} />
               </div>
@@ -268,7 +285,7 @@ function DashboardInner() {
           openingProject ? (
             <div className="flex items-center justify-center gap-3 py-10">
               <Spinner size="md" className="text-accent" />
-              <p className="text-sm text-muted">Opening your project…</p>
+              <p className="text-sm text-muted">{t("openingProject")}</p>
             </div>
           ) : sourceUrl && jobId ? (
             // Co-watch: the uploaded file plays instantly while the AI reads it and real
@@ -302,12 +319,9 @@ function DashboardInner() {
           </>
         ) : phase === "cancelled" ? (
           <div className="mx-auto max-w-xl">
-            <Eyebrow tone="faint">Run stopped</Eyebrow>
-            <h2 className="mt-2 font-display text-h3 text-ink">This project was stopped</h2>
-            <p className="mt-2 text-sm leading-relaxed text-muted">
-              You stopped processing before it finished. Nothing was charged — start a new project
-              whenever you’re ready.
-            </p>
+            <Eyebrow tone="faint">{t("runStopped")}</Eyebrow>
+            <h2 className="mt-2 font-display text-h3 text-ink">{t("projectStopped")}</h2>
+            <p className="mt-2 text-sm leading-relaxed text-muted">{t("projectStoppedBody")}</p>
           </div>
         ) : phase === "error" && error ? (
           <ErrorPanel message={error} onRetry={handleReset} />

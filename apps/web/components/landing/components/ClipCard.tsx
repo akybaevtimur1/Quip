@@ -32,7 +32,7 @@ export function ClipCard({ clip, active = false }: { clip: Clip; active?: boolea
           />
         )}
         <span className="absolute left-1.5 top-1.5">
-          <TypeBadge type={clip.type} />
+          <TypeBadge type={clip.type} label={clip.typeLabel} />
         </span>
       </div>
 

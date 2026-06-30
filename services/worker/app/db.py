@@ -401,29 +401,61 @@ def row_to_wire(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _resolve_clip_urls(wire: dict[str, Any]) -> dict[str, Any]:
-    """D6: ре-подписать долговечные R2-маркеры клипов СВЕЖИМ presigned URL на чтении.
+def _cache_token(row: dict[str, Any]) -> int | None:
+    """Стабильный CDN cache-bust токен клипов грида из ``jobs.updated_at`` (epoch→int). PURE.
 
-    I/O-обёртка над pure row_to_wire: маркер ``r2://<key>`` → живой presign (TTL не успевает
-    протухнуть между минтом и отдачей). http/относительный — без изменений. Так клипы не
-    отдают 403 спустя час/неделю (старый код пёк presigned URL в строку джоба намертво).
+    H2 (чёрный кадр): чистый клип ``clips/<id>.mp4`` перезаписывается по ТОМУ ЖЕ R2-ключу при
+    ре-процессе джоба (same-key rewrite) → стабильный публичный CDN-URL у Cloudflare на краю мог
+    отдать ПРОТУХШИЕ/частичные байты на первом GET (чёрный кадр). ``updated_at`` бьётся при
+    ре-процессе (set_clip_ready/set_done) → новый ``?v=`` → CDN-miss свежих байт; на готовом
+    НЕИЗМЕННОМ джобе стабилен → CDN-хит (egress даром, но условный GET дешевле полного).
+    None при отсутствии/<=0 (старая/незаполненная строка → без буста, как раньше).
+    """
+    ts = row.get("updated_at")
+    if ts is None:
+        return None
+    try:
+        t = int(float(ts))
+    except (TypeError, ValueError):
+        return None
+    return t if t > 0 else None
+
+
+def _resolve_clip_urls(wire: dict[str, Any], *, cache_token: int | None = None) -> dict[str, Any]:
+    """D6: ре-подпись долговечных R2-маркеров клипов СВЕЖИМ presigned URL на чтении + H2 cache-bust.
+
+    I/O-обёртка над pure row_to_wire:
+      • маркер ``r2://<key>`` → живой presign (TTL не успевает протухнуть между минтом и отдачей);
+      • любой http-URL клипа (CDN public ИЛИ только что подписанный) → дописываем ``?v=<token>``
+        (H2: same-key rewrite чистого клипа мог отдаться протухшим с края — ``updated_at`` меняет
+        URL при ре-процессе → CDN-miss свежих байт). Presigned и так уникален на чтение → буст
+        безвреден (&v=). Относительный/пустой (локалка /media, pending) — без изменений.
+    Так клипы не отдают ни 403 (D6), ни чёрный кадр (H2).
     """
     from app import storage
 
     for c in wire.get("clips") or []:
         u = str(c.get("video_url") or "")
         if storage.is_r2_key_ref(u):
-            c["video_url"] = storage.resolve_media_url(u)
+            u = storage.resolve_media_url(u)
+        if u.startswith("http"):
+            u = storage.with_cache_bust(u, cache_token)
+        c["video_url"] = u
     return wire
 
 
 def get_job(job_id: str) -> dict[str, Any] | None:
     if cs.cloud_enabled():
         row = cs.get_job_row(job_id)
-        return _resolve_clip_urls(row_to_wire(row)) if row is not None else None
+        if row is None:
+            return None
+        return _resolve_clip_urls(row_to_wire(row), cache_token=_cache_token(row))
     with _conn() as c:
-        row = c.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
-    return _resolve_clip_urls(row_to_wire(dict(row))) if row is not None else None
+        fetched = c.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
+    if fetched is None:
+        return None
+    row = dict(fetched)
+    return _resolve_clip_urls(row_to_wire(row), cache_token=_cache_token(row))
 
 
 # ── артефакты пайплайна (meta/segments/transcript) — durable для лёгкого API на Modal ──

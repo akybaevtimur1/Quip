@@ -1,6 +1,7 @@
 "use client";
 
 import { Link2, Minus, Plus, Scissors, Upload, X } from "lucide-react";
+import { useTranslations } from "next-intl";
 import { useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Eyebrow } from "@/components/ui/Eyebrow";
@@ -43,6 +44,7 @@ export function SourceForm({
   onSubmitFile: (file: File, maxClips: number, language: string | null) => void;
   busy: boolean;
 }) {
+  const t = useTranslations("sourceForm");
   const [file, setFile] = useState<File | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
   // YouTube link — a SECONDARY option under the drop-zone (best-effort; may fall back to upload).
@@ -70,11 +72,11 @@ export function SourceForm({
     // Accept by MIME OR (empty MIME + video extension): browsers report "" for some valid
     // containers (.mkv/.mov/.webm/.avi), and the old MIME-only check silently rejected them.
     if (!isAcceptedVideoFile(f.name, f.type)) {
-      setFileError("Please choose a video file");
+      setFileError(t("notVideo"));
       return;
     }
     if (f.size > MAX_UPLOAD_MB * 1024 * 1024) {
-      setFileError(`File is larger than ${MAX_UPLOAD_LABEL}. Trim it or split into parts.`);
+      setFileError(t("tooLarge", { label: MAX_UPLOAD_LABEL }));
       return;
     }
     setFile(f);
@@ -110,7 +112,7 @@ export function SourceForm({
           }}
           role="button"
           tabIndex={0}
-          aria-label="Upload a video file"
+          aria-label={t("uploadAria")}
           className={cn(
             "group relative cursor-pointer overflow-hidden rounded-lg border bg-surface px-5 py-7 transition duration-200 ease-snappy",
             dragging ? "border-accent bg-surface-2" : "border-line hover:border-line-strong",
@@ -145,18 +147,16 @@ export function SourceForm({
               <Upload className={cn("size-4 transition-colors", dragging ? "text-accent" : "text-muted")} />
             </span>
             <div className="min-w-0">
-              <Eyebrow tone="faint">Intake · 9:16</Eyebrow>
+              <Eyebrow tone="faint">{t("intake")}</Eyebrow>
               <p className="mt-1.5 text-sm text-ink">
-                {dragging ? (
-                  "Drop to load"
-                ) : (
-                  <>
-                    Drop a video, or <span className="font-medium text-accent">choose a file</span>
-                  </>
-                )}
+                {dragging
+                  ? t("dropToLoad")
+                  : t.rich("dropOrChoose", {
+                      choose: (chunks) => <span className="font-medium text-accent">{chunks}</span>,
+                    })}
               </p>
               <p className="mt-1 font-mono text-eyebrow uppercase tabular-nums text-faint">
-                MP4 · MOV · up to {MAX_UPLOAD_LABEL} · 3h
+                {t("formats", { label: MAX_UPLOAD_LABEL })}
               </p>
             </div>
           </div>
@@ -170,7 +170,7 @@ export function SourceForm({
           <IconButton
             onClick={() => pickFile(null)}
             disabled={busy}
-            aria-label="Remove file"
+            aria-label={t("removeFile")}
             size="sm"
             className="size-10 sm:size-7"
           >
@@ -196,7 +196,9 @@ export function SourceForm({
         <div className="mt-4">
           <div className="flex items-center gap-3">
             <span className="h-px flex-1 bg-line" />
-            <span className="font-mono text-eyebrow uppercase tracking-wide text-faint">or paste a link</span>
+            <span className="font-mono text-eyebrow uppercase tracking-wide text-faint">
+              {t("orPasteLink")}
+            </span>
             <span className="h-px flex-1 bg-line" />
           </div>
           {/* The INPUT is the single bordered element (icon sits inside, absolute) so the global
@@ -214,9 +216,9 @@ export function SourceForm({
               value={url}
               onChange={(e) => setUrl(e.target.value)}
               disabled={busy}
-              aria-label="YouTube video link"
+              aria-label={t("youtubeAria")}
               aria-invalid={url.length > 0 && !urlValid}
-              placeholder="https://youtube.com/watch?v=…"
+              placeholder={t("youtubePlaceholder")}
               className={cn(
                 "h-11 w-full rounded-lg border bg-surface pl-10 pr-3.5 text-sm text-ink placeholder:text-faint transition-colors duration-200 ease-snappy",
                 url.length > 0 && !urlValid ? "border-bad" : "border-line hover:border-line-strong",
@@ -225,17 +227,15 @@ export function SourceForm({
             />
           </div>
           {url.length > 0 && !urlValid ? (
-            <p className="mt-2 text-sm text-bad">Enter a valid YouTube link.</p>
+            <p className="mt-2 text-sm text-bad">{t("youtubeInvalid")}</p>
           ) : (
-            <p className="mt-2 text-xs leading-relaxed text-faint">
-              Best-effort — if YouTube blocks our fetch, we’ll ask you to upload the file instead.
-            </p>
+            <p className="mt-2 text-xs leading-relaxed text-faint">{t("youtubeHint")}</p>
           )}
         </div>
       ) : null}
 
       <div className="mt-5">
-        <Eyebrow tone="faint">Clip count</Eyebrow>
+        <Eyebrow tone="faint">{t("clipCount")}</Eyebrow>
         <div className="mt-2 flex flex-wrap items-center gap-3">
           {/* Auto («сколько найдётся, до 30») vs Custom (ровно N). */}
           <div className="inline-flex rounded-md border border-line bg-surface p-0.5">
@@ -253,7 +253,7 @@ export function SourceForm({
                     : "text-muted hover:text-ink",
                 )}
               >
-                {isAuto ? "Auto" : "Custom"}
+                {isAuto ? t("auto") : t("custom")}
               </button>
             ))}
           </div>
@@ -262,7 +262,7 @@ export function SourceForm({
               <IconButton
                 onClick={() => setCount((c) => clamp(c - 1))}
                 disabled={busy || count <= MIN_CLIPS}
-                aria-label="Fewer clips"
+                aria-label={t("fewerClips")}
                 size="sm"
                 className="size-9 text-ink hover:text-ink sm:size-7"
               >
@@ -272,7 +272,7 @@ export function SourceForm({
               <IconButton
                 onClick={() => setCount((c) => clamp(c + 1))}
                 disabled={busy || count >= MAX_CLIPS}
-                aria-label="More clips"
+                aria-label={t("moreClips")}
                 size="sm"
                 className="size-9 text-ink hover:text-ink sm:size-7"
               >
@@ -281,13 +281,13 @@ export function SourceForm({
             </div>
           )}
           <span className="font-mono text-eyebrow uppercase tabular-nums text-faint">
-            {auto ? "up to 30 found" : `exactly ${count}`}
+            {auto ? t("autoHint", { max: MAX_CLIPS }) : t("customHint", { count })}
           </span>
         </div>
       </div>
 
       <div className="mt-5">
-        <Eyebrow tone="faint">Language</Eyebrow>
+        <Eyebrow tone="faint">{t("language")}</Eyebrow>
         <div className="mt-2 flex items-center gap-3">
           <button
             type="button"
@@ -295,7 +295,7 @@ export function SourceForm({
             aria-checked={kazakh}
             onClick={() => setKazakh((k) => !k)}
             disabled={busy}
-            aria-label="Kazakh language"
+            aria-label={t("kazakhAria")}
             className={cn(
               "relative inline-flex h-5 w-9 shrink-0 rounded-full transition-colors duration-200 ease-snappy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
               kazakh ? "bg-accent" : "bg-surface-3",
@@ -309,9 +309,9 @@ export function SourceForm({
               )}
             />
           </button>
-          <span className="text-sm text-ink">Kazakh</span>
+          <span className="text-sm text-ink">{t("kazakh")}</span>
           <span className="font-mono text-eyebrow uppercase tabular-nums text-faint">
-            {kazakh ? "kk · Groq Whisper" : "auto-detect"}
+            {kazakh ? t("kazakhOn") : t("kazakhOff")}
           </span>
         </div>
       </div>
@@ -325,12 +325,10 @@ export function SourceForm({
         className="mt-6 h-12 w-full sm:w-auto"
       >
         {!busy && <Scissors className="size-5" />}
-        {busy ? "Starting…" : "Make clips"}
+        {busy ? t("starting") : t("makeClips")}
       </Button>
 
-      <p className="mt-3 text-sm text-muted">
-        Length must fit your remaining minutes. 1 credit = 60 minutes.
-      </p>
+      <p className="mt-3 text-sm text-muted">{t("creditNote")}</p>
     </form>
   );
 }

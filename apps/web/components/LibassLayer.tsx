@@ -161,6 +161,14 @@ export function LibassLayer({
               "/libass/fonts/ArchivoBlack.ttf",
               "/libass/fonts/RussoOne.ttf",
               "/libass/fonts/LuckiestGuy.ttf",
+              // Кириллице-способные look-match'ы (LOOK_MATCH_FOR_CYRILLIC в assStyle.ts):
+              // превью на казахском/русском должно показать тот же шрифт, что прожжёт воркер.
+              "/libass/fonts/RubikBlack.ttf", // Unbounded look-match
+              "/libass/fonts/Play.ttf", // Russo One look-match
+              "/libass/fonts/OswaldHeavy.ttf", // Anton look-match
+              "/libass/fonts/Oswald.ttf", // Bebas Neue look-match
+              "/libass/fonts/Inter.ttf", // Archivo Black look-match
+              "/libass/fonts/NunitoBlack.ttf", // Luckiest Guy look-match
             ],
             // дефолтный fallback = default.woff2 РЯДОМ С ВОРКЕРОМ — мы его не хостим,
             // воркер падал «Loading data file default.woff2 failed». Наш fallback —

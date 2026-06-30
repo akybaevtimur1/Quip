@@ -585,20 +585,58 @@ def _ensure_mp4(src: Path, mp4: Path) -> None:
         raise JobError(_STAGE, f"ffmpeg did not create {mp4}")
 
 
-def import_upload(src: Path, out_dir: Path, *, job_id: str, title: str) -> SourceMeta:
-    """Полный Stage 0 для загруженного файла: → source.mp4 → audio → probe → meta.json.
+def prepare_upload_audio(src: Path, out_dir: Path, *, job_id: str, title: str) -> SourceMeta:
+    """БЫСТРАЯ часть Stage 0 для аплоада: probe + meta.json + аудио ИЗ СЫРОГО файла, БЕЗ source.mp4.
 
-    src — путь к загруженному файлу (любой контейнер). Готовит те же артефакты, что и
-    import_youtube, поэтому downstream-пайплайн (run_pipeline) видит их как кэш и не качает.
+    Транскрипции (Stage 1) нужен ТОЛЬКО ``source.wav``; видео-нормализация (``_ensure_mp4`` — для
+    HEVC/AV1/VP9 это полный CPU-ре-энкод в десятки секунд—минуты на длинном видео) ей не нужна.
+    Поэтому здесь извлекаем аудио ПРЯМО из загруженного файла и пишем meta (длина/размеры/fps
+    probe'ятся из СЫРОГО исходника — ``_ensure_mp4`` НЕ масштабирует, значит meta совпадёт с
+    будущим ``source.mp4``: тот же fps/ширина/высота → инвариант кадровой сетки цел). Создание
+    ``source.mp4`` ОТЛОЖЕНО в ``normalize_upload_source`` (зовётся run_pipeline ПЕРЕД заливкой в
+    R2/фан-аутом — там и только там нужен seekable mp4). Эффект: «transcribing» виден почти сразу
+    (≈время extract_audio), а не после скрытого ре-энкода.
+
+    Нет аудио-дорожки → ЧЁТКИЙ JobError (extract_audio, правило №8): Quip режет по РЕЧИ.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
     if not src.exists():
         raise JobError(_STAGE, f"no uploaded file: {src}")
-    mp4 = out_dir / "source.mp4"
-    _ensure_mp4(src, mp4)
-    extract_audio(mp4, out_dir / "source.wav")
-    probe = probe_video(mp4)
+    probe = probe_video(src)
     meta = build_source_meta(probe, job_id=job_id, source=SourceKind.upload, url=None, title=title)
-    _check_limits(meta)
+    _check_limits(meta)  # fail-fast по длине ДО extract_audio (дешевле)
     (out_dir / "meta.json").write_text(meta.model_dump_json(indent=2), encoding="utf-8")
+    extract_audio(src, out_dir / "source.wav")  # аудио для транскрипции — из СЫРОГО файла
+    return meta
+
+
+def normalize_upload_source(src: Path, out_dir: Path) -> None:
+    """ОТЛОЖЕННАЯ видео-нормализация аплоада: сырой файл → seekable ``source.mp4`` (_ensure_mp4).
+
+    Зовётся run_pipeline ПОСЛЕ select и ПЕРЕД заливкой source в R2 / per-clip фан-аутом — там
+    впервые нужен seekable mp4 (reframe/render тянут его через artifacts.ensure_source). Параметры
+    ``_ensure_mp4`` НЕ меняются (remux ``-c copy`` для h264 / полный libx264-ре-энкод для AV1/HEVC/
+    VP9) — двигается ТОЛЬКО МОМЕНТ запуска, поэтому качество клипа и кадровая сетка идентичны.
+    Идемпотентно: если ``source.mp4`` уже есть (повторный прогон джоба / кэш) — ре-энкод не
+    повторяем (нулевая лишняя работа).
+    """
+    mp4 = out_dir / "source.mp4"
+    if mp4.exists():
+        print("[import] source.mp4 already present — skip deferred normalization")
+        return
+    if not src.exists():
+        raise JobError(_STAGE, f"no uploaded file to normalize: {src}")
+    _ensure_mp4(src, mp4)
+
+
+def import_upload(src: Path, out_dir: Path, *, job_id: str, title: str) -> SourceMeta:
+    """Полный (eager) Stage 0 для аплоада: аудио+meta из сырого файла → source.mp4.
+
+    Тонкая обёртка над ``prepare_upload_audio`` + ``normalize_upload_source`` (тот же набор
+    артефактов: source.mp4 / source.wav / meta.json). В проде run_upload_job зовёт эти ДВЕ части
+    РАЗДЕЛЬНО (аудио сразу → транскрипция стартует; ре-энкод отложен до рендера); этот wrapper
+    остаётся для прямого/локального полного импорта и обратной совместимости вызывателей.
+    """
+    meta = prepare_upload_audio(src, out_dir, job_id=job_id, title=title)
+    normalize_upload_source(src, out_dir)
     return meta

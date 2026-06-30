@@ -45,6 +45,7 @@ const H = {
 // Шрифты БЕЗ реального bold-начертания (single-weight TTF) → Bold=0 в ASS-Style, иначе
 // libass подменяет семейство (fake-bold). Зеркало SINGLE_WEIGHT_FONTS в captions_v2.py.
 const SINGLE_WEIGHT_FONTS = new Set([
+  // UI-шрифты без bold-ката
   "Unbounded",
   "Anton",
   "Archivo Black",
@@ -52,11 +53,87 @@ const SINGLE_WEIGHT_FONTS = new Set([
   "Luckiest Guy",
   "Poppins",
   "Russo One",
+  // кириллице-способные look-match'ы (тяжёлые статик-инстансы, subfamily "Regular"); "Rubik"
+  // здесь НЕТ (его TTF — Bold-кат, Bold=-1). Зеркало captions_v2.py.
+  "Rubik Black",
+  "Play",
+  "Oswald Heavy",
+  "Oswald",
+  "Inter",
+  "Nunito Black",
 ]);
 
 /** ASS Bold-флаг: 0 для single-weight шрифтов (без fake-bold), иначе -1. Зеркало `_ass_bold_flag`. */
 function assBoldFlag(font: string): number {
   return SINGLE_WEIGHT_FONTS.has(font) ? 0 : -1;
+}
+
+// ── Font-swap для покрытия глифов (зеркало captions_v2.py resolve_font_for_text) ──
+// БЕЗ этого превью расходится с рендером: воркер свапает ВЕСЬ текст на Montserrat, а
+// libass-превью (per-glyph fallbackFont) рисовал бы смешанный Unbounded+Montserrat.
+// Шрифты БЕЗ кириллицы вовсе (Latin-only). Зеркало LATIN_ONLY_FONTS.
+const LATIN_ONLY_FONTS = new Set([
+  "Anton",
+  "Archivo Black",
+  "Bebas Neue",
+  "Luckiest Guy",
+  "Poppins",
+]);
+// Шрифты с русской кириллицей, но БЕЗ казахских глифов (→ tofu на казахском). Unbounded =
+// дефолт хука, Russo One = пресет «u». Зеркало KAZAKH_INCOMPLETE_FONTS.
+const KAZAKH_INCOMPLETE_FONTS = new Set(["Unbounded", "Russo One"]);
+// Последний резерв — только для шрифтов БЕЗ записи в LOOK_MATCH_FOR_CYRILLIC.
+const CYRILLIC_FALLBACK_FONT = "Montserrat";
+// Кириллице-способный LOOK-match на каждый display-слот: сохраняет жирный лук на кириллице/
+// казахском вместо отката в Montserrat. Каждый таргет покрывает все 18 казахских глифов +
+// русский и подобран под лук оригинала (OFL). Зеркало LOOK_MATCH_FOR_CYRILLIC в captions_v2.py.
+const LOOK_MATCH_FOR_CYRILLIC: Record<string, string> = {
+  Unbounded: "Rubik Black", // дефолт хука: геометрический ультра-болд
+  "Russo One": "Play", // пресет «u» Gamer Tech: квадратный техно
+  Anton: "Oswald Heavy", // пресет «n»: высокий узкий жирный
+  "Bebas Neue": "Oswald", // пресет «q»: высокий узкий капс
+  "Archivo Black": "Inter", // пресет «o»: гротеск-блэк
+  "Luckiest Guy": "Nunito Black", // пресет «t» Sticker Round: круглый
+  Poppins: "Rubik", // пресет «p» Bold Pop White: геометрический болд
+};
+// 18 казахо-уникальных кодпойнтов (9 букв × 2 регистра). Зеркало KAZAKH_CODEPOINTS.
+const KAZAKH_CODEPOINTS = new Set([
+  0x04d9, 0x04d8, 0x0493, 0x0492, 0x049b, 0x049a, 0x04a3, 0x04a2, 0x04e9, 0x04e8, 0x04b1, 0x04b0,
+  0x04af, 0x04ae, 0x0456, 0x0406, 0x04bb, 0x04ba,
+]);
+
+/** True если в тексте есть кириллица U+0400–U+04FF. Зеркало `_has_cyrillic`. */
+function hasCyrillic(text: string): boolean {
+  for (const ch of text) {
+    const c = ch.codePointAt(0);
+    if (c !== undefined && c >= 0x0400 && c <= 0x04ff) return true;
+  }
+  return false;
+}
+
+/** True если в тексте есть казахо-уникальный кодпойнт. Зеркало `_has_kazakh`. */
+function hasKazakh(text: string): boolean {
+  for (const ch of text) {
+    const c = ch.codePointAt(0);
+    if (c !== undefined && KAZAKH_CODEPOINTS.has(c)) return true;
+  }
+  return false;
+}
+
+/**
+ * Подобрать шрифт под текст (зеркало `resolve_font_for_text`). Латиница → шрифт не трогаем.
+ * Кириллица: (1) есть запись в LOOK_MATCH_FOR_CYRILLIC → кириллице-способный аналог,
+ * сохраняющий жирный лук (применяется ко ВСЕЙ кириллице, русский тоже); (2) иначе фолбэк —
+ * Latin-only → Montserrat, Kazakh-incomplete → Montserrat только при казахском глифе. Делает
+ * превью libass пиксель-в-пиксель равным baked-рендеру воркера (WYSIWYG).
+ */
+export function resolveFontForText(font: string, text: string): string {
+  if (!hasCyrillic(text)) return font;
+  const look = LOOK_MATCH_FOR_CYRILLIC[font];
+  if (look !== undefined) return look;
+  if (LATIN_ONLY_FONTS.has(font)) return CYRILLIC_FALLBACK_FONT;
+  if (KAZAKH_INCOMPLETE_FONTS.has(font) && hasKazakh(text)) return CYRILLIC_FALLBACK_FONT;
+  return font;
 }
 
 /** #RRGGBB → ASS &HAABBGGRR (alphaByte: 0=непрозр., 255=прозр.). Зеркало `_ass_color`. */
@@ -99,11 +176,13 @@ function posOverride(
   return `\\pos(${x},${y})\\an${anchor}`;
 }
 
-/** Строка `Style: Default,…` из style+highlight (+wrap_width). Зеркало compile_ass (без \n). */
+/** Строка `Style: Default,…` из style+highlight (+wrap_width). Зеркало compile_ass (без \n).
+ *  `text` = совокупный текст субтитров — для font-swap (казахский/кириллица → Montserrat). */
 export function buildDefaultStyleLine(
   style: CaptionStyle,
   highlight: HighlightStyle | null | undefined,
   playW = 1080,
+  text = "",
 ): string {
   // animation="none" → караоке выключено целиком → primary = цвет текста (как в Python).
   const hl = highlight && highlight.animation !== "none" ? highlight : null;
@@ -119,17 +198,20 @@ export function buildDefaultStyleLine(
     back = "&H64000000";
     borderStyle = 1;
   }
+  // Шрифт-свап по тексту (зеркало compile_ass): bold-флаг считаем по РАЗРЕШЁННОМУ шрифте.
+  const font = resolveFontForText(style.font ?? S.font, text);
   const [ml, mr] = wrapMargins(style.wrap_width, playW, 40);
   return (
-    `Style: Default,${style.font ?? S.font},${style.size ?? S.size},${primary},${secondary},` +
+    `Style: Default,${font},${style.size ?? S.size},${primary},${secondary},` +
     // Bold=0 для single-weight шрифтов — иначе прожиг подменит семейство (зеркало captions_v2).
-    `${outline},${back},${assBoldFlag(style.font ?? S.font)},0,0,0,100,100,0,0,${borderStyle},${style.outline_w ?? S.outline_w},` +
+    `${outline},${back},${assBoldFlag(font)},0,0,0,100,100,0,0,${borderStyle},${style.outline_w ?? S.outline_w},` +
     `${style.shadow ?? S.shadow},${style.alignment ?? S.alignment},${ml},${mr},${style.margin_v ?? S.margin_v},1`
   );
 }
 
-/** Строка `Style: Hook,…` из hook (+wrap_width). Зеркало build_hook_event style-строки (без \n). */
-export function buildHookStyleLine(hook: HookOverlay, playW = 1080): string {
+/** Строка `Style: Hook,…` из hook (+wrap_width). Зеркало build_hook_event style-строки (без \n).
+ *  `text` = текст хука — для font-swap (казахский/кириллица → Montserrat). По умолчанию hook.text. */
+export function buildHookStyleLine(hook: HookOverlay, playW = 1080, text?: string): string {
   const primary = assColor(hook.color ?? H.color);
   let outline: string;
   let back: string;
@@ -148,10 +230,12 @@ export function buildHookStyleLine(hook: HookOverlay, playW = 1080): string {
     borderStyle = 1;
     outlineW = hook.outline_w ?? H.outline_w;
   }
+  // Шрифт-свап по тексту хука (зеркало build_hook_event); bold-флаг — по РАЗРЕШЁННОМУ шрифте.
+  const font = resolveFontForText(hook.font ?? H.font, text ?? hook.text ?? "");
   const [ml, mr] = wrapMargins(hook.wrap_width, playW, 60);
   return (
-    `Style: Hook,${hook.font ?? H.font},${hook.size ?? H.size},${primary},${primary},` +
-    `${outline},${back},${assBoldFlag(hook.font ?? H.font)},0,0,0,100,100,0,0,${borderStyle},${outlineW},${hook.shadow ?? H.shadow},` +
+    `Style: Hook,${font},${hook.size ?? H.size},${primary},${primary},` +
+    `${outline},${back},${assBoldFlag(font)},0,0,0,100,100,0,0,${borderStyle},${outlineW},${hook.shadow ?? H.shadow},` +
     `8,${ml},${mr},${hook.margin_v ?? H.margin_v},1`
   );
 }
@@ -167,6 +251,19 @@ function playRes(ass: string): [number, number] {
 function dialogueStyle(line: string): string {
   // Dialogue: Layer,Start,End,Style,Name,MarginL,MarginR,Effect,Text
   return line.split(",", 4)[3] ?? "";
+}
+
+/** Совокупный ТЕКСТ субтитров (Default Dialogue) из ASS — для font-swap по покрытию глифов.
+ *  Снимаем override-блоки {…} (там только ASCII-теги), казахские кодпойнты живут лишь в тексте.
+ *  Зеркалит compile_ass: font подбирается по тексту видимых реплик. */
+function captionTextFromAss(ass: string): string {
+  const parts: string[] = [];
+  for (const line of ass.split("\n")) {
+    if (!line.startsWith("Dialogue:") || dialogueStyle(line) !== "Default") continue;
+    const m = line.match(/^Dialogue:(?:[^,]*,){8}([\s\S]*)$/);
+    if (m) parts.push(m[1].replace(/\{[^}]*\}/g, ""));
+  }
+  return parts.join(" ");
 }
 
 /** Вписать наш ведущий `\pos`-блок в Text Dialogue-строки (caption \an2 / hook \an8). */
@@ -215,7 +312,10 @@ export function patchAssStyles(
 ): string {
   if (!ass) return ass;
   const [playW, playH] = playRes(ass);
-  const defaultLine = buildDefaultStyleLine(style, highlight, playW);
+  // Текст для font-swap: субтитры берём из ASS Default Dialogue, хук — из hook.text.
+  const capText = captionTextFromAss(ass);
+  const hookText = hook?.text ?? "";
+  const defaultLine = buildDefaultStyleLine(style, highlight, playW, capText);
   const capPos = posOverride(
     style.pos_x,
     style.pos_y,
@@ -229,7 +329,7 @@ export function patchAssStyles(
     : "";
   const lines = ass.split("\n").map((line) => {
     if (line.startsWith("Style: Default,")) return defaultLine;
-    if (hook && line.startsWith("Style: Hook,")) return buildHookStyleLine(hook, playW);
+    if (hook && line.startsWith("Style: Hook,")) return buildHookStyleLine(hook, playW, hookText);
     if (line.startsWith("Dialogue:")) {
       const st = dialogueStyle(line);
       if (st === "Default") return applyPosToDialogue(line, capPos);

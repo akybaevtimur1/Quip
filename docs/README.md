@@ -180,10 +180,16 @@
   «Сделать новый клип» из карты — ОТЛОЖЕНО (нет endpoint create-clip; пока только «подвинуть»). Источник
   правды генерации: `app/editor/video_map.py` + `prompts/video_map.v1.txt`.
 - **Auth:** Supabase (Google OAuth + email). The `(app)` route group is gated.
-- **Язык интерфейса (2026-06-18):** курс на **консистентный английский** — раньше был хаотичный
-  микс RU/EN. Весь user-facing текст (UI + user-facing `JobError`) приводится к английскому; русский —
-  только в комментариях/доках. **Правило:** новые строки — по-английски, без хардкода смеси (см.
-  `CLAUDE.md`). Полноценный мультиязык (next-intl, тумблер RU+EN) — отложенная фаза.
+- **Язык интерфейса — RU/EN тумблер ЖИВОЙ в core-фанеле (2026-06-30):** двуязычие ОТГРУЖЕНО для
+  основного фанела — **лендинг `/` → auth → дашборд → загрузка**. Стек: **`next-intl`, COOKIE-режим**
+  (БЕЗ `[locale]`-URL и БЕЗ `proxy.ts`): локаль из cookie `NEXT_LOCALE` (`i18n/request.ts`), провайдер
+  + динамический `<html lang>` в `app/layout.tsx`. Каталоги auth/app: `apps/web/messages/{en,ru}.json`
+  (`t()`); копия лендинга: двуязычный `lib/landingContent.ts` (`getLandingContent(locale)`). Тумблер
+  `EN / RU` (`components/i18n/LocaleSwitcher.tsx`) — в лендинг-Nav, App-header, лендинг-Footer; пишет
+  cookie + `router.refresh()`. Побочный эффект cookie-режима: marketing-страницы теперь рендерятся
+  динамически (краулеры без cookie → дефолт `en`, SEO-сигналы hreflang/og не изменились). **ЕЩЁ
+  английский (отложено):** редактор + `ExportMenu` и worker-side `JobError`. **Правило для новых
+  строк:** ключ сразу в ОБА каталога (`en`+`ru`) через `t()`, без хардкода смеси (см. `CLAUDE.md`).
 - **Анти-абьюз free (2026-06-18):** free-джоба требует **подтверждённого email** (серверный gate
   во всех точках создания, проверка `email_confirmed_at` через Supabase Admin API) + **блок
   одноразовых email-доменов** (`billing.is_disposable_email` + зеркало `lib/disposableEmail.ts`).

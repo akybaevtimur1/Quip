@@ -3,7 +3,10 @@
 import { useState } from "react";
 import { useScroll, useMotionValueEvent, AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { List, X } from "@phosphor-icons/react/dist/ssr";
-import { NAV, ROUTES } from "@/lib/landingContent";
+import { useLocale } from "next-intl";
+import { LocaleSwitcher } from "@/components/i18n/LocaleSwitcher";
+import { resolveLocale } from "@/i18n/locale";
+import { getLandingContent, ROUTES } from "@/lib/landingContent";
 import { PrimaryCTA } from "../components/CTA";
 
 export function Logo() {
@@ -18,6 +21,7 @@ export function Logo() {
 }
 
 export function Nav({ authed = false }: { authed?: boolean }) {
+  const { nav, openApp } = getLandingContent(resolveLocale(useLocale()));
   const [scrolled, setScrolled] = useState(false);
   const [open, setOpen] = useState(false);
   const { scrollY } = useScroll();
@@ -34,7 +38,7 @@ export function Nav({ authed = false }: { authed?: boolean }) {
         <Logo />
 
         <div className="hidden items-center gap-8 md:flex">
-          {NAV.map((item) => (
+          {nav.items.map((item) => (
             <a
               key={item.href}
               href={item.href}
@@ -46,14 +50,15 @@ export function Nav({ authed = false }: { authed?: boolean }) {
         </div>
 
         <div className="flex items-center gap-3">
+          <LocaleSwitcher className="hidden sm:inline-flex" />
           <a
             href={authed ? ROUTES.app : ROUTES.login}
             className="hidden text-[14px] text-muted transition-colors duration-150 hover:text-ink sm:inline"
           >
-            {authed ? "Dashboard" : "Sign in"}
+            {authed ? nav.dashboard : nav.signIn}
           </a>
           <PrimaryCTA href={authed ? ROUTES.app : ROUTES.signup} arrow={false} className="h-9 px-4 text-[14px]">
-            {authed ? "Open the app" : "Try it free"}
+            {authed ? openApp : nav.tryFree}
           </PrimaryCTA>
           <button
             onClick={() => setOpen((v) => !v)}
@@ -77,7 +82,7 @@ export function Nav({ authed = false }: { authed?: boolean }) {
             className="overflow-hidden md:hidden"
           >
             <div className="container-page flex flex-col gap-1 pb-4 pt-2">
-              {NAV.map((item) => (
+              {nav.items.map((item) => (
                 <a
                   key={item.href}
                   href={item.href}
@@ -92,8 +97,12 @@ export function Nav({ authed = false }: { authed?: boolean }) {
                 onClick={() => setOpen(false)}
                 className="border-t border-line py-2.5 pt-3.5 text-[15px] text-muted transition-colors hover:text-ink"
               >
-                {authed ? "Dashboard" : "Sign in"}
+                {authed ? nav.dashboard : nav.signIn}
               </a>
+              <div className="flex items-center gap-3 border-t border-line pt-3.5">
+                <span className="text-[15px] text-muted">Язык / Language</span>
+                <LocaleSwitcher />
+              </div>
             </div>
           </motion.div>
         )}

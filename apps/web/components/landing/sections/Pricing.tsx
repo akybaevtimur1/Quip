@@ -1,16 +1,19 @@
-import { PRICING } from "@/lib/landingContent";
+import { getLocale } from "next-intl/server";
+import { resolveLocale } from "@/i18n/locale";
+import { getLandingContent } from "@/lib/landingContent";
 import { Container, Eyebrow, Section } from "../components/primitives";
 import { PrimaryCTA, GhostCTA } from "../components/CTA";
 import { Reveal } from "../components/Reveal";
 import { Check } from "@phosphor-icons/react/dist/ssr";
 
-export function Pricing() {
-  const { heading, sub, plans, payg, footnote } = PRICING;
+export async function Pricing() {
+  const pricing = getLandingContent(resolveLocale(await getLocale())).pricing;
+  const { eyebrow, heading, sub, recommended, plans, payg, footnote } = pricing;
   return (
     <Section id="pricing">
       <Container>
         <Reveal className="max-w-[44rem]">
-          <Eyebrow>{PRICING.eyebrow}</Eyebrow>
+          <Eyebrow>{eyebrow}</Eyebrow>
           <h2 className="mt-5 text-[clamp(30px,4vw,48px)] font-bold leading-[1.06] tracking-[-0.025em] text-ink">
             {heading}
           </h2>
@@ -35,7 +38,7 @@ export function Pricing() {
                     <h3 className="text-[1.125rem] font-semibold tracking-[-0.01em] text-ink">{plan.name}</h3>
                     {pro && (
                       <span className="rounded-pill border border-accent-line bg-accent-tint px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-accent">
-                        Recommended
+                        {recommended}
                       </span>
                     )}
                   </div>

@@ -1,9 +1,12 @@
-import { DEMO } from "@/lib/landingContent";
+import { getLocale } from "next-intl/server";
+import { resolveLocale } from "@/i18n/locale";
+import { getLandingContent } from "@/lib/landingContent";
 import { Container, Eyebrow, Section } from "../components/primitives";
 import { InlineClip } from "../components/InlineClip";
 import { Reveal } from "../components/Reveal";
 
-export function Demo() {
+export async function Demo() {
+  const demo = getLandingContent(resolveLocale(await getLocale())).demo;
   return (
     <Section id="demo" className="overflow-hidden">
       {/* the page's one permitted coral atmosphere wash, anchored at the top, decaying fast */}
@@ -17,22 +20,22 @@ export function Demo() {
       />
       <Container className="relative">
         <Reveal className="max-w-[44rem]">
-          <Eyebrow>{DEMO.eyebrow}</Eyebrow>
+          <Eyebrow>{demo.eyebrow}</Eyebrow>
           <h2 className="mt-5 text-[clamp(30px,4vw,48px)] font-bold leading-[1.06] tracking-[-0.025em] text-ink">
-            {DEMO.heading}
+            {demo.heading}
           </h2>
-          <p className="mt-5 max-w-[58ch] text-[1.0625rem] leading-relaxed text-muted">{DEMO.sub}</p>
+          <p className="mt-5 max-w-[58ch] text-[1.0625rem] leading-relaxed text-muted">{demo.sub}</p>
         </Reveal>
 
         {/* pipeline stage strip - hue-free, the moving video carries the proof */}
         <Reveal delay={0.05} className="mt-10">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2 font-mono text-[11px] uppercase tracking-[0.12em]">
-            {DEMO.stages.map((s, i) => (
+            {demo.stages.map((s, i) => (
               <span key={s} className="flex items-center gap-3">
                 <span className={i === 0 ? "text-ink" : "text-faint"}>
                   <span className="text-muted">{String(i + 1).padStart(2, "0")}</span> {s}
                 </span>
-                {i < DEMO.stages.length - 1 && <span className="text-faint" aria-hidden>{"→"}</span>}
+                {i < demo.stages.length - 1 && <span className="text-faint" aria-hidden>{"→"}</span>}
               </span>
             ))}
           </div>
