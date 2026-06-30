@@ -167,7 +167,7 @@ export function LibassLayer({
               "/libass/fonts/Play.ttf", // Russo One look-match
               "/libass/fonts/OswaldHeavy.ttf", // Anton look-match
               "/libass/fonts/Oswald.ttf", // Bebas Neue look-match
-              "/libass/fonts/Inter.ttf", // Archivo Black look-match
+              "/libass/fonts/GolosTextBlack.ttf", // Archivo Black look-match
               "/libass/fonts/NunitoBlack.ttf", // Luckiest Guy look-match
             ],
             // дефолтный fallback = default.woff2 РЯДОМ С ВОРКЕРОМ — мы его не хостим,

@@ -9,10 +9,10 @@ import { PromoRedeem } from "@/components/app/PromoRedeem";
 import { RecentProjects } from "@/components/app/RecentProjects";
 import { UsageMeter } from "@/components/app/UsageMeter";
 import { ClipGrid } from "@/components/ClipGrid";
-import { CoWatchPanel } from "@/components/CoWatchPanel";
 import { VideoMap } from "@/components/VideoMap";
 import { ErrorPanel } from "@/components/ErrorPanel";
 import { JobProgress } from "@/components/JobProgress";
+import { ReconnectBanner } from "@/components/ReconnectBanner";
 import { SourceForm } from "@/components/SourceForm";
 import { Eyebrow } from "@/components/ui/Eyebrow";
 import { Numeral } from "@/components/ui/Numeral";
@@ -47,7 +47,7 @@ function labelFromUrl(url: string): string {
  *  job (the `upload-complete` round-trip) BEFORE status polling can begin — a window with no server
  *  progress to show. A full, static bar there reads as frozen (the L5 "silent gap"), so we flip to
  *  an explicit, animated "Preparing your video…" state (spinner + indeterminate bar) until
- *  `createUploadJob` resolves and the live status view (co-watch / stepper) takes over. */
+ *  `createUploadJob` resolves and the live status view (the JobProgress stepper) takes over. */
 function UploadProgress({ pct }: { pct: number }) {
   const t = useTranslations("dashboard");
   const preparing = pct >= 100;
@@ -95,22 +95,12 @@ function UploadProgress({ pct }: { pct: number }) {
 function DashboardInner() {
   const t = useTranslations("dashboard");
   const router = useRouter();
-  const { job, jobId, error: pollError, elapsed, start, reset } = useJob();
+  const { job, jobId, error: pollError, reconnecting, elapsed, start, reset, reconnectNow } = useJob();
   const [submitting, setSubmitting] = useState(false);
   const [uploadPct, setUploadPct] = useState<number | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   // Requested clip count (from the form) → drives the reserved skeleton count while processing.
   const [requestedClips, setRequestedClips] = useState(3);
-  // Local object URL of the just-uploaded file → the co-watch plays the user's OWN video
-  // INSTANTLY (no upload round-trip / CORS) while the AI works. Only set for uploads in this
-  // same session; gone after reload (then we fall back to the stepper). YouTube → null.
-  const [sourceUrl, setSourceUrl] = useState<string | null>(null);
-  useEffect(() => {
-    // Revoke the blob URL when it changes or on unmount — don't leak object URLs.
-    return () => {
-      if (sourceUrl) URL.revokeObjectURL(sourceUrl);
-    };
-  }, [sourceUrl]);
   const error = submitError ?? pollError;
   // In-flight upload controller — abort on reset / unmount / new submit. Без этого брошенная
   // загрузка (ушёл со страницы / «Новый проект» / залил второй раз) продолжала XHR: создавала
@@ -149,7 +139,6 @@ function DashboardInner() {
     try {
       const { id } = await createJob({ source_type: "youtube", source_ref: url, max_clips: maxClips });
       addRecentProject({ id, label: labelFromUrl(url), at: Date.now() });
-      setSourceUrl(null); // YouTube → no local file to co-watch (falls back to the stepper)
       start(id);
     } catch (e) {
       setSubmitError(e instanceof Error ? e.message : t("errors.create"));
@@ -172,7 +161,6 @@ function DashboardInner() {
       if (ctrl.signal.aborted) return; // отменена/вытеснена — не трогаем стейт
       setUploadPct(null);
       addRecentProject({ id, label: file.name, at: Date.now() });
-      setSourceUrl(URL.createObjectURL(file)); // co-watch plays THIS file instantly while AI works
       start(id);
     } catch (e) {
       // намеренная отмена (reset/unmount/новый сабмит) → НЕ показываем ошибку
@@ -206,7 +194,6 @@ function DashboardInner() {
     setSubmitError(null);
     setSubmitting(false);
     setUploadPct(null);
-    setSourceUrl(null); // drop the co-watch source (effect revokes the blob URL)
     // Drop ?job= so a deep-linked project doesn't keep us out of the idle "New project"
     // form (phase below treats a present ?job= as loading). Without this, reset couldn't
     // return to idle when the URL still carried the job id.
@@ -225,9 +212,11 @@ function DashboardInner() {
       ? "done"
       : job?.status === "cancelled"
         ? "cancelled" // user stopped it (or deep-linked a stopped job) → neutral panel, not a loader
-        : submitting || jobId || jobParam
-          ? "tracking"
-          : "idle";
+        : reconnecting
+          ? "reconnecting" // a connectivity blip — calm banner, NOT the red error panel; job's alive
+          : submitting || jobId || jobParam
+            ? "tracking"
+            : "idle";
   // Opening an existing project via deep-link, before the first poll populates `job`: show a neutral
   // loader (not the JobProgress stepper, which implies "still processing" for an already-done clip).
   const openingProject = !!jobParam && !job && !submitting;
@@ -279,6 +268,19 @@ function DashboardInner() {
           // Progressive grid: clips render in as they finish. Same <ClipGrid key={job.id}> as the
           // done branch → flipping to "done" doesn't remount (no flicker, selection preserved).
           <ClipGrid key={job.id} job={job} />
+        ) : phase === "reconnecting" ? (
+          // Connectivity blip: the job keeps processing server-side, so we show a calm reconnect
+          // banner (NOT the red ErrorPanel) and keep any clips that already arrived usable below.
+          (job?.clips?.length ?? 0) > 0 && job ? (
+            <>
+              <ReconnectBanner onRetry={reconnectNow} />
+              <div className="mt-6">
+                <ClipGrid key={job.id} job={job} />
+              </div>
+            </>
+          ) : (
+            <ReconnectBanner onRetry={reconnectNow} />
+          )
         ) : phase === "tracking" ? (
           // Centered (mx-auto on each panel) so the transient upload/processing screens don't sit
           // jammed against the left edge with a dead right half (founder call). Idle + done fill width.
@@ -287,17 +289,6 @@ function DashboardInner() {
               <Spinner size="md" className="text-accent" />
               <p className="text-sm text-muted">{t("openingProject")}</p>
             </div>
-          ) : sourceUrl && jobId ? (
-            // Co-watch: the uploaded file plays instantly while the AI reads it and real
-            // moments light up. Falls back to the stepper for YouTube / after a reload.
-            <CoWatchPanel
-              jobId={jobId}
-              src={sourceUrl}
-              status={job?.status ?? "queued"}
-              elapsed={elapsed}
-              cancellable={job?.cancellable ?? false}
-              onStop={handleStop}
-            />
           ) : (
             <JobProgress
               status={job?.status ?? "queued"}

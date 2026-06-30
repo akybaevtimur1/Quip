@@ -59,7 +59,7 @@ const SINGLE_WEIGHT_FONTS = new Set([
   "Play",
   "Oswald Heavy",
   "Oswald",
-  "Inter",
+  "Golos Text Black",
   "Nunito Black",
 ]);
 
@@ -92,7 +92,7 @@ const LOOK_MATCH_FOR_CYRILLIC: Record<string, string> = {
   "Russo One": "Play", // пресет «u» Gamer Tech: квадратный техно
   Anton: "Oswald Heavy", // пресет «n»: высокий узкий жирный
   "Bebas Neue": "Oswald", // пресет «q»: высокий узкий капс
-  "Archivo Black": "Inter", // пресет «o»: гротеск-блэк
+  "Archivo Black": "Golos Text Black", // пресет «o»: гротеск-блэк (тяжёлый Cyrillic-гротеск)
   "Luckiest Guy": "Nunito Black", // пресет «t» Sticker Round: круглый
   Poppins: "Rubik", // пресет «p» Bold Pop White: геометрический болд
 };

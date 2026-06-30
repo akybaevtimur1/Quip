@@ -1,4 +1,4 @@
-import { getLocale } from "next-intl/server";
+import { getLocale, getTranslations } from "next-intl/server";
 import { resolveLocale } from "@/i18n/locale";
 import { getLandingContent, ROUTES } from "@/lib/landingContent";
 import { Container, WordChip, TypeBadge } from "../components/primitives";
@@ -8,6 +8,7 @@ import { InlineClip } from "../components/InlineClip";
 
 export async function Hero({ authed = false }: { authed?: boolean }) {
   const { hero, heroClip, openApp } = getLandingContent(resolveLocale(await getLocale()));
+  const t = await getTranslations("heroReadout");
   return (
     <section id="top" className="relative overflow-hidden pt-28 pb-20 md:pt-32 md:pb-28">
       {/* instrument graticule, faded, never coral */}
@@ -42,20 +43,29 @@ export async function Hero({ authed = false }: { authed?: boolean }) {
           </div>
 
           {/* RIGHT - live product readout */}
-          <HeroReadout clip={heroClip} />
+          <HeroReadout
+            clip={heroClip}
+            labels={{ status: t("status"), avg: t("avg"), confidence: t("confidence") }}
+          />
         </div>
       </Container>
     </section>
   );
 }
 
-function HeroReadout({ clip }: { clip: ReturnType<typeof getLandingContent>["heroClip"] }) {
+function HeroReadout({
+  clip,
+  labels,
+}: {
+  clip: ReturnType<typeof getLandingContent>["heroClip"];
+  labels: { status: string; avg: string; confidence: string };
+}) {
   return (
     <div className="rounded-[16px] border border-line-strong bg-surface/70 p-5 shadow-[inset_0_1px_0_rgba(242,239,233,0.05)] backdrop-blur-sm sm:p-7">
       {/* one quiet header line: real, informative, no live-theater */}
       <div className="flex items-center justify-between font-mono text-[11px] uppercase tracking-[0.12em] text-faint">
-        <span>Cutting clips · 3 of 23 ready</span>
-        <span>Avg 88/100</span>
+        <span>{labels.status}</span>
+        <span>{labels.avg}</span>
       </div>
 
       {/* clip + the reading, sitting directly on the panel (no nested box) */}
@@ -73,7 +83,7 @@ function HeroReadout({ clip }: { clip: ReturnType<typeof getLandingContent>["her
         </div>
 
         <div className="flex min-w-0 flex-col">
-          <span className="font-mono text-[10.5px] uppercase tracking-[0.14em] text-faint">Confidence</span>
+          <span className="font-mono text-[10.5px] uppercase tracking-[0.14em] text-faint">{labels.confidence}</span>
           <ConfidenceGauge value={clip.confidence} variant="hero" className="mt-1.5" />
 
           <p className="mt-6 text-[15px] font-semibold leading-snug tracking-[-0.01em] text-ink">{clip.hook}</p>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useTranslations } from "next-intl";
 import { animate, motion, useInView, useMotionValue, useReducedMotion, useTransform } from "motion/react";
 
 type Variant = "hero" | "card" | "inline";
@@ -34,6 +35,7 @@ export function ConfidenceGauge({
   accent?: boolean;
   className?: string;
 }) {
+  const t = useTranslations("confidence");
   const ref = useRef<HTMLDivElement>(null);
   const inView = useInView(ref, { once: true, amount: 0.6 });
   const reduce = useReducedMotion();
@@ -67,7 +69,7 @@ export function ConfidenceGauge({
   return (
     <div ref={ref} className={className}>
       {/* real value always in the a11y tree; the animated numeral is decorative */}
-      <span className="sr-only">Confidence {value} out of 100</span>
+      <span className="sr-only">{t("sr", { value })}</span>
       <div className="flex items-baseline gap-1.5" aria-hidden>
         <motion.span
           className={`num font-mono font-medium tabular-nums transition-colors duration-200 ${NUM[variant]} ${

@@ -17,7 +17,7 @@ const LOOK_MATCH: Record<string, string> = {
   "Russo One": "Play",
   Anton: "Oswald Heavy",
   "Bebas Neue": "Oswald",
-  "Archivo Black": "Inter",
+  "Archivo Black": "Golos Text Black",
   "Luckiest Guy": "Nunito Black",
   Poppins: "Rubik",
 };

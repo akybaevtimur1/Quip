@@ -1,6 +1,7 @@
 "use client";
 
 import { Check, Loader2, Pencil } from "lucide-react";
+import { useTranslations } from "next-intl";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { ExportMenu } from "@/components/ExportMenu";
@@ -40,34 +41,39 @@ const TONE_EMOJI: Record<string, string> = {
   relatable: '🙌', inspiring: '🔥', controversial: '🤔', insightful: '💡',
 };
 
-function computeSignalBars(clip: ClipOut): { label: string; bars: number }[] {
+type SignalKey = 'hook' | 'standalone' | 'energy' | 'speaker';
+
+// Returns translation KEYS (not labels) so the i18n catalog owns the copy; the rendering
+// component resolves `signal.<key>` via next-intl. Pure scoring logic stays here.
+function computeSignalBars(clip: ClipOut): { key: SignalKey; bars: number }[] {
   const score = clip.score;
-  return [
+  const signals: { key: SignalKey; bars: number }[] = [
     {
-      label: 'Hook',
+      key: 'hook',
       bars: score >= 0.85 ? 4 : score >= 0.70 ? 3 : score >= 0.55 ? 2 : 1,
     },
     {
-      label: 'Standalone',
+      key: 'standalone',
       bars: ['hook', 'emotional_peak'].includes(clip.type) ? 4
           : clip.type === 'complete_thought' ? 3
           : clip.type === 'strong_quote' ? 3
           : 2,
     },
     {
-      label: 'Energy',
+      key: 'energy',
       bars: ['shocking', 'funny', 'controversial'].includes(clip.tone ?? '') ? 4
           : ['inspiring', 'relatable', 'insightful'].includes(clip.tone ?? '') ? 3
           : clip.tone === 'touching' ? 2
           : 1,
     },
     {
-      label: 'Speaker',
+      key: 'speaker',
       bars: (clip.hook?.length ?? 0) > 60 ? 3 + (clip.why_works ? 1 : 0)
           : (clip.hook?.length ?? 0) > 30 ? 2 + (clip.why_works ? 1 : 0)
           : 1 + (clip.why_works ? 1 : 0),
     },
-  ].map(s => ({ ...s, bars: Math.min(4, Math.max(1, s.bars)) }));
+  ];
+  return signals.map(s => ({ ...s, bars: Math.min(4, Math.max(1, s.bars)) }));
 }
 
 function getScoreTier(score100: number): { textClass: string; gradient: string; glow: string } {
@@ -105,6 +111,7 @@ export function ClipCard({
   onToggle: () => void;
   topClip?: boolean;
 }) {
+  const t = useTranslations("clipCard");
   const pending = !clip.video_url;
   const videoSrc = pending ? "" : resolveUrl(clip.video_url);
 
@@ -205,7 +212,7 @@ export function ClipCard({
             type="button"
             onClick={onToggle}
             aria-pressed={selected}
-            aria-label={selected ? "Deselect" : "Select"}
+            aria-label={selected ? t("deselect") : t("select")}
             className={`absolute right-2 top-2 z-40 inline-flex size-7 items-center justify-center rounded-sm border transition duration-150 ease-snappy active:scale-95 ${
               selected
                 ? "border-ink bg-ink text-bg"
@@ -254,7 +261,7 @@ export function ClipCard({
         {clip.key_quote && !analysisStale && (
           <div className="mt-3 rounded-sm border-l-2 border-emerald-500 bg-emerald-950/40 px-2.5 py-1.5">
             <p className="mb-1 text-[7px] font-bold uppercase tracking-widest text-emerald-500">
-              ★ Key moment
+              ★ {t("keyMoment")}
             </p>
             <p className="text-[10px] italic leading-relaxed text-emerald-200">
               &ldquo;{clip.key_quote}&rdquo;
@@ -263,12 +270,12 @@ export function ClipCard({
         )}
         {analysisStale && (
           <div className="mt-3 flex items-center justify-between gap-2 rounded-sm border border-line bg-surface-2 px-2 py-1.5">
-            <span className="text-[9px] text-muted">Clip moved · AI analysis may be outdated</span>
+            <span className="text-[9px] text-muted">{t("staleBanner")}</span>
             <button
               onClick={handleRefresh}
               className="shrink-0 rounded border border-amber-400/20 bg-amber-400/10 px-1.5 py-0.5 text-[9px] font-bold text-amber-400"
             >
-              ↻ Refresh
+              ↻ {t("refresh")}
             </button>
           </div>
         )}
@@ -279,15 +286,15 @@ export function ClipCard({
           onClick={() => setOpen(o => !o)}
           className="mt-2 text-[10px] text-muted hover:text-ink transition-colors"
         >
-          {open ? 'Why this clip ↑' : 'Why this clip ↓'}
+          {t("whyThisClip")} {open ? '↑' : '↓'}
         </button>
 
         {open && (
           <div className="mt-2 space-y-2 border-t border-line pt-2">
-            <p className="text-[7.5px] font-bold uppercase tracking-wider text-muted">Quality signals</p>
+            <p className="text-[7.5px] font-bold uppercase tracking-wider text-muted">{t("qualitySignals")}</p>
             <div className="flex gap-2">
-              {computeSignalBars(clip).map(({ label, bars }) => (
-                <div key={label} className="flex flex-1 flex-col items-center gap-1">
+              {computeSignalBars(clip).map(({ key, bars }) => (
+                <div key={key} className="flex flex-1 flex-col items-center gap-1">
                   <div className="flex h-3.5 items-end gap-0.5">
                     {[4, 7, 11, 14].map((h, i) => (
                       <div
@@ -300,7 +307,7 @@ export function ClipCard({
                       />
                     ))}
                   </div>
-                  <span className="text-center text-[7px] text-muted">{label}</span>
+                  <span className="text-center text-[7px] text-muted">{t(`signal.${key}`)}</span>
                 </div>
               ))}
             </div>
@@ -314,7 +321,7 @@ export function ClipCard({
         {pending ? (
           <div className="mt-4 flex items-center justify-center gap-1.5 rounded-sm border border-line bg-surface-2 px-3 py-2 text-sm font-semibold text-muted">
             <Loader2 className="size-4 animate-spin" />
-            Rendering…
+            {t("rendering")}
           </div>
         ) : (
           <div className="mt-4 flex gap-2">
@@ -331,7 +338,7 @@ export function ClipCard({
               className="inline-flex items-center justify-center gap-1.5 rounded-sm border border-line bg-surface-2 px-3 py-2 text-sm font-semibold text-ink transition duration-200 ease-snappy hover:-translate-y-px hover:border-line-strong hover:bg-surface-3"
             >
               <Pencil className="size-4" />
-              Edit
+              {t("edit")}
             </Link>
           </div>
         )}

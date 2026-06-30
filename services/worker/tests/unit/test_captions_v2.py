@@ -334,7 +334,7 @@ def test_ass_bold_flag_single_weight_fonts():
         "Play",
         "Oswald Heavy",
         "Oswald",
-        "Inter",
+        "Golos Text Black",
         "Nunito Black",
     }
     for f in expected:
@@ -376,7 +376,7 @@ def test_look_match_map_covers_all_seven_display_slots():
         "Russo One": "Play",
         "Anton": "Oswald Heavy",
         "Bebas Neue": "Oswald",
-        "Archivo Black": "Inter",
+        "Archivo Black": "Golos Text Black",
         "Luckiest Guy": "Nunito Black",
         "Poppins": "Rubik",
     }

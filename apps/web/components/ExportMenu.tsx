@@ -1,6 +1,7 @@
 "use client";
 
 import { Captions, ChevronDown, Download, FileText, Film, Loader2 } from "lucide-react";
+import { useTranslations } from "next-intl";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { captionedDownloadUrl, clipCleanExportUrl, clipSrtUrl } from "@/lib/api";
 
@@ -62,6 +63,7 @@ export function ExportMenu({
   placement?: "up" | "down";
   className?: string;
 }) {
+  const t = useTranslations("exportMenu");
   const [open, setOpen] = useState(false);
   // Which item is currently being prepared/downloaded (its key), or null. Disables clicks + spins.
   const [busy, setBusy] = useState<string | null>(null);
@@ -132,7 +134,7 @@ export function ExportMenu({
         className="inline-flex w-full items-center justify-center gap-1.5 rounded-sm border border-line bg-surface-2 px-3 py-2 text-sm font-semibold text-ink transition duration-200 ease-snappy hover:-translate-y-px hover:border-line-strong hover:bg-surface-3"
       >
         <Download className="size-4" />
-        Download
+        {t("download")}
         <ChevronDown className={`size-3.5 transition ${open ? "rotate-180" : ""}`} />
       </button>
       {open && (
@@ -144,28 +146,28 @@ export function ExportMenu({
         >
           <ExportItem
             icon={<Captions className="size-4" />}
-            title="With captions (MP4)"
-            sub={captionedInstant ? "Rendered clip" : "Burns current edits · ~a few sec"}
+            title={t("captioned.title")}
+            sub={captionedInstant ? t("captioned.subRendered") : t("captioned.subRender")}
             busy={busy === "captioned"}
-            busyLabel="Preparing your clip…"
+            busyLabel={t("preparingClip")}
             disabled={!!busy && busy !== "captioned"}
             onPick={() => pick("captioned", captionedUrl, `${clipId}-captioned.mp4`, captionedInstant)}
           />
           <ExportItem
             icon={<Film className="size-4" />}
-            title="No captions (MP4)"
-            sub={cleanInstant ? "Clean vertical" : "Clean vertical · ~a few sec"}
+            title={t("clean.title")}
+            sub={cleanInstant ? t("clean.subInstant") : t("clean.subRender")}
             busy={busy === "clean"}
-            busyLabel="Preparing your clip…"
+            busyLabel={t("preparingClip")}
             disabled={!!busy && busy !== "clean"}
             onPick={() => pick("clean", cleanUrl, `${clipId}-clean.mp4`, cleanInstant)}
           />
           <ExportItem
             icon={<FileText className="size-4" />}
-            title="Captions (.SRT)"
-            sub="For CapCut / Premiere / Resolve"
+            title={t("srt.title")}
+            sub={t("srt.sub")}
             busy={busy === "srt"}
-            busyLabel="Preparing…"
+            busyLabel={t("preparing")}
             disabled={!!busy && busy !== "srt"}
             onPick={() => pick("srt", srtUrl, `${clipId}.srt`, false)}
           />
@@ -188,7 +190,8 @@ function ExportItem({
   title: string;
   sub: string;
   busy?: boolean;
-  busyLabel?: string;
+  /** Required: the localized "preparing" copy shown while this item renders on demand. */
+  busyLabel: string;
   disabled?: boolean;
   onPick: () => void;
 }) {
@@ -208,7 +211,7 @@ function ExportItem({
       </span>
       <span className="flex flex-col">
         <span className="text-sm font-semibold text-ink">{title}</span>
-        <span className="text-xs text-muted">{busy ? (busyLabel ?? "Preparing…") : sub}</span>
+        <span className="text-xs text-muted">{busy ? busyLabel : sub}</span>
       </span>
     </button>
   );

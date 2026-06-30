@@ -42,7 +42,7 @@ EXPECTED_FAMILY_TO_FILE = {
     "Play": "Play.ttf",  # Russo One look-match
     "Oswald Heavy": "OswaldHeavy.ttf",  # Anton look-match
     "Oswald": "Oswald.ttf",  # Bebas Neue look-match
-    "Inter": "Inter.ttf",  # Archivo Black look-match
+    "Golos Text Black": "GolosTextBlack.ttf",  # Archivo Black look-match (heavy Cyrillic grotesque)
     "Nunito Black": "NunitoBlack.ttf",  # Luckiest Guy look-match
 }
 

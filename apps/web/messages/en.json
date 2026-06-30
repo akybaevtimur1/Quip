@@ -147,6 +147,13 @@
       "found": "{value} found"
     }
   },
+  "reconnect": {
+    "eyebrow": "Connection lost",
+    "title": "Check your internet",
+    "body": "Your video keeps processing on our servers — we'll reconnect automatically as soon as you're back online.",
+    "retry": "Try now",
+    "autoRetry": "Reconnecting…"
+  },
   "sourceForm": {
     "notVideo": "Please choose a video file",
     "tooLarge": "File is larger than {label}. Trim it or split into parts.",
@@ -200,5 +207,54 @@
     "selectedOf": "<sel>{selected}</sel> of <total>{ready}</total> selected",
     "deselectAll": "Deselect all",
     "selectAll": "Select all"
+  },
+  "landingDemo": {
+    "clipLabel": "Clip {id} · {timecode}",
+    "clipAria": "Quip clip: {hook}",
+    "clipAlt": "Quip vertical clip, captioned: {caption}"
+  },
+  "heroReadout": {
+    "status": "Cutting clips · 3 of 23 ready",
+    "avg": "Avg 88/100",
+    "confidence": "Confidence"
+  },
+  "confidence": {
+    "sr": "Confidence {value} out of 100"
+  },
+  "clipCard": {
+    "select": "Select",
+    "deselect": "Deselect",
+    "keyMoment": "Key moment",
+    "staleBanner": "Clip moved · AI analysis may be outdated",
+    "refresh": "Refresh",
+    "whyThisClip": "Why this clip",
+    "qualitySignals": "Quality signals",
+    "rendering": "Rendering…",
+    "edit": "Edit",
+    "signal": {
+      "hook": "Hook",
+      "standalone": "Standalone",
+      "energy": "Energy",
+      "speaker": "Speaker"
+    }
+  },
+  "exportMenu": {
+    "download": "Download",
+    "preparingClip": "Preparing your clip…",
+    "preparing": "Preparing…",
+    "captioned": {
+      "title": "With captions (MP4)",
+      "subRendered": "Rendered clip",
+      "subRender": "Burns current edits · ~a few sec"
+    },
+    "clean": {
+      "title": "No captions (MP4)",
+      "subInstant": "Clean vertical",
+      "subRender": "Clean vertical · ~a few sec"
+    },
+    "srt": {
+      "title": "Captions (.SRT)",
+      "sub": "For CapCut / Premiere / Resolve"
+    }
   }
 }

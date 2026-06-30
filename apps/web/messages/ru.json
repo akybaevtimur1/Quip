@@ -147,6 +147,13 @@
       "found": "{value} найдено"
     }
   },
+  "reconnect": {
+    "eyebrow": "Связь потеряна",
+    "title": "Проверьте интернет",
+    "body": "Ваше видео продолжает обрабатываться на наших серверах — мы переподключимся автоматически, как только связь восстановится.",
+    "retry": "Попробовать снова",
+    "autoRetry": "Переподключаемся…"
+  },
   "sourceForm": {
     "notVideo": "Выберите видеофайл",
     "tooLarge": "Файл больше {label}. Обрежьте его или разбейте на части.",
@@ -200,5 +207,54 @@
     "selectedOf": "<sel>{selected}</sel> из <total>{ready}</total> выбрано",
     "deselectAll": "Снять выделение",
     "selectAll": "Выбрать все"
+  },
+  "landingDemo": {
+    "clipLabel": "Клип {id} · {timecode}",
+    "clipAria": "Клип Quip: {hook}",
+    "clipAlt": "Вертикальный клип Quip с субтитрами: {caption}"
+  },
+  "heroReadout": {
+    "status": "Нарезаю клипы · 3 из 23 готово",
+    "avg": "Ср. 88/100",
+    "confidence": "Уверенность"
+  },
+  "confidence": {
+    "sr": "Уверенность {value} из 100"
+  },
+  "clipCard": {
+    "select": "Выбрать",
+    "deselect": "Снять выбор",
+    "keyMoment": "Ключевой момент",
+    "staleBanner": "Клип сдвинут · анализ ИИ может быть неактуален",
+    "refresh": "Обновить",
+    "whyThisClip": "Почему этот клип",
+    "qualitySignals": "Сигналы качества",
+    "rendering": "Рендеринг…",
+    "edit": "Редактировать",
+    "signal": {
+      "hook": "Хук",
+      "standalone": "Цельность",
+      "energy": "Энергия",
+      "speaker": "Спикер"
+    }
+  },
+  "exportMenu": {
+    "download": "Скачать",
+    "preparingClip": "Готовим ваш клип…",
+    "preparing": "Готовим…",
+    "captioned": {
+      "title": "С субтитрами (MP4)",
+      "subRendered": "Готовый клип",
+      "subRender": "Вшивает текущие правки · ~пара секунд"
+    },
+    "clean": {
+      "title": "Без субтитров (MP4)",
+      "subInstant": "Чистая вертикаль",
+      "subRender": "Чистая вертикаль · ~пара секунд"
+    },
+    "srt": {
+      "title": "Субтитры (.SRT)",
+      "sub": "Для CapCut / Premiere / Resolve"
+    }
   }
 }

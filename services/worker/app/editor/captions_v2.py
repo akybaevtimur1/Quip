@@ -52,7 +52,7 @@ SINGLE_WEIGHT_FONTS = frozenset(
         "Play",
         "Oswald Heavy",
         "Oswald",
-        "Inter",
+        "Golos Text Black",
         "Nunito Black",
     }
 )
@@ -105,7 +105,7 @@ _CYRILLIC_FALLBACK_FONT = "Montserrat"
 #   Russo One     (пресет «u» Gamer Tech: квадратный техно)          → Play
 #   Anton         (пресет «n»: высокий узкий жирный)                 → Oswald Heavy
 #   Bebas Neue    (пресет «q»: высокий узкий капс)                   → Oswald
-#   Archivo Black (пресет «o»: гротеск-блэк)                         → Inter
+#   Archivo Black (пресет «o»: гротеск-блэк)                         → Golos Text Black
 #   Luckiest Guy  (пресет «t» Sticker Round: комикс-круглый)         → Nunito Black
 #   Poppins       (пресет «p» Bold Pop White: геометрический болд)   → Rubik
 LOOK_MATCH_FOR_CYRILLIC = {
@@ -113,7 +113,7 @@ LOOK_MATCH_FOR_CYRILLIC = {
     "Russo One": "Play",
     "Anton": "Oswald Heavy",
     "Bebas Neue": "Oswald",
-    "Archivo Black": "Inter",
+    "Archivo Black": "Golos Text Black",
     "Luckiest Guy": "Nunito Black",
     "Poppins": "Rubik",
 }
