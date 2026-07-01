@@ -51,12 +51,14 @@ export function Nav({ authed = false }: { authed?: boolean }) {
 
         <div className="flex items-center gap-3">
           <LocaleSwitcher className="hidden sm:inline-flex" />
-          <a
-            href={authed ? ROUTES.app : ROUTES.login}
-            className="hidden text-[14px] text-muted transition-colors duration-150 hover:text-ink sm:inline"
-          >
-            {authed ? nav.dashboard : nav.signIn}
-          </a>
+          {!authed && (
+            <a
+              href={ROUTES.login}
+              className="hidden text-[14px] text-muted transition-colors duration-150 hover:text-ink sm:inline"
+            >
+              {nav.signIn}
+            </a>
+          )}
           <PrimaryCTA href={authed ? ROUTES.app : ROUTES.signup} arrow={false} className="h-9 px-4 text-[14px]">
             {authed ? openApp : nav.tryFree}
           </PrimaryCTA>
@@ -92,13 +94,15 @@ export function Nav({ authed = false }: { authed?: boolean }) {
                   {item.label}
                 </a>
               ))}
-              <a
-                href={authed ? ROUTES.app : ROUTES.login}
-                onClick={() => setOpen(false)}
-                className="border-t border-line py-2.5 pt-3.5 text-[15px] text-muted transition-colors hover:text-ink"
-              >
-                {authed ? nav.dashboard : nav.signIn}
-              </a>
+              {!authed && (
+                <a
+                  href={ROUTES.login}
+                  onClick={() => setOpen(false)}
+                  className="border-t border-line py-2.5 pt-3.5 text-[15px] text-muted transition-colors hover:text-ink"
+                >
+                  {nav.signIn}
+                </a>
+              )}
               <div className="flex items-center gap-3 border-t border-line pt-3.5">
                 <span className="text-[15px] text-muted">Язык / Language</span>
                 <LocaleSwitcher />

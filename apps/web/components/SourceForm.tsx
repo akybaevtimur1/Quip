@@ -234,85 +234,89 @@ export function SourceForm({
         </div>
       ) : null}
 
-      <div className="mt-5">
-        <Eyebrow tone="faint">{t("clipCount")}</Eyebrow>
-        <div className="mt-2 flex flex-wrap items-center gap-3">
-          {/* Auto («сколько найдётся, до 30») vs Custom (ровно N). */}
-          <div className="inline-flex rounded-md border border-line bg-surface p-0.5">
-            {([true, false] as const).map((isAuto) => (
-              <button
-                key={String(isAuto)}
-                type="button"
-                onClick={() => setAuto(isAuto)}
-                disabled={busy}
-                aria-pressed={auto === isAuto}
-                className={cn(
-                  "rounded-sm px-3.5 py-1.5 text-sm font-medium transition disabled:opacity-50",
-                  auto === isAuto
-                    ? "bg-surface-3 text-ink shadow-[0_0_0_1px_var(--color-line-strong)]"
-                    : "text-muted hover:text-ink",
-                )}
-              >
-                {isAuto ? t("auto") : t("custom")}
-              </button>
-            ))}
-          </div>
-          {!auto && (
-            <div className="inline-flex items-center gap-1 rounded-md border border-line bg-surface p-1">
-              <IconButton
-                onClick={() => setCount((c) => clamp(c - 1))}
-                disabled={busy || count <= MIN_CLIPS}
-                aria-label={t("fewerClips")}
-                size="sm"
-                className="size-9 text-ink hover:text-ink sm:size-7"
-              >
-                <Minus className="size-4" />
-              </IconButton>
-              <Numeral className="w-7 text-center text-base font-semibold text-ink">{count}</Numeral>
-              <IconButton
-                onClick={() => setCount((c) => clamp(c + 1))}
-                disabled={busy || count >= MAX_CLIPS}
-                aria-label={t("moreClips")}
-                size="sm"
-                className="size-9 text-ink hover:text-ink sm:size-7"
-              >
-                <Plus className="size-4" />
-              </IconButton>
+      {/* Both settings are compact, same weight — one grouped row (not two full-width stacked
+          sections) reads as one settings cluster instead of a longer scanning list. */}
+      <div className="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2">
+        <div>
+          <Eyebrow tone="faint">{t("clipCount")}</Eyebrow>
+          <div className="mt-2 flex flex-wrap items-center gap-3">
+            {/* Auto («сколько найдётся, до 30») vs Custom (ровно N). */}
+            <div className="inline-flex rounded-md border border-line bg-surface p-0.5">
+              {([true, false] as const).map((isAuto) => (
+                <button
+                  key={String(isAuto)}
+                  type="button"
+                  onClick={() => setAuto(isAuto)}
+                  disabled={busy}
+                  aria-pressed={auto === isAuto}
+                  className={cn(
+                    "rounded-sm px-3.5 py-1.5 text-sm font-medium transition disabled:opacity-50",
+                    auto === isAuto
+                      ? "bg-surface-3 text-ink shadow-[0_0_0_1px_var(--color-line-strong)]"
+                      : "text-muted hover:text-ink",
+                  )}
+                >
+                  {isAuto ? t("auto") : t("custom")}
+                </button>
+              ))}
             </div>
-          )}
-          <span className="font-mono text-eyebrow uppercase tabular-nums text-faint">
-            {auto ? t("autoHint", { max: MAX_CLIPS }) : t("customHint", { count })}
-          </span>
-        </div>
-      </div>
-
-      <div className="mt-5">
-        <Eyebrow tone="faint">{t("language")}</Eyebrow>
-        <div className="mt-2 flex items-center gap-3">
-          <button
-            type="button"
-            role="switch"
-            aria-checked={kazakh}
-            onClick={() => setKazakh((k) => !k)}
-            disabled={busy}
-            aria-label={t("kazakhAria")}
-            className={cn(
-              "relative inline-flex h-5 w-9 shrink-0 rounded-full transition-colors duration-200 ease-snappy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
-              kazakh ? "bg-accent" : "bg-surface-3",
-              busy && "opacity-50",
+            {!auto && (
+              <div className="inline-flex items-center gap-1 rounded-md border border-line bg-surface p-1">
+                <IconButton
+                  onClick={() => setCount((c) => clamp(c - 1))}
+                  disabled={busy || count <= MIN_CLIPS}
+                  aria-label={t("fewerClips")}
+                  size="sm"
+                  className="size-9 text-ink hover:text-ink sm:size-7"
+                >
+                  <Minus className="size-4" />
+                </IconButton>
+                <Numeral className="w-7 text-center text-base font-semibold text-ink">{count}</Numeral>
+                <IconButton
+                  onClick={() => setCount((c) => clamp(c + 1))}
+                  disabled={busy || count >= MAX_CLIPS}
+                  aria-label={t("moreClips")}
+                  size="sm"
+                  className="size-9 text-ink hover:text-ink sm:size-7"
+                >
+                  <Plus className="size-4" />
+                </IconButton>
+              </div>
             )}
-          >
-            <span
+            <span className="font-mono text-eyebrow uppercase tabular-nums text-faint">
+              {auto ? t("autoHint", { max: MAX_CLIPS }) : t("customHint", { count })}
+            </span>
+          </div>
+        </div>
+
+        <div>
+          <Eyebrow tone="faint">{t("language")}</Eyebrow>
+          <div className="mt-2 flex items-center gap-3">
+            <button
+              type="button"
+              role="switch"
+              aria-checked={kazakh}
+              onClick={() => setKazakh((k) => !k)}
+              disabled={busy}
+              aria-label={t("kazakhAria")}
               className={cn(
-                "inline-block size-5 rounded-full bg-white shadow-sm transition-transform duration-200 ease-snappy",
-                kazakh ? "translate-x-4" : "translate-x-0",
+                "relative inline-flex h-5 w-9 shrink-0 rounded-full transition-colors duration-200 ease-snappy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+                kazakh ? "bg-accent" : "bg-surface-3",
+                busy && "opacity-50",
               )}
-            />
-          </button>
-          <span className="text-sm text-ink">{t("kazakh")}</span>
-          <span className="font-mono text-eyebrow uppercase tabular-nums text-faint">
-            {kazakh ? t("kazakhOn") : t("kazakhOff")}
-          </span>
+            >
+              <span
+                className={cn(
+                  "inline-block size-5 rounded-full bg-white shadow-sm transition-transform duration-200 ease-snappy",
+                  kazakh ? "translate-x-4" : "translate-x-0",
+                )}
+              />
+            </button>
+            <span className="text-sm text-ink">{t("kazakh")}</span>
+            <span className="font-mono text-eyebrow uppercase tabular-nums text-faint">
+              {kazakh ? t("kazakhOn") : t("kazakhOff")}
+            </span>
+          </div>
         </div>
       </div>
 

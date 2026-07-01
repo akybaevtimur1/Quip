@@ -100,7 +100,6 @@
     "minutesLeft": "Minutes left",
     "min": "min",
     "purchased": "Purchased · never expires",
-    "resetNote": "Resets monthly · 1 video = 60 min",
     "upgrade": "Upgrade limits →",
     "opening": "Opening…"
   },
@@ -182,7 +181,7 @@
     "kazakhOff": "auto-detect",
     "starting": "Starting…",
     "makeClips": "Make clips",
-    "creditNote": "Length must fit your remaining minutes. 1 credit = 60 minutes."
+    "creditNote": "Length must fit your remaining minutes — a short video uses only its length; 1 video ≈ 60 min."
   },
   "clipGrid": {
     "preparingBatch": "Preparing {done} of {total}…",

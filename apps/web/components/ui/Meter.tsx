@@ -10,7 +10,13 @@ const fillClass: Record<MeterTone, string> = {
   warn: "bg-warn",
   bad: "bg-bad",
   ok: "bg-ok",
-  neutral: "bg-line-strong",
+  // Was bg-line-strong (14%-opacity near-white) over a bg-surface-3 track: composited color
+  // came out to ~rgb(65,60,53), a hair lighter than the track itself — a fill at ANY
+  // percentage (0%, 50%, 100%) was visually indistinguishable, so the bar always read as
+  // "empty" regardless of value. bg-muted fixed the contrast but at ~100% there's no empty
+  // segment left to compare against, so a medium gray still didn't read as "lit". bg-ink
+  // (the same near-white as the hero numeral above it) is unambiguous: full reads as full.
+  neutral: "bg-ink",
 };
 
 export function Meter({
